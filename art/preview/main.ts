@@ -2,6 +2,7 @@
 // the Phaser 4 adapter exactly as the game will use it.
 // URL options: ?state=stable|perfect|risky|tip|miss (else cycles) &climb=<blocks> &zoom=<n>
 // &sp=<sky position> &tension=<0..1> &gallery=1 (every shape, rotation and look).
+// Options also work after a # (e.g. #gallery), for hosts that drop the query string.
 
 import * as Phaser from 'phaser';
 import {
@@ -9,7 +10,7 @@ import {
   type Expression, type GuideShow, type SceneLike,
 } from '../src/index.ts';
 
-const qs = new URLSearchParams(location.search);
+const qs = new URLSearchParams(location.search || location.hash.slice(1));
 const num = (k: string, d: number) => (qs.has(k) ? Number(qs.get(k)) : d);
 
 interface Placed { view: BlocklingView; key: string; q: number; c: number; r: number; angle?: number; stone?: number; dx?: number }
@@ -34,7 +35,7 @@ class Preview extends Phaser.Scene {
     const scene: SceneLike = this; // The adapter's structural types must accept a real Phaser scene.
     this.cell = W / 12;
     this.tex = new ArtTextures(scene, { cellPx: this.cell });
-    if (qs.get('gallery')) { this.gallery(W); return; }
+    if (qs.has('gallery')) { this.gallery(W); return; }
 
     this.cameras.main.setZoom(num('zoom', 1));
     this.backdrop = new Backdrop(scene, { width: W, height: H });
@@ -86,7 +87,7 @@ class Preview extends Phaser.Scene {
   }
 
   update(time: number, deltaMs: number): void {
-    if (qs.get('gallery')) return;
+    if (qs.has('gallery')) return;
     const dt = Math.min(0.05, deltaMs / 1000), t = (time - this.time0) / 1000;
     const cell = this.cell, cam = this.cameras.main;
     cam.scrollY = -num('climb', 0) * cell;
