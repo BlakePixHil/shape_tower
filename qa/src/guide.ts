@@ -1,7 +1,7 @@
 // Landing-guide sweep (qa-section.md §5): drop every shape, rotation and position onto each base
 // tower and compare what the guide promised with what actually happened.
 import type { CreateSim, Ghost, PieceLandedEvent, Sim, SimEvent } from './contract';
-import { INSET, angleDiff, rng, stepUntilQuiet } from './measure';
+import { INSET, MAX_UPWARD_SPEED, angleDiff, rng, stepUntilQuiet } from './measure';
 import { normRot, rotatedSize, worldRects } from './shapes';
 import type { TowerDef } from './towers';
 
@@ -51,6 +51,8 @@ export interface GuideResult extends GuideCase {
   dotError: number | null;
   /** G10 calibration: what happened to the dropped shape in the 2 s after touchdown. */
   tipped: boolean | null;
+  /** F3.3: fastest upward speed of any piece in the steps after touchdown, blocks/s. */
+  maxUpAfter: number | null;
   /** Problems found, empty when every check passed. */
   failures: string[];
 }
@@ -62,6 +64,8 @@ export interface SweepOptions {
   bases: TowerDef[];
   shapes: string[];
   modes?: DropMode[];
+  /** Quarter turns to drop at (default all four). */
+  rots?: number[];
   /** Horizontal step in blocks (half-block snap). */
   xStep?: number;
   /** Fraction of cases to run, chosen with a seeded draw (the fast set uses 0.05). */
@@ -72,13 +76,13 @@ export interface SweepOptions {
   onCase?: (r: GuideResult) => void;
 }
 
-export function enumerateCases(o: Pick<SweepOptions, 'bases' | 'shapes' | 'modes' | 'xStep' | 'sample' | 'seed'>): GuideCase[] {
+export function enumerateCases(o: Pick<SweepOptions, 'bases' | 'shapes' | 'modes' | 'rots' | 'xStep' | 'sample' | 'seed'>): GuideCase[] {
   const step = o.xStep ?? 0.5;
   const modes = o.modes ?? ['fall', 'hard'];
   const all: GuideCase[] = [];
   for (const base of o.bases) {
     for (const shape of o.shapes) {
-      for (let rot = 0; rot < 4; rot++) {
+      for (const rot of o.rots ?? [0, 1, 2, 3]) {
         const { w } = rotatedSize(shape, rot);
         const lim = PLAY_HALF_WIDTH - w / 2;
         for (let x = -lim; x <= lim + 1e-9; x += step) {
@@ -196,6 +200,7 @@ export function runCase(sim: Sim, c: GuideCase, afterSteps: number): GuideResult
   let supportOk: boolean | null = null;
   let dotError: number | null = null;
   let tipped: boolean | null = null;
+  let maxUpAfter: number | null = null;
 
   // G8: "will miss" both ways.
   const missOk = (g0 === null) === (outcome !== 'landed');
@@ -227,9 +232,11 @@ export function runCase(sim: Sim, c: GuideCase, afterSteps: number): GuideResult
     const body = () => sim.pieces().find((p) => p.id === bodyId);
     const start = body();
     let gone = false;
+    maxUpAfter = 0;
     for (let i = 0; i < afterSteps; i++) {
       sim.step();
       if (sim.drainEvents().some((e) => e.type === 'piece_lost' && e.id === bodyId)) gone = true;
+      for (const q of sim.pieces()) if (q.vy > maxUpAfter) maxUpAfter = q.vy;
     }
     // Tipped = turned over (more than 15°), slid or fell off (more than 0.5 blocks), or was Lost.
     const p = body();
@@ -250,6 +257,7 @@ export function runCase(sim: Sim, c: GuideCase, afterSteps: number): GuideResult
     missOk,
     dotError,
     tipped,
+    maxUpAfter,
     failures,
   };
 }
@@ -271,6 +279,8 @@ export interface SweepSummary {
   g11Worst: number | null;
   /** G10 calibration from single drops: how often each tint's shape then tipped. */
   tint: Record<string, { shown: number; tipped: number }>;
+  /** F3.3: drops after which some piece moved upward faster than MAX_UPWARD_SPEED. */
+  flung: GuideResult[];
   failures: GuideResult[];
   ms: number;
 }
@@ -324,6 +334,7 @@ export function summarise(results: GuideResult[], ms: number): SweepSummary {
     g8Failures: results.filter((r) => !r.missOk).length,
     g11Worst: dots.length ? Math.max(...dots) : null,
     tint,
+    flung: results.filter((r) => r.maxUpAfter !== null && r.maxUpAfter > MAX_UPWARD_SPEED),
     failures: results.filter((r) => r.failures.length > 0),
     ms,
   };

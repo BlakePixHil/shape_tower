@@ -10,16 +10,9 @@ export interface KnownIssue {
   since: string;
 }
 
-export const KNOWN_ISSUES: Record<string, KnownIssue> = {
-  'F3.2': {
-    id: 'QA-001',
-    sims: ['game/box2d'],
-    summary:
-      'A Domino falling a full stretch (16 blocks, about 24 blocks/s) onto a loose piece sinks about 0.28 blocks into it and takes 14 to 16 steps to push back out. Box2D only runs continuous collision against static bodies unless a body is a bullet.',
-    owner: 'Gameplay',
-    since: '2026-10-20',
-  },
-};
+// Fixed and removed: QA-001 (F3.2, thin pieces sinking into loose pieces) and QA-002 (F3.3 bonds,
+// upside-down shapes flung when bonded), both on game/wobble-lab 9da5533 (2026-10-20).
+export const KNOWN_ISSUES: Record<string, KnownIssue> = {};
 
 export function knownIssue(check: string, sim: { kind: string; engine: string }): KnownIssue | undefined {
   const k = KNOWN_ISSUES[check];

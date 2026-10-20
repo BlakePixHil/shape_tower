@@ -3,8 +3,11 @@
 import type { PlacePieceOptions } from './contract';
 
 export type Outcome = 'stands' | 'falls';
-/** 'calibration' means the outcome may vary and is only used to tune the tint. */
-export type Expectation = Outcome | 'calibration';
+/**
+ * 'calibration' means the outcome may vary and is only used to tune the tint.
+ * 'holds' means it may lean (a push bends the bonds) but must not fall: 'stands' or 'moved'.
+ */
+export type Expectation = Outcome | 'holds' | 'calibration';
 
 export interface TowerDef {
   id: string;
@@ -48,10 +51,19 @@ export const CANONICAL: TowerDef[] = [
     id: 'T4w',
     title: 'Four vertical I pieces stacked in a 0.12 g push',
     pieces: [2, 6, 10, 14].map((y) => d('I', 0, y, 1)),
-    // Gameplay expects Mortar to give way in a 0.12 g gust. Under the lab's steady push the bonded
-    // column leans about 0.3 blocks and holds (2026-10-20), so this waits on Gameplay's call.
-    expect: { mortarOff: 'falls', mortarOn: 'calibration' },
+    // gameplay.md §3.4: Mortar gives way in a 0.12 g gust. The lab's steady push stands in for a
+    // gust; Gameplay judged it fair, since it is harsher than a 2 to 3 s gust (2026-10-20).
+    expect: { mortarOff: 'falls', mortarOn: 'falls' },
     windG: 0.12,
+  },
+  {
+    id: 'T4g',
+    title: 'Four vertical I pieces stacked in a 0.08 g push',
+    pieces: [2, 6, 10, 14].map((y) => d('I', 0, y, 1)),
+    // §3.4: the bonded needle stands in a 0.08 g gust, leaning as the bonds bend. Without Mortar
+    // the doc sets no outcome.
+    expect: { mortarOff: 'calibration', mortarOn: 'holds' },
+    windG: 0.08,
   },
   { id: 'T5', title: 'Horizontal I centred on a single O', pieces: [d('O', 0, 1), d('I', 0, 2.5)], expect: { mortarOff: 'stands', mortarOn: 'stands' }, guideBase: true },
   { id: 'T6', title: 'Horizontal I on the very end of an O (COM 1.5 past support)', pieces: [d('O', 0, 1), d('I', 2.5, 2.5)], expect: { mortarOff: 'falls', mortarOn: 'falls' } },

@@ -8,12 +8,15 @@ import { firstDivergence, makeScript, playScript } from '../src/replay';
 import { knownIssue } from '../src/known-issues';
 import { fmt, writeReport } from '../src/report';
 import { rotatedSize } from '../src/shapes';
-import { CANONICAL } from '../src/towers';
+import { CANONICAL, GUIDE_BASES } from '../src/towers';
+import { CORE_SHAPES, RECT_SHAPES } from '../src/shapes';
+import { supportedShapes, sweep } from '../src/guide';
 
 const sut = await loadSim();
 const isGame = sut.kind === 'game';
 const SEEDS = FULL ? 100 : 3;
 const tunnelBug = knownIssue('F3.2', sut);
+const bondBug = knownIssue('F3.3 bonds', sut);
 
 describe(`physics on ${sut.kind} (${sut.engine})`, () => {
   it('F3.4 canonical towers give their expected outcome on every seed (F3.3 no explosions)', async () => {
@@ -107,10 +110,29 @@ describe(`physics on ${sut.kind} (${sut.engine})`, () => {
       sim.dispose();
     }
     const verdict = !isGame ? 'info' : problems.length ? 'fail' : 'pass';
-    if (tunnelBug) problems.unshift(`Known bug ${tunnelBug.id} (${tunnelBug.owner}, since ${tunnelBug.since}): ${tunnelBug.summary}`);
-    writeReport({ suite: 'tunnelling', sim: sut, full: FULL }, verdict, [`${drops} drops from y = 18 (16 blocks above a resting O, about 24 blocks/s at impact), half onto a resting O`, `worst overlap ${fmt(worstOverlap)} blocks`, ...problems], { problems });
+    const known = tunnelBug ? [`Known bug ${tunnelBug.id} (${tunnelBug.owner}, since ${tunnelBug.since}): ${tunnelBug.summary}`] : [];
+    writeReport({ suite: 'tunnelling', sim: sut, full: FULL }, verdict, [...known, `${drops} drops from y = 18 (16 blocks above a resting O, about 24 blocks/s at impact), half onto a resting O`, `worst overlap ${fmt(worstOverlap)} blocks`, ...problems], { problems });
     // The reference sim is only a stand-in, so its result is information; the game must pass.
     if (isGame) expect(problems).toEqual([]);
+  });
+
+  // A shape at rot 2 sits at angle ±π, where a bond that doesn't unwind its angle sees a full turn of error.
+  (bondBug ? it.fails : it)(`F3.3 no explosions: upside-down shapes landing on a stack stay put once Mortar bonds them${bondBug ? ` (known bug ${bondBug.id})` : ''}`, async () => {
+    const tuning = sandboxTuning(sut, mortarTuning(sut, true));
+    const shapes = await supportedShapes(sut.createSim, FULL ? RECT_SHAPES : CORE_SHAPES, { engine: sut.engine, tuning });
+    const bases = FULL ? GUIDE_BASES : GUIDE_BASES.filter((b) => b.id === 'T1');
+    // 120 steps after touchdown covers the bond delay (0.5 s) and the shape being flung.
+    const { results } = await sweep({ createSim: sut.createSim, engine: sut.engine, bases, shapes, rots: [2], afterSteps: 120, tuning });
+    const landed = results.filter((r) => r.outcome === 'landed');
+    const flung = landed.filter((r) => r.maxUpAfter! > MAX_UPWARD_SPEED);
+    const lines = [
+      `${landed.length} upside-down drops landed on ${bases.map((b) => b.id).join(', ')} (${shapes.join(', ')}; natural fall and hard drop; Mortar on); ${flung.length} then sent a piece upward faster than ${MAX_UPWARD_SPEED} blocks/s`,
+      ...flung.slice(0, 20).map((r) => `FAIL ${r.base} ${r.shape} rot 2 x ${r.x} ${r.mode}: upward ${fmt(r.maxUpAfter!, 1)} blocks/s`),
+    ];
+    if (bondBug) lines.unshift(`Known bug ${bondBug.id} (${bondBug.owner}, since ${bondBug.since}): ${bondBug.summary}`);
+    writeReport({ suite: 'bonds', sim: sut, full: FULL }, flung.length ? 'fail' : 'pass', lines, { flung });
+    expect(landed.length).toBeGreaterThan(0);
+    expect(flung.map((r) => `${r.base} ${r.shape} x ${r.x} ${r.mode}`)).toEqual([]);
   });
 
   it('F3.6 determinism: the same script gives the same hashes twice in one process and in a second process', async () => {

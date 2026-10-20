@@ -174,7 +174,7 @@ export async function runTower(createSim: CreateSim, def: TowerDef, o: TowerRunO
     seed: o.seed,
     expected,
     outcome,
-    pass: expected === 'calibration' ? null : outcome === expected,
+    pass: expected === 'calibration' ? null : expected === 'holds' ? outcome !== 'falls' : outcome === expected,
     maxDispAfterSettle: maxDisp,
     maxDispTotal,
     maxRotDeg: maxRot,

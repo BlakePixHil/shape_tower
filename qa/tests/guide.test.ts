@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { FULL, loadSim, sandboxTuning } from '../src/adapters/index';
 import { g1Tolerance, sameStepUpdate, supportedShapes, sweep, type GuideResult } from '../src/guide';
+import { MAX_UPWARD_SPEED } from '../src/measure';
 import { fmt, pct, writeReport } from '../src/report';
 import { CORE_SHAPES, RECT_SHAPES } from '../src/shapes';
 import { GUIDE_BASES } from '../src/towers';
@@ -38,10 +39,11 @@ describe(`landing guide on ${sut.kind} (${sut.engine})`, () => {
           .filter(([k]) => k !== 'red')
           .map(([k, v]) => `${k} ${v.tipped}/${v.shown} tipped`)
           .join(', '),
+      `F3.3 after touchdown (judged in the physics suite): ${s.flung.length} drops sent a piece upward faster than ${MAX_UPWARD_SPEED} blocks/s${s.flung.length ? `, for example ${s.flung.slice(0, 4).map((f) => `${f.base} ${f.shape} rot ${f.rot} x ${f.x} ${f.mode} (${fmt(f.maxUpAfter!, 1)})`).join(', ')}` : ''}`,
       ...s.failures.slice(0, 20).map((f: GuideResult) => `FAIL ${f.base} ${f.shape} rot ${f.rot} x ${f.x} ${f.mode}: ${f.failures.join('; ')}`),
     ];
     const ok = s.g1Within >= 0.999 && s.g1Over3x === 0 && s.g2Failures + s.g3Failures + s.g4Failures + s.g6Failures + s.g8Failures + s.timeouts === 0;
-    writeReport({ suite: 'guide', sim: sut, full: FULL }, ok ? 'pass' : 'fail', lines, { summary: { ...s, failures: s.failures.length }, failures: s.failures, sample: results.slice(0, 50) });
+    writeReport({ suite: 'guide', sim: sut, full: FULL }, ok ? 'pass' : 'fail', lines, { summary: { ...s, failures: s.failures.length, flung: s.flung.length }, failures: s.failures, flung: s.flung, sample: results.slice(0, 50) });
     expect(s.g1Within, g1Line).toBeGreaterThanOrEqual(0.999);
     expect(s.g1Over3x, g1Line).toBe(0);
     expect(s.g2Failures + s.g3Failures + s.g4Failures + s.g6Failures + s.g8Failures, otherLine).toBe(0);

@@ -39,11 +39,16 @@ Each run writes a JSON and a Markdown report per suite to `qa/reports/` (not com
 | `tests/guide.test.ts` | G1 to G6, G8 and G11 |
 | `tests/physics.test.ts` | F3.1 to F3.7: towers, creep, tunnelling, explosions, sleeping, determinism |
 | `tests/harness.test.ts` | Proves the harness catches a lying guide, a falling tower and a nondeterministic sim |
+| `scripts/run-story.ts` | Replays a run record from a phone, checks its digests against Node, and prints each landing with the ghost the player saw, losses, hearts and bond breaks |
 
 ## Conventions
 
 Units are blocks, y is up, and the fixed step is 1/60 s. A piece's `(x, y)` is the centre of its bounding box, and `rot` is in quarter turns. The plinth is 8 blocks wide, centred on x = 0, with its top at y = 0.
 
 Physics and guide tests run in a sandbox: checkpoints are out of reach (a claim adds a slab mid-drop), and hearts and bricks never run out. Mortar towers are built one piece at a time, because bonds only form between pieces that have rested.
+
+Tower expectations are `stands`, `falls`, `holds` (may lean under a push but must not fall) or `calibration` (outcome only feeds the tint numbers).
+
+Phone run records come from the prototype's database (`runs` and `bench` collections). Replay one with the build it names: `QA_GAME_SIM=<checkout of record.build>/game/src/sim/testApi.ts npx tsx scripts/run-story.ts <record.json>`.
 
 A known bug is listed in `src/known-issues.ts` with an ID such as QA-001. Its test is marked as expected to fail, so it reports the bug without blocking other pushes. When the bug is fixed the test starts passing, vitest flags that, and the entry comes out.
