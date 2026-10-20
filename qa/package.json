@@ -1,0 +1,21 @@
+{
+  "name": "shape-tower-qa-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shape Tower QA suites: landing-guide accuracy, physics stability, determinism. QA runs these itself; there is no CI.",
+  "scripts": {
+    "setup": "npm install --prefix ../game && npm install --legacy-peer-deps",
+    "test": "vitest run",
+    "test:full": "QA_FULL=1 vitest run",
+    "test:reference": "QA_SIM=reference vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@dimforge/rapier2d-deterministic-compat": "0.21.0",
+    "@types/node": "22.20.5",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12"
+  }
+}
