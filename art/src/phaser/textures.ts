@@ -9,6 +9,7 @@ import { type GlyphState, bakeBeamFill, bakeChevron, bakeContactDot, bakeContact
 import { type Baked, type Finish, bakePiece, bakeRim, bakeSilhouette } from '../piece.ts';
 import { type Grade, bakeGradeStamp, bakePedestal, bakeSlab } from '../slab.ts';
 import { ctx2d, makeCanvas } from '../util.ts';
+import { VFX_NAMES, type VfxName, bakeVfx } from '../vfx.ts';
 import type { CanvasTextureLike, SceneLike } from './types.ts';
 
 /** A texture key, the frame inside it, and the pivot as fractions of the frame. */
@@ -72,7 +73,7 @@ export class ArtTextures {
   }
 
   /** Bake ahead of time (e.g. on a loading screen) so nothing bakes mid-run. */
-  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean } = {}): void {
+  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean } = {}): void {
     for (const key of keys) for (let q = 0; q < 4; q++) {
       for (const f of o.finishes ?? [null]) this.piece(key, q, { finish: f });
       if (o.stone ?? true) this.piece(key, q, { stone: true });
@@ -82,6 +83,7 @@ export class ArtTextures {
     }
     for (const ex of ['idle', 'falling', 'impact', 'proud', 'worried', 'panic', 'blink'] as Expression[]) { this.face(`eyes_${ex}`); this.face(`mouth_${ex}`); }
     for (const p of ['pupil', 'spiral', 'sweat'] as FacePart[]) this.face(p);
+    if (o.vfx ?? true) for (const v of VFX_NAMES) this.vfx(v);
     this.flush();
   }
 
@@ -156,6 +158,11 @@ export class ArtTextures {
   /** Soft glow band (its own texture, so stretching it never bleeds). Tint it. */
   glowBand(): TexRef { return this.single('st:glowband', () => bakeGlowBand()); }
   glint(): TexRef { return this.packed(this.name('glint'), () => bakeGlint(this.s)); }
+
+  // ---- effects ----
+
+  /** An effect texture for particles (see VFX for natural sizes in blocks). Origin: centre. */
+  vfx(name: VfxName): TexRef { return this.packed(this.name('vfx', name), () => bakeVfx(name, this.s)); }
 
   // ---- internals ----
 

@@ -3,13 +3,14 @@
 // URL options: ?state=stable|perfect|risky|tip|miss (else cycles) &climb=<blocks> &zoom=<n>
 // &sp=<sky position> &tension=<0..1> &gallery=1 (every shape, rotation and look).
 // &cp=near|hold|claim holds one checkpoint-line phase (else it cycles near, hold, claim).
+// &vfx=1 shows every effect texture, tinted, over a day and a night sky, with a looping claim burst.
 // &tour=1 climbs from the Meadow through Treetops into Cloudlands, playing each arrival.
 // &arrive=1 replays the current biome's arrival every 4 s (with &sp=1.2 or &sp=2.2).
 // Options also work after a # (e.g. #gallery), for hosts that drop the query string.
 
 import * as Phaser from 'phaser';
 import {
-  ART_SHAPES, ArtTextures, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker, SkyClock, pedestalHeight, pose, rimAmount,
+  ART_SHAPES, ArtTextures, BIOMES, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker, SkyClock, pedestalHeight, pose, rimAmount,
   type Expression, type GuideShow, type SceneLike,
 } from '../src/index.ts';
 
@@ -43,6 +44,7 @@ class Preview extends Phaser.Scene {
     this.cell = W / 12;
     this.tex = new ArtTextures(scene, { cellPx: this.cell });
     if (qs.has('gallery')) { this.gallery(W); return; }
+    if (qs.has('vfx')) { this.vfxSheet(W, H); return; }
 
     this.cameras.main.setZoom(num('zoom', 1));
     this.backdrop = new Backdrop(scene, { width: W, height: H });
@@ -94,8 +96,62 @@ class Preview extends Phaser.Scene {
     }
   }
 
+  private sparks: { img: Phaser.GameObjects.Image; vx: number; vy: number; spin: number; age: number; life: number; s0: number; s1: number }[] = [];
+  private burstAt = -10;
+
+  private vfxSheet(W: number, H: number): void {
+    const g = this.add.graphics();
+    g.fillStyle(0x6EC3FF, 1).fillRect(0, 0, W, H * 0.42);
+    g.fillStyle(0x0B1230, 1).fillRect(0, H * 0.42, W, H * 0.58);
+    const tint: Record<string, number> = {
+      puff: hexNum(BIOMES[0].dust), ring: hexNum(SIGNAL.gold), shockwave: hexNum(SIGNAL.gold), sparkle: hexNum(SIGNAL.gold),
+      stardust: hexNum(BIOMES[5].dust), chip: 0xB9B1A6, confetti: hexNum(ART_SHAPES.T.base), rays: hexNum('#FFE58F'), flash: 0xFFFFFF,
+    };
+    const names = VFX_NAMES, cols = 6, cell = W / cols;
+    for (const [half, y0] of [[0, 14], [1, H * 0.42 + 14]] as [number, number][]) {
+      names.forEach((n, i) => {
+        const r = this.tex.vfx(n), cx = (i % cols + 0.5) * cell, cy = y0 + Math.floor(i / cols) * cell * 1.05 + cell * 0.45;
+        const nat = (n in VFX ? VFX[n as keyof typeof VFX] : 0.4) * this.cell;
+        const fit = Math.min(1, (cell * 0.72) / Math.max(1, nat)) * this.tex.scale;
+        const img = this.add.image(cx, cy, r.key, r.frame).setScale(fit);
+        if (tint[n]) img.setTint(tint[n]);
+        if (half === 0) this.add.text(cx, cy + cell * 0.42, n, { fontFamily: 'sans-serif', fontSize: '10px', color: '#22183A' }).setOrigin(0.5, 0.5);
+      });
+    }
+  }
+
+  private vfxUpdate(t: number, dt: number): void {
+    const W = this.scale.width, H = this.scale.height, cx = W / 2, cy = H * 0.8, u = this.cell;
+    if (t - this.burstAt > 2.4) {
+      this.burstAt = t;
+      const add = (name: Parameters<ArtTextures['vfx']>[0], vx: number, vy: number, o: { tint?: number; life?: number; s0?: number; s1?: number; spin?: number } = {}) => {
+        const r = this.tex.vfx(name), img = this.add.image(cx, cy, r.key, r.frame).setTint(o.tint ?? 0xFFFFFF).setRotation(Math.random() * 6.28);
+        this.sparks.push({ img, vx, vy, spin: o.spin ?? 0, age: 0, life: o.life ?? 1.2, s0: o.s0 ?? 1, s1: o.s1 ?? 0.6 });
+      };
+      add('shockwave', 0, 0, { tint: hexNum(SIGNAL.gold), life: 0.5, s0: 0.3, s1: 2.2 });
+      add('rays', 0, 0, { tint: 0xFFE58F, life: 0.9, s0: 0.6, s1: 1.4, spin: 0.8 });
+      add('flash', 0, 0, { life: 0.25, s0: 1, s1: 2 });
+      const minis = ['mini_I', 'mini_O', 'mini_T', 'mini_L', 'mini_J', 'mini_S', 'mini_Z'] as const;
+      for (let i = 0; i < 36; i++) {
+        const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.4, v = u * (5 + Math.random() * 6);
+        add(i % 3 ? minis[i % 7] : 'confetti', Math.cos(a) * v, Math.sin(a) * v, { tint: i % 3 ? 0xFFFFFF : hexNum(ART_SHAPES[minis[i % 7].slice(5)].base), life: 1.6 + Math.random() * 0.6, spin: (Math.random() - 0.5) * 12, s1: 0.8 });
+      }
+      for (let i = 0; i < 8; i++) add('sparkle', (Math.random() - 0.5) * u * 6, -u * (2 + Math.random() * 4), { tint: hexNum(SIGNAL.gold), life: 0.8, s0: 1, s1: 0.2 });
+    }
+    for (const p of this.sparks) {
+      p.age += dt;
+      const f = p.age / p.life;
+      p.vy += u * 12 * dt * (p.vx || p.vy ? 1 : 0); p.vx *= Math.exp(-1.2 * dt); p.vy *= Math.exp(-1.2 * dt);
+      p.img.x += p.vx * dt; p.img.y += p.vy * dt; p.img.rotation += p.spin * dt;
+      p.img.setScale((p.s0 + (p.s1 - p.s0) * f) * this.tex.scale).setAlpha(f < 0.6 ? 1 : Math.max(0, 1 - (f - 0.6) / 0.4));
+      if (f >= 1) p.img.destroy();
+    }
+    this.sparks = this.sparks.filter(p => p.age < p.life);
+  }
+
   update(time: number, deltaMs: number): void {
     if (qs.has('gallery')) return;
+    if (qs.has('vfx')) { this.vfxUpdate((time - this.time0) / 1000, Math.min(0.05, deltaMs / 1000)); return; }
     const dt = Math.min(0.05, deltaMs / 1000), t = (time - this.time0) / 1000;
     const cell = this.cell, cam = this.cameras.main;
     const tour = qs.has('tour');
