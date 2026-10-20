@@ -319,7 +319,57 @@ const scenarios = {
       return d.debugState().danger;
     });
   },
+
+  /** A body with no material sounds like the biome it was placed in; slabs and stone stay stone. */
+  async materials() {
+    const { d } = await makeDirector(2);
+    const played = spyPlays(d);
+    d.handle('piece_spawned', {}, 0);
+    d.handle('biome_entered', { id: 5 }, 0.01);
+    await d.bank.prepareBiome(5);
+    const hit = (t: number, p: Record<string, unknown>) => {
+      played.length = 0;
+      d.handle('contact_hit', { bodyA: `b${t}`, bodyB: `c${t}`, approachSpeed: 8, point: { x: 0, y: 2 }, size: 4, ...p }, t);
+      return played.filter((n) => n.startsWith('impact.')).map((n) => n.split('.')[1]);
+    };
+    return {
+      current: hit(0.2, {}),
+      placed: hit(0.4, { biomeA: 4, biomeB: 4 }),
+      mixed: hit(0.6, { biomeA: 4, biomeB: 5 }),
+      onStone: hit(0.8, { biomeA: 5, materialB: 'stone' }),
+    };
+  },
+
+  /** Every new run is picked up from its first spawn, even with no run_start; a stray spawn at run_over is not. */
+  async reruns() {
+    const { d } = await makeDirector(1);
+    const base = () => d.mixer.state().base;
+    const seen: string[] = [];
+    d.handle('piece_spawned', {}, 0.1);
+    seen.push(base());
+    d.handle('run_over', {}, 5);
+    d.handle('piece_spawned', {}, 5);
+    seen.push(base());
+    d.handle('piece_spawned', {}, 12);
+    seen.push(base());
+    d.handle('run_over', {}, 20);
+    d.handle('piece_spawned', {}, 26);
+    seen.push(base());
+    return seen;
+  },
 };
+
+/** Records the name of every sound the director plays. */
+function spyPlays(d: AudioDirector): string[] {
+  const names: string[] = [];
+  const target = d as unknown as { play: (name: string, ...rest: unknown[]) => unknown };
+  const orig = target.play.bind(d);
+  target.play = (name, ...rest) => {
+    names.push(name);
+    return orig(name, ...rest);
+  };
+  return names;
+}
 
 const db = (x: number) => Math.round(20 * Math.log10(x + 1e-9) * 10) / 10;
 

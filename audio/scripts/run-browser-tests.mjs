@@ -88,6 +88,16 @@ const checks = {
   danger(r) {
     assert.deepEqual(r, [false, false, true, true, true, false, true], 'danger hysteresis');
   },
+  materials(r) {
+    // Stratosphere is glass; Storm Belt is metal (art-direction §4.6)
+    assert.deepEqual(r.current, ['glass'], 'no material or biome: the current biome');
+    assert.deepEqual(r.placed, ['metal'], 'a piece placed in Storm Belt still sounds like metal in the Stratosphere');
+    assert.deepEqual(r.mixed, ['metal', 'glass'], 'each body follows its own biome');
+    assert.deepEqual(r.onStone, ['glass', 'stone'], 'an explicit material wins');
+  },
+  reruns(r) {
+    assert.ok(r[0] === 'playing' && r[1] !== 'playing' && r[2] === 'playing' && r[3] === 'playing', `each run starts from its first spawn (${r.join(', ')})`);
+  },
 };
 
 checks.sim = (r) => {
@@ -99,7 +109,14 @@ checks.sim = (r) => {
   for (const [cat, n] of Object.entries(r.voices.peak)) assert.ok(n <= r.voices.limits[cat], `${cat} voices ${n} within cap`);
   assert.ok(r.voices.total <= r.voices.limits.total, 'total voices within cap');
   assert.ok(r.cpu.meanMs < 0.2, `an event costs ${r.cpu.meanMs.toFixed(3)} ms on average`);
-  if (r.counts.run_over) assert.equal(r.state.mix.base, 'results', `the run ends on the results mix (${r.mixLog.join(', ')})`);
+  assert.ok(r.runs.length >= 2 && r.counts.run_over >= 1, `the bot played more than one run (${r.runs.length})`);
+  for (const run of r.runs.slice(1)) {
+    const started = r.mixLog.some((m) => Number(m.split(':')[0]) >= run.from && m.endsWith('->playing'));
+    assert.ok(started && run.hits > 0, `a later run, connected after its run_start, gets the playing mix (${r.mixLog.join(', ')})`);
+  }
+  assert.ok(r.mixLog.some((m) => m.endsWith('->results')), `a run ends on the results mix (${r.mixLog.join(', ')})`);
+  // the bot stays in Meadow and Treetops: wood pieces on stone slabs
+  assert.ok(r.played.wood > 0 && r.played.stone > 0, `pieces sound like wood and slabs like stone (${JSON.stringify(r.played)})`);
 };
 
 let failed = 0;
@@ -112,7 +129,7 @@ for (const [name, check] of Object.entries(checks)) {
   }
   const t0 = Date.now();
   try {
-    const r = await page.evaluate(([n, w]) => (n === 'sim' ? window.simScenario(90, 11) : window.scenarios[n](w)), [name, workerCode]);
+    const r = await page.evaluate(([n, w]) => (n === 'sim' ? window.simScenario(150, 11) : window.scenarios[n](w)), [name, workerCode]);
     check(r);
     console.log(`ok   ${name} (${Date.now() - t0} ms) ${summary(name, r)}`);
   } catch (e) {
@@ -125,7 +142,7 @@ process.exitCode = failed ? 1 : 0;
 
 function summary(name, r) {
   if (name === 'worker') return `worker bake ${r.workerMs} ms (longest main-thread stall ${r.workerStall} ms) vs main thread ${r.threadMs} ms (stall ${r.threadStall} ms)`;
-  if (name === 'sim') return `${r.counts.contact_hit} hits, ${r.counts.piece_settled ?? 0} settles, ${r.counts.piece_lost ?? 0} lost, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms`;
+  if (name === 'sim') return `${r.runs.length} runs, ${r.counts.contact_hit} hits (${Object.entries(r.played).map(([m, n]) => `${m} ${n}`).join(', ')}), ${r.counts.piece_settled ?? 0} settles, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms`;
   if (name === 'bank') return `bake ${r.buildMs} ms, ${r.names} sounds, memory per biome ${r.memoryMB.join('/')} MB`;
   if (name === 'run') return `peak ${r.all.peak.toFixed(3)}, voices ${r.caps.total}/${r.capLimits.total}, contact ${r.contactCpuMs.mean.toFixed(3)} ms`;
   if (name === 'rest') return `resting tower ${r.quietPeakDb} dBFS`;

@@ -73,6 +73,7 @@ export class SoundBank {
   private built = false;
   private inFlight = new Set<string>();
   private prepared = 0;
+  private preparing: Promise<void> = Promise.resolve();
 
   constructor(private ctx: BaseAudioContext, private seed = 1, readonly baker: Baker = new ThreadBaker()) {
     this.rng = mulberry32(seed ^ 0x9e3779b9);
@@ -85,6 +86,7 @@ export class SoundBank {
   /** Bakes every sound the first biome needs, core sounds first, plus its ambience beds. */
   async build(opts: BuildOptions = {}): Promise<void> {
     const start = biome(opts.startBiome ?? 1).id;
+    this.prepared = start; // set first, so a biome entered while this runs takes over
     const keep = new Set(biomeWindow(start));
     const wanted = (n: string) => {
       const sc = biomeScope(n);
@@ -107,18 +109,24 @@ export class SoundBank {
       done += batch.filter((j) => j.kind === 'sound').length;
       progress();
     }
-    this.prepared = start;
     this.built = true;
   }
 
   /**
    * Loads the biome-specific sounds and beds for `id` and its neighbours and
-   * frees the rest. Call on biome entry; it bakes in the background.
+   * frees the rest. Call on biome entry; it bakes in the background, and the
+   * promise resolves when that biome's sounds are in.
    */
-  async prepareBiome(id: number): Promise<void> {
+  prepareBiome(id: number): Promise<void> {
     const target = biome(id).id;
-    if (target === this.prepared) return;
-    this.prepared = target;
+    if (target !== this.prepared) {
+      this.prepared = target;
+      this.preparing = this.prepare(target);
+    }
+    return this.preparing;
+  }
+
+  private async prepare(target: number): Promise<void> {
     const keep = new Set(biomeWindow(target));
     const jobs: BakeJob[] = [];
     for (const name of Object.keys(SOUNDS)) {
