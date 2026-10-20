@@ -1,0 +1,24 @@
+{
+  "name": "shape-tower-game",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p .",
+    "sim:smoke": "node --experimental-strip-types --no-warnings tests/sim-smoke.ts",
+    "postinstall": "node scripts/patch-phaser-box2d.mjs"
+  },
+  "dependencies": {
+    "@dimforge/rapier2d-deterministic-compat": "^0.21.0",
+    "phaser": "^4.2.1",
+    "phaser-box2d": "1.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vite-plugin-singlefile": "^2.3.4"
+  },
+  "type": "module",
+  "private": true
+}
