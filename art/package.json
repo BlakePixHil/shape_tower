@@ -1,0 +1,21 @@
+{
+  "name": "shape-tower-art",
+  "version": "1.0.0",
+  "description": "Shape Tower art kit: procedural Canvas 2D art and a Phaser 4 adapter",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -p .",
+    "config": "node --experimental-strip-types --no-warnings scripts/export-config.ts",
+    "shots": "node scripts/shots.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "phaser": "^4.2.1",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vite-plugin-singlefile": "^2.3.4"
+  },
+  "type": "module",
+  "private": true
+}
