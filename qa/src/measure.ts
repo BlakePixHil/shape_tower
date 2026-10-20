@@ -18,6 +18,11 @@ export function rng(seed: number): () => number {
 export const STEPS_PER_SECOND = 60;
 const DEG = 180 / Math.PI;
 
+/** Smallest difference between two angles, in radians (so a wobble across ±π isn't a half turn). */
+export function angleDiff(a: number, b: number): number {
+  return Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+}
+
 /** Collider inset per side, used for overlap checks (gameplay.md §3.2). */
 export const INSET = 0.02;
 /** Overlap deeper than this counts as interpenetration (F3.3). */
@@ -153,7 +158,7 @@ export async function runTower(createSim: CreateSim, def: TowerDef, o: TowerRunO
       const b = base.get(p.id);
       if (!b) continue;
       maxDisp = Math.max(maxDisp, Math.hypot(p.x - b.x, p.y - b.y));
-      maxRot = Math.max(maxRot, Math.abs(p.angle - b.angle) * DEG);
+      maxRot = Math.max(maxRot, angleDiff(p.angle, b.angle) * DEG);
     }
   }
   const lostEvents = sim.drainEvents().filter((e) => e.type === 'piece_lost').length;

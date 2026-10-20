@@ -1,7 +1,7 @@
 // Landing-guide sweep (qa-section.md §5): drop every shape, rotation and position onto each base
 // tower and compare what the guide promised with what actually happened.
 import type { CreateSim, Ghost, PieceLandedEvent, Sim, SimEvent } from './contract';
-import { INSET, rng, stepUntilQuiet } from './measure';
+import { INSET, angleDiff, rng, stepUntilQuiet } from './measure';
 import { normRot, rotatedSize, worldRects } from './shapes';
 import type { TowerDef } from './towers';
 
@@ -211,9 +211,7 @@ export function runCase(sim: Sim, c: GuideCase, afterSteps: number): GuideResult
     if (!rotOk) failures.push(`G2: guide rot ${g0.rot}, landed rot ${pose.rot}`);
     const after = sim.pieces().find((p) => p.id === (landedEv!.pieceId ?? id));
     if (after) {
-      const want = (normRot(pose.rot) * Math.PI) / 2;
-      const d = Math.atan2(Math.sin(after.angle - want), Math.cos(after.angle - want));
-      angleError = Math.abs(d);
+      angleError = angleDiff(after.angle, (normRot(pose.rot) * Math.PI) / 2);
     }
     supportOk = sameSet(g0.supportIds, landedEv.touchedIds);
     if (!supportOk) failures.push(`G3: guide support [${g0.supportIds}] but first touched [${landedEv.touchedIds}]`);
@@ -227,14 +225,15 @@ export function runCase(sim: Sim, c: GuideCase, afterSteps: number): GuideResult
   if (landedEv && afterSteps > 0) {
     const bodyId = landedEv.pieceId ?? id;
     const body = () => sim.pieces().find((p) => p.id === bodyId);
-    const a0 = body()?.angle ?? 0;
+    const start = body();
     let gone = false;
     for (let i = 0; i < afterSteps; i++) {
       sim.step();
       if (sim.drainEvents().some((e) => e.type === 'piece_lost' && e.id === bodyId)) gone = true;
     }
+    // Tipped = turned over (more than 15°), slid or fell off (more than 0.5 blocks), or was Lost.
     const p = body();
-    tipped = gone || !p || Math.abs(p.angle - a0) > (15 * Math.PI) / 180;
+    tipped = gone || !p || !start || angleDiff(p.angle, start.angle) > (15 * Math.PI) / 180 || Math.hypot(p.x - start.x, p.y - start.y) > 0.5;
   }
 
   return {
