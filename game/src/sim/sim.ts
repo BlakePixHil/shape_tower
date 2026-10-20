@@ -82,7 +82,11 @@ interface Piece {
   cy: number;
 }
 
-interface Controlled { shape: string; x: number; y: number; rot: number; xTarget: number; soft: boolean; hard: boolean; speed: number }
+interface Controlled {
+  shape: string; x: number; y: number; rot: number; xTarget: number; soft: boolean; hard: boolean; speed: number;
+  steerAt: number;            // sim time the player last moved or turned it
+  touchedAt: number | null;   // sim time it first touched down without landing (touchdown grace)
+}
 
 interface Foundation { id: number; x: number; width: number; top: number; thickness: number; grade?: FoundationGrade }
 
@@ -372,13 +376,20 @@ export class Sim {
     const c = this.ctrl;
     if (!c) return;
     const t = this.tuning;
-    // Horizontal: walk to the target in snap steps, stopping at the first blocked step.
+    // Horizontal: walk to the target in snap steps, stopping at the first blocked step. A step
+    // may lift the shape up to stepUp to clear a lip a hair higher than what it rests on (QA-003).
     let guard = 0;
     while (Math.abs(c.xTarget - c.x) > 1e-9 && guard++ < 64) {
       const dir = Math.sign(c.xTarget - c.x);
       const nx = Math.abs(c.xTarget - c.x) < t.snapStep ? c.xTarget : c.x + dir * t.snapStep;
-      if (this.free(c.shape, nx, c.y, c.rot)) { c.x = nx; this.bus.emit('piece_moved', { x: c.x, dx: dir }); }
-      else { c.xTarget = c.x; break; }
+      let ny = c.y;
+      if (!this.free(c.shape, nx, ny, c.rot)) {
+        ny = !c.hard && t.stepUp > 0 && this.free(c.shape, nx, c.y + t.stepUp, c.rot)
+          ? this.bisect({ shape: c.shape, x: nx, rot: c.rot }, c.y, c.y + t.stepUp) : NaN;
+      }
+      if (Number.isNaN(ny)) { c.xTarget = c.x; break; }
+      c.x = nx; c.y = ny; c.steerAt = this.time;
+      this.bus.emit('piece_moved', { x: c.x, dx: dir });
     }
     // Something toppled into the shape: it becomes physical right away.
     if (!this.free(c.shape, c.x, c.y, c.rot)) { this.land(c, c.y, c.speed, true); return; }
@@ -387,11 +398,20 @@ export class Sim {
     const ny = c.y - c.speed * DT;
     if (this.free(c.shape, c.x, ny, c.rot)) {
       c.y = ny;
+      c.touchedAt = null;
       // It missed the tower entirely: it becomes a real piece and is Lost (costs a heart).
       if (c.y + extents(c.shape, c.rot).maxY < this.foundation.top - 1) this.missed(c);
       return;
     }
-    this.land(c, this.bisect(c, ny, c.y), c.speed, false);
+    const touchY = this.bisect(c, ny, c.y);
+    // Touchdown grace (QA-003): a shape the player is still dragging or turning rests on what it
+    // touched and stays steerable for a moment, so it can slide past a ledge instead of snagging.
+    // Hard drops land at once.
+    if (!c.hard && this.time - c.steerAt < t.touchGrace) {
+      c.touchedAt ??= this.time;
+      if (this.time - c.touchedAt < t.touchGraceMax) { c.y = touchY; return; }
+    }
+    this.land(c, touchY, c.speed, false);
   }
 
   /** Highest free y in [lo, hi], where lo overlaps and hi is free. */
@@ -441,6 +461,7 @@ export class Sim {
     for (const [kx, ky] of kicks) {
       if (this.free(c.shape, c.x + kx, c.y + ky, nr)) {
         c.rot = nr; c.x += kx; c.y += ky;
+        c.steerAt = this.time;
         c.xTarget = this.clampX(c, c.x);
         if (c.xTarget !== c.x && this.free(c.shape, c.xTarget, c.y, c.rot)) c.x = c.xTarget;
         this.bus.emit('piece_rotated', { dir, blocked: false });
@@ -469,7 +490,7 @@ export class Sim {
     const sx = x ?? snap(left + Math.round((f.width - w) / 2) - e.minX, this.tuning.snapStep);
     const top = Math.max(this.height().provisional, f.top);
     const sy = top + this.tuning.spawnHeight - e.minY;
-    this.ctrl = { shape, x: sx, y: sy, rot, xTarget: sx, soft: false, hard: false, speed: 0 };
+    this.ctrl = { shape, x: sx, y: sy, rot, xTarget: sx, soft: false, hard: false, speed: 0, steerAt: -Infinity, touchedAt: null };
     this.ctrl.xTarget = this.clampX(this.ctrl, sx);
     this.ctrl.x = this.ctrl.xTarget;
     this.holdUsed = false;

@@ -42,6 +42,8 @@ const GROUPS: [string, [NumKey, string, number, number, number, boolean?][]][] =
     ['fallBase', 'Fall speed (blocks/s)', 0.5, 5, 0.1],
     ['softDropMult', 'Soft drop ×', 1, 6, 0.25],
     ['spawnHeight', 'Spawn height (blocks)', 4, 12, 0.5],
+    ['touchGrace', 'Touchdown grace (s)', 0, 0.3, 0.01],
+    ['stepUp', 'Step-up (blocks)', 0, 0.25, 0.01],
   ]],
   ['Run', [
     ['firstGap', 'First checkpoint gap', 3, 16, 1, true],

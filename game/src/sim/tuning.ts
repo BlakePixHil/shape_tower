@@ -43,6 +43,9 @@ export interface Tuning {
   snapHysteresis: number;
   softDropMult: number;
   hardDropSpeed: number;      // blocks/s
+  touchGrace: number;         // s: a shape steered this recently stays steerable when it touches down
+  touchGraceMax: number;      // s: the longest it can stay touching before it lands
+  stepUp: number;             // blocks: a sideways step may lift the shape this much to clear a lip
   // Pace
   spawnHeight: number;        // blocks above the tower top
   spawnDelay: number;         // s after landing
@@ -109,6 +112,9 @@ export const DEFAULT_TUNING: Tuning = {
   snapHysteresis: 0.15,
   softDropMult: 3,
   hardDropSpeed: 40,
+  touchGrace: 0.12,
+  touchGraceMax: 0.35,
+  stepUp: 0.15,
   spawnHeight: 7,
   spawnDelay: 0.3,
   fallBase: 1.5,

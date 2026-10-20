@@ -8,7 +8,7 @@ The Shape Tower game. Right now it's the **Wobble Lab** physics prototype.
 ## Running checks
 
 ```
-npm install          # also patches two bugs in phaser-box2d 1.1.0 (scripts/patch-phaser-box2d.mjs)
+npm install          # also patches six bugs in phaser-box2d 1.1.0 (scripts/patch-phaser-box2d.mjs)
 npm run typecheck
 npm run sim:smoke    # Gameplay's quick headless checks; QA's suites live in ../qa
 npm run build        # one self-contained HTML file in dist/

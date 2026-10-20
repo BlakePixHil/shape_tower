@@ -1,7 +1,10 @@
 // Quick headless checks of the sim (Gameplay's own; QA owns the real suites).
 // Run: npm run sim:smoke
 
+import { Box2DEngine } from '../src/sim/engine/box2d.ts';
+import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { createSim, replay, restore } from '../src/sim/testApi.ts';
+import { DEFAULT_TUNING } from '../src/sim/tuning.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -192,6 +195,63 @@ for (const [shape, x] of [['Domino', -2], ['O', 2.5], ['Plank', -1.5]] as const)
   for (const p of t.pieces()) { const w = wall.get(p.id); if (w && Math.hypot(p.x - w[0], p.y - w[1]) > 0.1) moved++; }
   check(`QA-002 upside-down ${shape} bonded on the wall stays put`, fastest < 2 && moved === 0, `fastest upward ${fastest.toFixed(1)} blocks/s, ${moved} wall pieces moved`);
   t.dispose();
+}
+
+// QA-003: a shape dragged across a ledge as it reaches it slides past instead of snagging.
+{
+  const slide = (touchGrace: number) => {
+    const t = createSim({ tuning: { touchGrace, firstGap: 20 } });
+    t.placePiece({ shape: 'O', x: -1, y: 1 });
+    t.step(30);
+    t.spawnControlled({ shape: 'I', x: 0.5, rot: 1 });
+    while (t.controlled() && t.controlled()!.y - 2 > 2.06) t.step();
+    for (const x of [-0.5, -1.5, -2.5]) { t.intent({ type: 'moveTo', x }); t.step(2); }
+    t.step(240);
+    const p = t.pieces().find(q => q.shape === 'I')!;
+    t.dispose();
+    return p;
+  };
+  const withGrace = slide(0.12), without = slide(0);
+  check('QA-003 touchdown grace lets a dragged shape slide past a ledge', Math.abs(withGrace.x + 2.5) < 0.1 && withGrace.y < 2.2 && Math.abs(without.x + 2.5) > 0.5,
+    `with grace x ${withGrace.x.toFixed(2)} y ${withGrace.y.toFixed(2)}; without x ${without.x.toFixed(2)} y ${without.y.toFixed(2)}`);
+}
+
+// QA-003: a sideways step lifts the shape over a lip a hair higher than what it rests on.
+{
+  const step = (stepUp: number) => {
+    const t = createSim({ tuning: { stepUp, firstGap: 20 } });
+    t.placePiece({ shape: 'O', x: 1, y: 1, as: 'stone' });
+    t.placePiece({ shape: 'O', x: -1, y: 1.04, as: 'stone' }); // 0.04 higher
+    t.spawnControlled({ shape: 'O', x: 1 });
+    while (t.controlled() && t.controlled()!.y - 3 > 0.05) t.step();
+    t.intent({ type: 'moveTo', x: 1.5 }); t.step(3); // still steering as it touches down
+    t.intent({ type: 'moveTo', x: 0 }); t.step();
+    const c = t.controlled();
+    t.dispose();
+    return c;
+  };
+  const up = step(0.15), flat = step(0);
+  check('QA-003 a sideways step lifts over a 0.04 lip', up?.x === 0 && Math.abs(up.y - 3.04) < 0.01 && flat?.x === 1,
+    `with step-up x ${up?.x} y ${up?.y.toFixed(3)}; without x ${flat?.x}`);
+}
+
+// QA-003: a J turned to stone acts about its own origin. The Box2D port kept its old
+// centre-of-mass offset, so a bond to it yanked the piece on it as soon as it was solved.
+{
+  const t = DEFAULT_TUNING;
+  const e = new Box2DEngine({ gravity: t.gravity, pushoutVelocity: t.pushoutVelocity, hitThreshold: 0.3 });
+  const body = (id: number, x: number, y: number) => e.addBody({
+    id, boxes: colliderBoxes('J', 0, t.inset, t.cornerRadius), x, y, rot: rotQ(0), vx: 0, vy: 0, dynamic: true,
+    friction: t.friction, density: t.density, linearDamping: t.linearDamping, angularDamping: t.angularDamping,
+  });
+  body(1, 0, 1);
+  e.setStatic(1);
+  body(2, -1, 3); // its bottom row rests on the stone's top cell
+  e.addWeld(2, 1, -1, 2, t.bondHertz, t.bondDamping);
+  let fastest = 0;
+  for (let i = 0; i < 60; i++) { e.step(1 / 60, t.subSteps); const v = e.velocity(2); fastest = Math.max(fastest, Math.hypot(v.vx, v.vy)); }
+  e.dispose();
+  check('QA-003 a bond to a J turned to stone holds still', fastest < 0.1, `fastest ${fastest.toFixed(2)} blocks/s`);
 }
 
 // Auto-play smoke: a run with auto spawn and a naive bot keeps going without errors.

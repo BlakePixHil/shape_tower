@@ -26,6 +26,12 @@ const fixes = [
   // piece (QA-002).
   ['  joint.deltaAngle = b2RelativeAngle(qB, qA) - joint.referenceAngle;\n  const ka = iA + iB;',
    '  joint.deltaAngle = b2RelativeAngle(qB, qA) - joint.referenceAngle;\n  joint.deltaAngle = b2UnwindAngle(joint.deltaAngle);\n  const ka = iA + iB;'],
+  // b2UpdateBodyMassData doesn't reset localCenter as upstream does, so a T, J or L turned to
+  // stone keeps its old centre-of-mass offset while its centre moves to its origin. Contacts and
+  // bonds on it then act about a point a quarter block away, and a bond to it kicks the piece
+  // as soon as it is solved (QA-003).
+  ['  bodySim.invInertia = 0;\n  bodySim.minExtent = B2_HUGE;',
+   '  bodySim.invInertia = 0;\n  bodySim.localCenter = new b2Vec2();\n  bodySim.minExtent = B2_HUGE;'],
 ];
 
 let src = readFileSync(file, 'utf8');

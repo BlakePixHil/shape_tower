@@ -40,6 +40,7 @@ export class Gestures {
   private samples: Sample[] = [];
   private xHistory: { t: number; x: number }[] = [];
   private softOn = false;
+  private softFrom: Sample | null = null; // where the current straight-down stretch began
   private maxY = 0;
   private moved = 0;
   private second: { id: number; y0: number } | null = null;
@@ -96,6 +97,7 @@ export class Gestures {
     this.maxY = s.y;
     this.moved = 0;
     this.softOn = false;
+    this.softFrom = s;
     this.rebase(s.x);
     this.xHistory = [{ t: s.t, x: this.baseX ?? 0 }];
   };
@@ -123,15 +125,18 @@ export class Gestures {
         if (snapped !== this.sent) {
           this.sent = snapped;
           this.target.moveTo(snapped);
+          this.softFrom = s; // steering sideways: a soft drop needs a fresh downward stretch
         }
       }
       this.xHistory.push({ t: s.t, x: this.sent });
       if (this.xHistory.length > 64) this.xHistory.shift();
     }
 
-    // Soft drop: mostly-vertical downward drag past 40 px; ends on an upward move.
-    const dy = s.y - this.start.y, dx = s.x - this.start.x;
-    if (!this.softOn && dy > SOFT_PX && dy > 1.5 * Math.abs(dx)) { this.softOn = true; this.target.soft(true); }
+    // Soft drop: a downward drag within about 22° of vertical for 40 px since the shape last moved
+    // sideways, so a diagonal drag only steers (QA-003). Ends on an upward move.
+    const from = this.softFrom ?? this.start;
+    const dy = s.y - from.y, dx = s.x - from.x;
+    if (!this.softOn && dy > SOFT_PX && dy > 2.5 * Math.abs(dx)) { this.softOn = true; this.target.soft(true); }
     this.maxY = Math.max(this.maxY, s.y);
     if (this.softOn && s.y < this.maxY - TAP_PX) { this.softOn = false; this.target.soft(false); this.maxY = s.y; }
   };
