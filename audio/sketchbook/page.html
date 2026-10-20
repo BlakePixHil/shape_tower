@@ -1,0 +1,285 @@
+<title>Shape Tower Sound Sketchbook</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap">
+<style>
+/* Layout: the game's own "sticker toy" UI (Art §8.1) on its sky. Paper panels stay paper all the way up; only the sky changes: Meadow by day, Orbit by night. A playable tower opens the page, then moments, then every sound as a block you can tap. */
+:root {
+  --sky-top: #6EC3FF;
+  --sky-mid: #A9DEFF;
+  --sky-low: #E4F7FF;
+  --on-sky: #22183A;
+  --on-sky-soft: #3D3360;
+  --paper: #FFF7E8;
+  --ink: #22183A;
+  --ink-soft: #5B4F7A;
+  --drop: #22183A;
+  --gold: #FFC23D;
+  --mint: #3EE6A8;
+  --danger: #FF4D6D;
+  --violet: #7A5CFF;
+  --amber: #FFAA2B;
+  --focus: #7A5CFF;
+  --display: "Fredoka", "Baloo 2", "Arial Rounded MT Bold", system-ui, sans-serif;
+  --body: "Nunito", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --r: 16px;
+  --line: 3px;
+  --lift: 4px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sky-top: #05081A; --sky-mid: #0B1230; --sky-low: #162452;
+    --on-sky: #E9E6FA; --on-sky-soft: #B9B2DE; --drop: #02030B; --focus: #D0A8FF;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --sky-top: #05081A; --sky-mid: #0B1230; --sky-low: #162452;
+  --on-sky: #E9E6FA; --on-sky-soft: #B9B2DE; --drop: #02030B; --focus: #D0A8FF;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--sky-mid); }
+body {
+  background: linear-gradient(180deg, var(--sky-top) 0, var(--sky-mid) 340px, var(--sky-low) 100%) var(--sky-mid);
+  background-attachment: scroll;
+  color: var(--on-sky);
+  font: 16px/1.5 var(--body);
+  min-height: 100%;
+}
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 56px;
+  display: grid;
+  gap: 28px;
+}
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.1; }
+h1 { font-size: clamp(2rem, 5vw, 3.1rem); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.55rem; font-weight: 600; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; }
+.lede { max-width: 62ch; color: var(--on-sky-soft); font-size: 1.05rem; }
+
+/* sticker panels */
+.panel {
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--line) solid var(--ink);
+  border-radius: var(--r);
+  box-shadow: var(--lift) var(--lift) 0 var(--drop);
+  padding: 20px;
+  min-width: 0;
+}
+.panel .soft, .soft { color: var(--ink-soft); }
+/* paper stays paper in both themes, so its form controls stay light too */
+.panel, .status { color-scheme: light; }
+.panel .lede { color: var(--ink-soft); }
+
+header.top { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: end; justify-content: space-between; }
+header.top .titles { display: grid; gap: 8px; min-width: 0; }
+.eyebrow { font: 800 0.78rem/1 var(--body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--on-sky-soft); }
+
+.status {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--paper); color: var(--ink);
+  border: var(--line) solid var(--ink); border-radius: 999px;
+  box-shadow: var(--lift) var(--lift) 0 var(--drop);
+  padding: 8px 14px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.dot { width: 12px; height: 12px; border-radius: 50%; background: var(--amber); border: 2px solid var(--ink); flex: none; }
+.status[data-state="ready"] .dot { background: var(--mint); }
+.status[data-state="baking"] .dot { animation: pulse 0.9s ease-in-out infinite alternate; }
+@keyframes pulse { to { transform: scale(0.6); } }
+
+.controls { display: flex; flex-wrap: wrap; gap: 12px 22px; align-items: center; }
+.controls label { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
+input[type="range"] { accent-color: var(--violet); width: 140px; max-width: 40vw; }
+input[type="checkbox"] { accent-color: var(--violet); width: 18px; height: 18px; }
+
+/* the instrument */
+.stage { display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 24px; align-items: stretch; }
+.towerbox {
+  position: relative; min-height: 330px; border: var(--line) solid var(--ink); border-radius: 12px; overflow: hidden;
+  background: linear-gradient(180deg, var(--b-top, #6EC3FF), var(--b-mid, #A9DEFF) 60%, var(--b-low, #E4F7FF));
+  transition: background 0.6s;
+}
+.tower { position: absolute; left: 50%; bottom: 34px; width: 96px; transform: translateX(-50%); display: flex; flex-direction: column-reverse; align-items: center; }
+.plinth { position: absolute; left: 50%; bottom: 10px; width: 132px; height: 26px; transform: translateX(-50%); background: #B9B1A6; border: var(--line) solid var(--ink); border-radius: 6px; }
+.block {
+  width: 88px; height: 24px; margin-top: -1px; border: var(--line) solid var(--ink); border-radius: 6px;
+  background: var(--c); box-shadow: inset 0 4px 0 var(--l), inset 0 -4px 0 var(--s);
+  animation: land 0.32s cubic-bezier(.3,1.6,.5,1);
+}
+.block.messy { transform: rotate(var(--tilt)) translateX(var(--shift)); }
+@keyframes land { 0% { transform: translateY(-120px) scaleY(1); } 70% { transform: translateY(0) scale(1.08, 0.82); } 100% { transform: translateY(0) scale(1, 1); } }
+.block.messy { animation: none; }
+.notepop {
+  position: absolute; left: 50%; transform: translateX(-50%); font: 700 1.1rem var(--display); color: var(--ink);
+  background: var(--paper); border: 2px solid var(--ink); border-radius: 999px; padding: 0 10px; pointer-events: none;
+  animation: rise 0.9s ease-out forwards;
+}
+@keyframes rise { to { transform: translate(-50%, -36px); opacity: 0; } }
+
+.side { display: grid; gap: 18px; align-content: start; min-width: 0; }
+.ladder { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.rung {
+  border: 2px solid var(--ink); border-radius: 10px; padding: 8px 2px 6px; text-align: center;
+  background: var(--paper); font: 600 0.95rem var(--display); font-variant-numeric: tabular-nums; transition: background 0.15s, transform 0.15s;
+}
+.rung small { display: block; font: 700 0.66rem var(--body); color: var(--ink-soft); letter-spacing: 0.04em; }
+.rung.on { background: var(--gold); }
+.rung.now { transform: translateY(-4px); box-shadow: 0 4px 0 var(--ink); }
+.ladder.bloom .rung { background: var(--mint); }
+.streakline { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
+.streakline b { font: 700 1.4rem var(--display); font-variant-numeric: tabular-nums; }
+
+/* buttons */
+.btn, .pad {
+  font: 600 1rem var(--display); color: var(--ink); cursor: pointer;
+  border: var(--line) solid var(--ink); border-radius: 12px;
+  box-shadow: var(--lift) var(--lift) 0 var(--ink);
+  transition: transform 0.06s, box-shadow 0.06s;
+}
+.btn { background: var(--paper); padding: 10px 16px; }
+.btn:active, .pad:active, .pad.hit { transform: translate(var(--lift), var(--lift)); box-shadow: 0 0 0 var(--ink); }
+.btn:focus-visible, .pad:focus-visible, .chip:focus-visible, input:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.btn.bounce, .pad.bounce { animation: bounce 0.22s ease-out; }
+@keyframes bounce { 50% { transform: scale(1.05); } }
+.btn.perfect { background: var(--gold); }
+.btn.clean { background: var(--mint); }
+.btn.messy { background: #FF9DAA; }
+.btnrow { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.biomes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.chip {
+  text-align: left; cursor: pointer; padding: 6px 8px 7px; border: 2px solid var(--ink); border-radius: 10px;
+  background: var(--paper); color: var(--ink); font: 600 0.88rem/1.15 var(--display); min-width: 0;
+  display: grid; gap: 2px;
+}
+.chip i { display: block; height: 14px; border-radius: 5px; border: 2px solid var(--ink); background: linear-gradient(90deg, var(--a), var(--b), var(--c)); }
+.chip small { font: 700 0.68rem/1.2 var(--body); color: var(--ink-soft); overflow-wrap: anywhere; }
+.chip[aria-pressed="true"] { background: var(--gold); }
+
+/* moments */
+.moments { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+.moment { text-align: left; display: grid; gap: 4px; align-content: start; padding: 12px 14px; background: var(--paper); }
+.moment span { font: 600 0.8rem/1.35 var(--body); color: var(--ink-soft); }
+.moment.playing { background: #FFE58F; }
+.danger-ctl { display: grid; gap: 8px; }
+.danger-ctl input { width: 100%; max-width: none; accent-color: var(--danger); }
+.scale { position: relative; height: 18px; font: 700 0.7rem var(--body); color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.scale span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.tension-read { font: 700 1.2rem var(--display); font-variant-numeric: tabular-nums; }
+.tension-read em { font-style: normal; font: 700 0.8rem var(--body); text-transform: uppercase; letter-spacing: 0.1em; padding: 2px 8px; border: 2px solid var(--ink); border-radius: 999px; margin-left: 8px; background: var(--paper); }
+.tension-read em[data-level="danger"] { background: var(--danger); }
+.tension-read em[data-level="groan"] { background: var(--amber); }
+.tension-read em[data-level="creak"] { background: var(--gold); }
+
+/* the sound board */
+.board { display: grid; gap: 22px; }
+.group { display: grid; gap: 12px; }
+.group header { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; }
+.pads { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
+.pad {
+  text-align: left; align-content: start; padding: 9px 11px 10px; background: var(--c, #9BE6FF);
+  box-shadow: inset 0 4px 0 var(--l, #FFFFFF80), inset 0 -5px 0 var(--s, #1E8BC3), var(--lift) var(--lift) 0 var(--ink);
+  display: grid; gap: 2px; min-width: 0;
+}
+.pad:active, .pad.hit { box-shadow: inset 0 4px 0 var(--l, #FFFFFF80), inset 0 -5px 0 var(--s, #1E8BC3), 0 0 0 var(--ink); }
+.pad code { font: 600 0.7rem var(--mono); color: var(--ink); opacity: 0.72; overflow-wrap: anywhere; }
+.impacts { overflow-x: auto; }
+.impacts table { border-collapse: separate; border-spacing: 8px; min-width: 520px; width: 100%; }
+.impacts th { font: 700 0.78rem var(--body); text-align: left; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.impacts th small { display: block; font-weight: 600; }
+.impacts td .pad { width: 100%; text-align: center; padding: 10px 4px 12px; }
+.impacts th[scope="row"] { font: 600 1rem var(--display); color: var(--ink); white-space: nowrap; }
+
+.note { font-size: 0.9rem; color: var(--on-sky-soft); max-width: 70ch; }
+.note code { font-family: var(--mono); font-size: 0.85em; }
+
+@media (max-width: 720px) {
+  .stage { grid-template-columns: 1fr; }
+  .towerbox { min-height: 280px; }
+  .biomes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ladder { gap: 4px; }
+  .rung { font-size: 0.8rem; }
+  .panel { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="titles">
+      <span class="eyebrow">Shape Tower · audio P0</span>
+      <h1>Sound Sketchbook</h1>
+      <p class="lede">Every placeholder sound in the game, made in code and played by the same Audio Director the game uses. Tap anything to hear it. Haptics only show up on a phone in the app.</p>
+    </div>
+    <div class="status" id="status" data-state="baking" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="status-text">Baking sounds</span></div>
+  </header>
+
+  <section class="panel" aria-labelledby="inst-h">
+    <div class="stage">
+      <div class="towerbox" id="towerbox" aria-hidden="true">
+        <div class="plinth"></div>
+        <div class="tower" id="tower"></div>
+      </div>
+      <div class="side">
+        <div style="display:grid;gap:6px">
+          <h2 id="inst-h">The tower is an instrument</h2>
+          <p class="soft">Each clean landing plays the next note of the biome's scale. A Perfect adds a harmony note, four in a row sparkle, and eight in a row blooms into a chord. A messy landing goes clonk and starts the climb again.</p>
+        </div>
+        <div class="btnrow">
+          <button class="btn clean" id="land-clean" type="button">Clean landing</button>
+          <button class="btn perfect" id="land-perfect" type="button">Perfect</button>
+          <button class="btn messy" id="land-messy" type="button">Messy</button>
+        </div>
+        <div class="streakline"><span class="soft">Streak</span> <b id="streak">0</b> <span class="soft" id="keyline">C major · marimba</span></div>
+        <div class="ladder" id="ladder" aria-label="Landing-note ladder"></div>
+        <div style="display:grid;gap:8px">
+          <h3>Biome</h3>
+          <div class="biomes" id="biomes"></div>
+          <p class="soft" style="font-size:0.85rem">Picking a biome plays its entry moment the first time, swaps the key and instrument, and changes the reverb. With ambience on you also hear its bed.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="mix-h">
+    <div style="display:grid;gap:14px">
+      <h2 id="mix-h">Listening</h2>
+      <div class="controls">
+        <label for="vol-sfx">Effects <input id="vol-sfx" type="range" min="0" max="100" value="100"></label>
+        <label for="amb"><input id="amb" type="checkbox"> Ambience bed</label>
+        <label for="mono"><input id="mono" type="checkbox"> Mono</label>
+        <label for="calm"><input id="calm" type="checkbox"> Calm mode</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="group" aria-labelledby="mom-h">
+    <header><h2 id="mom-h">Moments</h2><p class="note">Short scripted sequences of real game events, so you hear how sounds chain together.</p></header>
+    <div class="moments" id="moments"></div>
+    <div class="panel danger-ctl">
+      <h3>Tower tension</h3>
+      <p class="soft">The game sends tension from 0 (rock solid) to 1 (about to topple). Drag it up to hear creaks, groans, then the danger heartbeat.</p>
+      <div class="tension-read"><span id="tension-val">0.00</span><em id="tension-level" data-level="calm">steady</em></div>
+      <input id="tension" type="range" min="0" max="100" value="0" aria-label="Tower tension">
+      <div class="scale" aria-hidden="true"><span style="left:0;transform:none">0</span><span style="left:30%">0.30 creak</span><span style="left:60%">0.60 groan</span><span style="left:85%">0.85 danger</span><span style="left:100%;transform:translateX(-100%)">1</span></div>
+    </div>
+  </section>
+
+  <section class="board" id="board" aria-label="Every sound"></section>
+
+  <p class="note">Sounds are synthesized once when the page opens, in a background worker, and kept in memory, just as in the game. The names under each sound are the ids the game and future recordings use, for example <code>impact.wood.3</code>.</p>
+</div>
+
+<script>/*BUNDLE*/</script>
