@@ -178,6 +178,22 @@ for (const mortar of [true, false]) {
   t.dispose(); u.dispose();
 }
 
+// QA-002: an upside-down shape bonded onto the wall must not explode (weld angle unwrap patch).
+// Domino at -2 launches without the patch on this build; QA's O and Plank cases did on the last one.
+for (const [shape, x] of [['Domino', -2], ['O', 2.5], ['Plank', -1.5]] as const) {
+  const t = createSim({ tuning: { mortar: true, firstGap: 20 } });
+  for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) t.placePiece({ shape: 'O', x: -3 + col * 2, y: 1 + row * 2 + 0.001 * row });
+  t.step(60);
+  const wall = new Map(t.pieces().map(p => [p.id, [p.x, p.y] as [number, number]]));
+  t.spawnControlled({ shape, x, rot: 2 });
+  let fastest = 0;
+  for (let i = 0; i < 600; i++) { t.step(); for (const p of t.pieces()) if (!wall.has(p.id)) fastest = Math.max(fastest, p.vy); }
+  let moved = 0;
+  for (const p of t.pieces()) { const w = wall.get(p.id); if (w && Math.hypot(p.x - w[0], p.y - w[1]) > 0.1) moved++; }
+  check(`QA-002 upside-down ${shape} bonded on the wall stays put`, fastest < 2 && moved === 0, `fastest upward ${fastest.toFixed(1)} blocks/s, ${moved} wall pieces moved`);
+  t.dispose();
+}
+
 // Auto-play smoke: a run with auto spawn and a naive bot keeps going without errors.
 {
   const t = createSim({ autoSpawn: true, rookieOpening: true });

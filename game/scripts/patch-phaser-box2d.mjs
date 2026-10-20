@@ -1,4 +1,4 @@
-// Fixes bugs in phaser-box2d 1.1.0 (runs on npm install).
+// Fixes bugs in phaser-box2d 1.1.0 (runs on npm install). Each fix is applied once; reruns skip it.
 // When the port moves a body or joint between solver sets it copies the sim with Object.assign,
 // so both slots share their nested transform and joint objects. The old slot is recycled later
 // and zeroed, which teleports the moved body to (0, 0). That hit every piece turned to stone.
@@ -21,6 +21,11 @@ const fixes = [
   // ever be made. Put a fresh world back in the slot.
   ['  world = new b2World();\n  world.worldId = B2_NULL_INDEX;\n  world.revision = revision + 1;\n}',
    '  const slot = world.worldId;\n  world = new b2World();\n  world.worldId = B2_NULL_INDEX;\n  world.revision = revision + 1;\n  world.inUse = false;\n  b2_worlds[slot] = world;\n}'],
+  // b2PrepareWeldJoint skips the b2UnwindAngle that upstream Box2D (and the port's revolute joint)
+  // has, so an upside-down weld whose angle wobbles across ±π sees a 360° error and launches the
+  // piece (QA-002).
+  ['  joint.deltaAngle = b2RelativeAngle(qB, qA) - joint.referenceAngle;\n  const ka = iA + iB;',
+   '  joint.deltaAngle = b2RelativeAngle(qB, qA) - joint.referenceAngle;\n  joint.deltaAngle = b2UnwindAngle(joint.deltaAngle);\n  const ka = iA + iB;'],
 ];
 
 let src = readFileSync(file, 'utf8');
