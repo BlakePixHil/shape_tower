@@ -695,5 +695,58 @@
   "foundation": {
     "slabDepth": 0.6,
     "pedestalHeight": 2.2
-  }
+  },
+  "checkpoint": {
+    "rope": 0.2,
+    "pennantSpacing": 0.75,
+    "plaqueR": 0.6,
+    "holdTicks": 24,
+    "holdR": 0.86,
+    "flagPole": 1.5,
+    "flagFrames": 4,
+    "bunting": [
+      "I",
+      "O",
+      "T",
+      "L",
+      "J",
+      "S",
+      "Z"
+    ]
+  },
+  "stars": [
+    {
+      "size": 384,
+      "count": 70,
+      "r": [
+        0.5,
+        1.1
+      ],
+      "factor": 0.01,
+      "twinkle": 0.2,
+      "hz": 0.31
+    },
+    {
+      "size": 448,
+      "count": 34,
+      "r": [
+        0.9,
+        1.6
+      ],
+      "factor": 0.025,
+      "twinkle": 0.35,
+      "hz": 0.47
+    },
+    {
+      "size": 512,
+      "count": 12,
+      "r": [
+        1.4,
+        2.4
+      ],
+      "factor": 0.05,
+      "twinkle": 0.5,
+      "hz": 0.73
+    }
+  ]
 }

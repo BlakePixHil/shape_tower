@@ -26,15 +26,24 @@ export interface BackdropPart {
   spin?: number;
   /** Idle bob amplitude in px (the cow). */
   bob?: number;
+  /**
+   * What y is measured from. 'ground' (default): the world's ground line, for the Meadow.
+   * 'entry': the top of the screen at the moment the biome arrives, for every biome above it.
+   */
+  anchor?: 'ground' | 'entry';
+  /** Vertical repeat period in screen px, for ambient props that should keep coming as the view climbs. */
+  wrapY?: number;
+  /** Rotation sway amplitude in radians (kites). */
+  sway?: number;
 }
 
-function cloud(c: Ctx, x: number, y: number, r: number, fill: string): void {
+export function cloud(c: Ctx, x: number, y: number, r: number, fill: string): void {
   c.fillStyle = fill; c.beginPath();
   circ(c, x - r * 0.95, y, r * 0.62); circ(c, x - r * 0.25, y - r * 0.42, r * 0.82); circ(c, x + r * 0.55, y - r * 0.2, r * 0.7); circ(c, x + r * 1.15, y + r * 0.05, r * 0.5);
   c.rect(x - r * 0.95, y, r * 2.1, r * 0.55); c.fill();
 }
 
-function hillPath(c: Ctx, W: number, top: number, bottom: number, amp: number, len: number, ph: number): void {
+export function hillPath(c: Ctx, W: number, top: number, bottom: number, amp: number, len: number, ph: number): void {
   c.beginPath(); c.moveTo(-10, bottom); c.lineTo(-10, top + amp);
   for (let x = -10; x <= W + 10; x += 6) c.lineTo(x, top + amp - amp * (0.5 + 0.5 * Math.sin(x / len + ph)));
   c.lineTo(W + 10, bottom); c.closePath();

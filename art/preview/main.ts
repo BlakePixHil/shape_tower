@@ -3,6 +3,8 @@
 // URL options: ?state=stable|perfect|risky|tip|miss (else cycles) &climb=<blocks> &zoom=<n>
 // &sp=<sky position> &tension=<0..1> &gallery=1 (every shape, rotation and look).
 // &cp=near|hold|claim holds one checkpoint-line phase (else it cycles near, hold, claim).
+// &tour=1 climbs from the Meadow through Treetops into Cloudlands, playing each arrival.
+// &arrive=1 replays the current biome's arrival every 4 s (with &sp=1.2 or &sp=2.2).
 // Options also work after a # (e.g. #gallery), for hosts that drop the query string.
 
 import * as Phaser from 'phaser';
@@ -31,6 +33,7 @@ class Preview extends Phaser.Scene {
   private line: CheckpointLine | null = null;
   private lineBorn = 0;
   private pb!: PbMarker;
+  private lastBiome = 0;
 
   constructor() { super('preview'); }
 
@@ -95,12 +98,18 @@ class Preview extends Phaser.Scene {
     if (qs.has('gallery')) return;
     const dt = Math.min(0.05, deltaMs / 1000), t = (time - this.time0) / 1000;
     const cell = this.cell, cam = this.cameras.main;
-    cam.scrollY = -num('climb', 0) * cell;
+    const tour = qs.has('tour');
+    cam.scrollY = -(tour ? Math.max(0, t - 1) * 2.2 : num('climb', 0)) * cell;
 
-    const sp = this.sky.update(dt, 0, 0.2);
+    const clock = this.sky.update(dt, 0, 0.2);
+    const sp = tour ? Math.min(2.6, Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : clock;
     const ground = (this.groundY - cam.worldView.y) * cam.zoom;
-    this.backdrop.update(dt, ground, qs.has('sp') ? num('sp', 0) : sp);
-    const rim = rimAmount(qs.has('sp') ? num('sp', 0) : sp);
+    this.backdrop.update(dt, ground, sp);
+    const bi = Math.floor(sp + 0.02);
+    if (tour && bi > this.lastBiome) this.backdrop.arrival(bi);
+    if (qs.has('arrive') && Math.floor((t - 0.5) / 4) !== Math.floor((t - 0.5 - dt) / 4)) this.backdrop.arrival(bi);
+    this.lastBiome = bi;
+    const rim = rimAmount(sp);
 
     const tension = qs.has('tension') ? num('tension', 0) : 0.5 + 0.5 * Math.sin(t * 0.5);
     const topEx: Expression = tension >= 0.85 ? 'panic' : tension >= 0.3 ? 'worried' : 'idle';
