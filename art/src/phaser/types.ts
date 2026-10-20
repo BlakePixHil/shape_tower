@@ -29,6 +29,7 @@ export interface ImageLike extends DisplayLike {
 }
 
 export interface TileSpriteLike extends DisplayLike {
+  tilePositionX: number;
   tilePositionY: number;
   setSize(width: number, height: number): this;
 }

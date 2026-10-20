@@ -3,6 +3,7 @@
 // Images are drawn at cellPx × texScale pixels per block, so sprites display at scale 1 / texScale.
 
 import { ART } from '../config.ts';
+import { bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from '../checkpoint.ts';
 import { type Expression, FACE, drawEyes, drawMouth, drawPupil, drawSpiral, drawSweat } from '../face.ts';
 import { type GlyphState, bakeBeamFill, bakeChevron, bakeContactDot, bakeContactRing, bakeGhostEdge, bakeGlyph } from '../guide.ts';
 import { type Baked, type Finish, bakePiece, bakeRim, bakeSilhouette } from '../piece.ts';
@@ -134,6 +135,27 @@ export class ArtTextures {
   /** The Meadow's first wooden pedestal. Origin: centre of the top surface. */
   pedestal(width: number, legs = 1.6): TexRef { return this.packed(this.name('pedestal', width, legs), () => bakePedestal(width, this.s, legs)); }
   gradeStamp(g: Grade): TexRef { return this.packed(this.name('grade', g), () => bakeGradeStamp(g, this.s)); }
+
+  // ---- checkpoint line ----
+
+  /** Rope tile for a TileSprite: cream for the active line, gold once claimed. Origin: left, middle. */
+  rope(claimed: boolean): TexRef { return this.single(this.name('rope', claimed ? 'gold' : 'live'), () => bakeRopeTile(this.s, claimed), 0, 0.5); }
+  /** Bunting pennant in shape color i (BUNTING_KEYS order). Origin: top centre. */
+  pennant(i: number): TexRef { const n = ((i % 7) + 7) % 7; return this.packed(this.name('pennant', n), () => bakePennant(n, this.s)); }
+  /** The numbered checkpoint plaque. Origin: centre. */
+  plaque(n: number): TexRef { return this.packed(this.name('plaque', n), () => bakePlaque(n, this.s)); }
+  /** One hold-steady ring tick (white; tint mint when lit). */
+  holdTick(): TexRef { return this.packed(this.name('holdtick'), () => bakeHoldTick(this.s)); }
+  /** A display-face word with an Ink edge, e.g. "HOLD STEADY!". Origin: centre. */
+  label(text: string, size = 0.36): TexRef { return this.packed(this.name('label', text, size), () => bakeLabel(text, this.s, size)); }
+  /** Claimed-line flag, wave frame f. Origin: foot of the pole. */
+  flag(f: number): TexRef { return this.packed(this.name('flag', f), () => bakeFlag(f, this.s)); }
+  pbFlag(): TexRef { return this.packed(this.name('pbflag'), () => bakePbFlag(this.s)); }
+  /** Personal-best dash tile for a TileSprite. Origin: left, middle. */
+  pbDash(): TexRef { return this.single(this.name('pbdash'), () => bakePbDash(this.s), 0, 0.5); }
+  /** Soft glow band (its own texture, so stretching it never bleeds). Tint it. */
+  glowBand(): TexRef { return this.single('st:glowband', () => bakeGlowBand()); }
+  glint(): TexRef { return this.packed(this.name('glint'), () => bakeGlint(this.s)); }
 
   // ---- internals ----
 

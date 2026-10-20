@@ -2,11 +2,12 @@
 // the Phaser 4 adapter exactly as the game will use it.
 // URL options: ?state=stable|perfect|risky|tip|miss (else cycles) &climb=<blocks> &zoom=<n>
 // &sp=<sky position> &tension=<0..1> &gallery=1 (every shape, rotation and look).
+// &cp=near|hold|claim holds one checkpoint-line phase (else it cycles near, hold, claim).
 // Options also work after a # (e.g. #gallery), for hosts that drop the query string.
 
 import * as Phaser from 'phaser';
 import {
-  ART_SHAPES, ArtTextures, Backdrop, BlocklingView, GuideView, SkyClock, pedestalHeight, pose, rimAmount,
+  ART_SHAPES, ArtTextures, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker, SkyClock, pedestalHeight, pose, rimAmount,
   type Expression, type GuideShow, type SceneLike,
 } from '../src/index.ts';
 
@@ -27,6 +28,9 @@ class Preview extends Phaser.Scene {
   private left = 0;
   private top = 0;
   private time0 = 0;
+  private line: CheckpointLine | null = null;
+  private lineBorn = 0;
+  private pb!: PbMarker;
 
   constructor() { super('preview'); }
 
@@ -64,6 +68,7 @@ class Preview extends Phaser.Scene {
     });
     this.active = new BlocklingView(this.tex, 'L', { seed: 99, depth: 20, finish: 'wood' }).setExpression('falling');
     this.guide = new GuideView(this.tex, 1000);
+    this.pb = new PbMarker(this.tex, 899);
     this.time0 = this.time.now;
   }
 
@@ -129,6 +134,17 @@ class Preview extends Phaser.Scene {
     });
     this.guide.update(dt);
     void aw;
+
+    // Checkpoint line 8 blocks up: the tower closes in (0-2.5 s), holds steady (2.5-4.5 s), claims, and starts over.
+    const pedW = 6, cpY = this.top - 8 * cell, view = cam.worldView;
+    const cycle = 7.5, phase = qs.get('cp');
+    if (!this.line || (!phase && t - this.lineBorn > cycle)) { this.line?.destroy(); this.line = new CheckpointLine(this.tex, 3, 900); this.lineBorn = t; }
+    const lt = phase === 'near' ? 2 : phase === 'hold' ? 3.8 : phase === 'claim' ? 99 : t - this.lineBorn;
+    this.line.set({ y: cpY, x0: view.x - cell, x1: view.x + view.width + cell, near: Math.min(1, lt / 2.5), hold: lt > 2.5 ? Math.min(1, (lt - 2.5) / 2) : 0 });
+    if (lt >= 4.5 && !this.line.claimed) this.line.claim(this.left, this.left + pedW * cell);
+    this.line.update(dt);
+    this.pb.set(this.top - 4.5 * cell, view.x - cell, view.x + view.width + cell, this.left - 1.4 * cell).update(dt);
+    if (Math.floor(t / cycle) !== Math.floor((t - dt) / cycle)) this.pb.pop();
   }
 }
 
