@@ -21,10 +21,10 @@ const unhook = connectJuiceBus(sim.bus, audio);
 
 That's all the game has to do. The director listens to every JuiceBus event in gameplay.md §11.1 and the 10 Hz `signals` event, and works out the rest itself. It unlocks audio on the first touch, respects the iPhone silent switch (Web Audio in "ambient" mode, so the player's own music keeps playing), and goes quiet when the app is backgrounded.
 
-- **Vite:** alias `@audio` to `../audio/src`. The `?worker&inline` import keeps the worker inside the single-file build. It needs `"types": ["vite/client"]` (or a `/// <reference types="vite/client" />`) for TypeScript.
+- **Vite:** alias `@audio` to `../audio/src`. The `?worker&inline` import keeps the worker inside the single-file build. Set `worker: { format: 'iife' }` in `vite.config.ts`: an inline worker becomes a `blob:` URL, and a module worker (Vite's default `'es'`) from a blob fails to start when the page has an opaque origin, such as a `file://` page or a sandboxed preview. The import needs `"types": ["vite/client"]` (or a `/// <reference types="vite/client" />`) for TypeScript.
 - **No worker?** Leave `worker` out and baking runs on the main thread, one sound per task. It still works, but frames can hitch while the bank bakes.
 - **Startup:** creating the director is instant. Sounds bake in the background. Play can start once the core sounds are in (about 30 sounds), and `audio.ready` resolves when everything is baked.
-- **The run_start the sim emits in its constructor** happens before the view connects. The director picks the run up from the first `piece_spawned` instead, so this doesn't matter.
+- **The run_start the sim emits in its constructor** happens before the view connects. The director picks each run up from its first `piece_spawned` instead, so a new sim per run needs nothing extra. A spawn within half a second of `run_over` is treated as a stray from the run that ended.
 
 ### Menus and settings
 
@@ -50,13 +50,13 @@ It reads payloads defensively: missing or odd fields fall back to defaults, and 
 | Event | Fields it uses |
 |---|---|
 | `signals` | `tension` (creak 0.3, groan 0.6, danger 0.85 with exit at 0.75), `biome`, `altitude`, `cameraX`, `cameraY`, `foundationX`, `sway`, `gravityScale` |
-| `contact_hit` | `approachSpeed` (or `impulsePerMass`), `bodyA`, `bodyB`, `materialA`, `materialB`, `point`, `size` |
+| `contact_hit` | `approachSpeed` (or `impulsePerMass`), `bodyA`, `bodyB`, `materialA`, `materialB`, `biomeA`, `biomeB`, `point`, `size` (the larger piece's cell count; 4 plays at normal pitch, smaller is higher, bigger is lower) |
 | `contact_slide` | `body`, `speed` (start, update and stop a scrape loop; it stops 250 ms after the last report) |
 | `piece_settled` | `grade` (`perfect`, `clean`, `messy`), optional `material` |
 | `piece_rotated` | `dir` (1 clockwise, -1 counter-clockwise), `blocked` |
 | others | as in gameplay.md §11.1: `heart_lost{count, left}`, `checkpoint_hold{progress}`, `checkpoint_claimed{n, leftover}`, `biome_entered{id}`, `hazard_*{type, dir, eta, strength}`, `slowmo{on, timeScale}`, `hitstop{ms}`, `level_up{level}`, and so on |
 
-Materials are `wood`, `stone`, `ice`, `rubber`, `jelly`, `metal`, `glass`, `ground` and `base`. When a contact has no material, the current biome's material from Art's finishes table is used.
+Materials are `wood`, `stone`, `ice`, `rubber`, `jelly`, `metal`, `glass`, `ground` and `base`. When a body has no material, the director uses the material of the biome it was placed in (`biomeA`, `biomeB`, from the material ids in Art's finishes table, art-direction §4.6), so a piece keeps its sound after the biome changes. With neither, it uses the current biome's.
 
 ## Replacing a placeholder with a recording
 
@@ -92,7 +92,7 @@ npm test     # typecheck, unit tests, then the browser tests in headless Chromiu
 
 `npm run build:sketchbook` builds the Sound Sketchbook (`dist/sketchbook.html`), one page where every sound and the main moments can be played by hand through the real director.
 
-The browser tests render real mixes offline and check them: a scripted run through every system, a 150-hit collapse, a resting tower, loudness by impact speed, mono, bad payloads, danger hysteresis, worker baking, and memory per biome. When `../game` is present with its packages installed, they also play Gameplay's real sim with a bot and check the audio it produces.
+The browser tests render real mixes offline and check them: a scripted run through every system, a 150-hit collapse, a resting tower, loudness by impact speed, mono, bad payloads, danger hysteresis, worker baking, memory per biome, impacts by placement biome, and back-to-back runs with no `run_start`. When `../game` is present with its packages installed, they also play Gameplay's real sim with a bot the way the game does (a new sim per run, connected after its constructor) and check the audio of every run.
 
 Current numbers (headless Chromium in the cloud container):
 

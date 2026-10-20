@@ -36,6 +36,8 @@ export const TUNING = {
   /** world half-width (blocks) used for panning, and visible height for off-screen fades */
   halfWidth: 6,
   viewHeight: 20,
+  /** a piece spawned this long (s) after run_over starts a new run */
+  restartGap: 0.5,
 };
 
 export interface DirectorOptions {
@@ -52,7 +54,8 @@ export interface DirectorOptions {
   realtime?: boolean;
   /**
    * Bakes sounds off the main thread. In a Vite game:
-   * `import BakeWorker from '@audio/bake/worker?worker'` then `worker: () => new BakeWorker()`.
+   * `import BakeWorker from '@audio/bake/worker?worker&inline'` then `worker: () => new BakeWorker()`,
+   * with `worker: { format: 'iife' }` in vite.config (a module worker from an inline blob fails on file://).
    * Without it, baking runs on the main thread in small slices.
    */
   worker?: Worker | (() => Worker) | null;
@@ -119,8 +122,8 @@ export class AudioDirector {
 
   // run state
   private running = false;
-  /** a run has ended and no run_start has come since (stray spawns must not restart the run mix) */
-  private over = false;
+  /** when the last run ended; a spawn right after it must not restart the run mix */
+  private overAt = -Infinity;
   private biomeId = 1;
   private key: Key = BIOMES[0].key;
   private checkpointN = 0;
@@ -629,8 +632,9 @@ export class AudioDirector {
     switch (name) {
       // input (6.1)
       case 'piece_spawned':
-        // a director created after the sim's run_start still picks the run up
-        if (!this.running && !this.over) this.startRun(when, false);
+        // the sim emits run_start before the view connects, so a spawn starts the run;
+        // one in the same moment as run_over is a stray from the run that just ended
+        if (!this.running && when - this.overAt > TUNING.restartGap) this.startRun(when, false);
         this.play('spawn', { when, gainDb: -17, category: 'misc', priority: 3 });
         this.haptic('spawn');
         break;
@@ -871,7 +875,7 @@ export class AudioDirector {
 
   private startRun(when: number, chime: boolean): void {
     this.running = true;
-    this.over = false;
+    this.overAt = -Infinity;
     this.ladder.reset();
     this.ladder.newBiome();
     this.entryPlayed.clear();
@@ -905,8 +909,9 @@ export class AudioDirector {
     const v = num(p, 'approachSpeed', num(p, 'impulsePerMass', 0));
     if (!(v >= TUNING.minSpeed)) return;
     const a = str(p, 'bodyA', 'a'), b = str(p, 'bodyB', '');
-    const matA = asMaterial(p?.materialA, this.material);
-    const matB = asMaterial(p?.materialB, matA);
+    // no material means the finish of the biome the piece was placed in (biomeA/biomeB)
+    const matA = asMaterial(p?.materialA, this.biomeMaterial(p?.biomeA, this.material));
+    const matB = asMaterial(p?.materialB, this.biomeMaterial(p?.biomeB, matA));
     this.bodyMaterial.set(a, matA);
     if (b) this.bodyMaterial.set(b, matB);
     if (this.bodyMaterial.size > 400) this.bodyMaterial.delete(this.bodyMaterial.keys().next().value as string);
@@ -924,6 +929,10 @@ export class AudioDirector {
     };
     this.play(this.impactName(matA, Math.max(1, tier)), { ...common, gainDb });
     if (matB !== matA && tier >= 1) this.play(this.impactName(matB, Math.max(1, tier - 1)), { ...common, gainDb: gainDb - 10.5, priority: Math.max(priority, 4) as Priority });
+  }
+
+  private biomeMaterial(id: unknown, fallback: Material): Material {
+    return typeof id === 'number' && Number.isFinite(id) ? biome(id).material : fallback;
   }
 
   /** The impact for a material, or the biome's own while a rarely heard material bakes in the background. */
@@ -1053,7 +1062,7 @@ export class AudioDirector {
 
   private onGameOver(when: number): void {
     this.running = false;
-    this.over = true;
+    this.overAt = when;
     this.danger = false;
     this.holding = false;
     this.stopDrumroll(when);

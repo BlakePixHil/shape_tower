@@ -14,7 +14,13 @@ const SR = 48000;
   const ctx = new OfflineAudioContext(2, SR * (seconds + 4), SR);
   const d = new AudioDirector({ context: ctx, haptics: false, storage: null, seed: 1, lowEnd: false });
   await d.ready;
-  const t = createSim({ autoSpawn: true, seed });
+  const played: Record<string, number> = {};
+  const target = d as unknown as { play: (name: string, ...rest: unknown[]) => unknown };
+  const play = target.play.bind(d);
+  target.play = (name, ...rest) => {
+    if (name.startsWith('impact.')) played[name.split('.')[1]] = (played[name.split('.')[1]] ?? 0) + 1;
+    return play(name, ...rest);
+  };
   const rng = mulberry32(seed);
   const counts: Record<string, number> = {};
   const plan = new Map<number, Record<string, unknown>[]>();
@@ -23,26 +29,48 @@ const SR = 48000;
   const peak: Record<string, number> = {};
   let maxVoices = 0;
   const mixLog: string[] = [];
+  const runs: { from: number; hits: number; overAt: number | null }[] = [];
+  // Like the game's view: a new sim for every run, connected after its constructor has emitted
+  // run_start, and a few seconds of results between runs.
+  const newRun = (from: number) => {
+    const sim = createSim({ autoSpawn: true, seed: seed + runs.length });
+    sim.drainEvents();
+    plan.clear();
+    runs.push({ from, hits: 0, overAt: null });
+    return sim;
+  };
   const steps = seconds * 60;
+  let t = newRun(0);
   for (let step = 0; step < steps; step++) {
-    for (const i of plan.get(step) ?? []) t.intent(i);
-    plan.delete(step);
+    const run = runs[runs.length - 1];
+    const local = step - run.from;
+    if (run.overAt !== null) {
+      if (step - run.overAt >= 4 * 60 && steps - step > 20 * 60) {
+        t.dispose();
+        t = newRun(step);
+      }
+      continue;
+    }
+    for (const i of plan.get(local) ?? []) t.intent(i);
+    plan.delete(local);
     t.step();
     for (const e of t.drainEvents()) {
       counts[e.name] = (counts[e.name] ?? 0) + 1;
       if (e.name === 'signals') foundationX = Number(e.payload.foundationX) || 0;
+      if (e.name === 'contact_hit') run.hits++;
+      if (e.name === 'run_over') run.overAt = step;
       if (e.name === 'piece_spawned') {
         // the bot: aim near the middle of the foundation, sometimes rotate, then drop
         const x = Math.round((foundationX + (rng() * 2 - 1) * 2.5) * 2) / 2;
-        later(step + 6, { type: 'moveTo', x });
-        if (rng() < 0.5) later(step + 10, { type: 'rotate', dir: rng() < 0.5 ? 1 : -1 });
-        later(step + 20 + Math.floor(rng() * 20), { type: 'hardDrop' });
+        later(local + 6, { type: 'moveTo', x });
+        if (rng() < 0.5) later(local + 10, { type: 'rotate', dir: rng() < 0.5 ? 1 : -1 });
+        later(local + 20 + Math.floor(rng() * 20), { type: 'hardDrop' });
       }
       const c0 = performance.now();
       const before = d.mixer.state().base;
-      d.handle(e.name, e.payload, 0.05 + e.step / 60);
+      d.handle(e.name, e.payload, 0.05 + (run.from + e.step) / 60);
       const after = d.mixer.state().base;
-      if (before !== after) mixLog.push(`${e.step}:${e.name}:${before}->${after}`);
+      if (before !== after) mixLog.push(`${run.from + e.step}:${e.name}:${before}->${after}`);
       const dt = performance.now() - c0;
       worst = Math.max(worst, dt);
       total += dt;
@@ -70,5 +98,7 @@ const SR = 48000;
     cpu: { meanMs: total / Math.max(1, handled), worstMs: worst, events: handled },
     state: d.debugState(),
     mixLog,
+    runs,
+    played,
   };
 };
