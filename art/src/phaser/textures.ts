@@ -3,11 +3,13 @@
 // Images are drawn at cellPx × texScale pixels per block, so sprites display at scale 1 / texScale.
 
 import { ART } from '../config.ts';
+import { bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from '../checkpoint.ts';
 import { type Expression, FACE, drawEyes, drawMouth, drawPupil, drawSpiral, drawSweat } from '../face.ts';
 import { type GlyphState, bakeBeamFill, bakeChevron, bakeContactDot, bakeContactRing, bakeGhostEdge, bakeGlyph } from '../guide.ts';
 import { type Baked, type Finish, bakePiece, bakeRim, bakeSilhouette } from '../piece.ts';
 import { type Grade, bakeGradeStamp, bakePedestal, bakeSlab } from '../slab.ts';
 import { ctx2d, makeCanvas } from '../util.ts';
+import { VFX_NAMES, type VfxName, bakeVfx } from '../vfx.ts';
 import type { CanvasTextureLike, SceneLike } from './types.ts';
 
 /** A texture key, the frame inside it, and the pivot as fractions of the frame. */
@@ -71,7 +73,7 @@ export class ArtTextures {
   }
 
   /** Bake ahead of time (e.g. on a loading screen) so nothing bakes mid-run. */
-  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean } = {}): void {
+  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean } = {}): void {
     for (const key of keys) for (let q = 0; q < 4; q++) {
       for (const f of o.finishes ?? [null]) this.piece(key, q, { finish: f });
       if (o.stone ?? true) this.piece(key, q, { stone: true });
@@ -81,6 +83,7 @@ export class ArtTextures {
     }
     for (const ex of ['idle', 'falling', 'impact', 'proud', 'worried', 'panic', 'blink'] as Expression[]) { this.face(`eyes_${ex}`); this.face(`mouth_${ex}`); }
     for (const p of ['pupil', 'spiral', 'sweat'] as FacePart[]) this.face(p);
+    if (o.vfx ?? true) for (const v of VFX_NAMES) this.vfx(v);
     this.flush();
   }
 
@@ -134,6 +137,32 @@ export class ArtTextures {
   /** The Meadow's first wooden pedestal. Origin: centre of the top surface. */
   pedestal(width: number, legs = 1.6): TexRef { return this.packed(this.name('pedestal', width, legs), () => bakePedestal(width, this.s, legs)); }
   gradeStamp(g: Grade): TexRef { return this.packed(this.name('grade', g), () => bakeGradeStamp(g, this.s)); }
+
+  // ---- checkpoint line ----
+
+  /** Rope tile for a TileSprite: cream for the active line, gold once claimed. Origin: left, middle. */
+  rope(claimed: boolean): TexRef { return this.single(this.name('rope', claimed ? 'gold' : 'live'), () => bakeRopeTile(this.s, claimed), 0, 0.5); }
+  /** Bunting pennant in shape color i (BUNTING_KEYS order). Origin: top centre. */
+  pennant(i: number): TexRef { const n = ((i % 7) + 7) % 7; return this.packed(this.name('pennant', n), () => bakePennant(n, this.s)); }
+  /** The numbered checkpoint plaque. Origin: centre. */
+  plaque(n: number): TexRef { return this.packed(this.name('plaque', n), () => bakePlaque(n, this.s)); }
+  /** One hold-steady ring tick (white; tint mint when lit). */
+  holdTick(): TexRef { return this.packed(this.name('holdtick'), () => bakeHoldTick(this.s)); }
+  /** A display-face word with an Ink edge, e.g. "HOLD STEADY!". Origin: centre. */
+  label(text: string, size = 0.36): TexRef { return this.packed(this.name('label', text, size), () => bakeLabel(text, this.s, size)); }
+  /** Claimed-line flag, wave frame f. Origin: foot of the pole. */
+  flag(f: number): TexRef { return this.packed(this.name('flag', f), () => bakeFlag(f, this.s)); }
+  pbFlag(): TexRef { return this.packed(this.name('pbflag'), () => bakePbFlag(this.s)); }
+  /** Personal-best dash tile for a TileSprite. Origin: left, middle. */
+  pbDash(): TexRef { return this.single(this.name('pbdash'), () => bakePbDash(this.s), 0, 0.5); }
+  /** Soft glow band (its own texture, so stretching it never bleeds). Tint it. */
+  glowBand(): TexRef { return this.single('st:glowband', () => bakeGlowBand()); }
+  glint(): TexRef { return this.packed(this.name('glint'), () => bakeGlint(this.s)); }
+
+  // ---- effects ----
+
+  /** An effect texture for particles (see VFX for natural sizes in blocks). Origin: centre. */
+  vfx(name: VfxName): TexRef { return this.packed(this.name('vfx', name), () => bakeVfx(name, this.s)); }
 
   // ---- internals ----
 

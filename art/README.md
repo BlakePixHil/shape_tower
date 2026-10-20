@@ -16,8 +16,10 @@ The Shape Tower art kit. Everything is drawn in code with Canvas 2D (no image fi
 | Landing guide | `src/guide.ts` | Ghost edge, chevrons, beam, contact dot and ring, state glyphs. |
 | Biomes | `src/biomes.ts` | All ten biomes, the sky blend, `SkyClock`, rim and star amounts. |
 | Foundations | `src/slab.ts` | The Meadow's wooden pedestal, a graded slab for each biome, grade stamps. |
-| Backdrop | `src/meadow.ts` | The Meadow's parallax layers: sun, clouds, hills and farmhouse, windmill, trees and fence, cow, grass. |
-| Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `Backdrop`. |
+| Checkpoint line | `src/checkpoint.ts` | Rope, bunting in the shape colors, numbered plaque, hold-steady ring and label, the claimed line's flag, and the best-height marker. |
+| Backdrops | `src/meadow.ts`, `src/treetops.ts`, `src/cloudlands.ts`, `src/stars.ts` | Parallax layers for the Meadow (sun, clouds, hills, windmill farmhouse, trees, fence, cow, grass), Treetops (mountains, canopies, balloons, kites, birds) and Cloudlands (cloud banks, castle, rainbow, blimp, plane), plus a three-depth star field. Biomes 4 to 10 show their sky and stars until their props land. |
+| Effects | `src/vfx.ts` | Particle textures: dust and cloud puffs, stardust, sparkle, impact ring, shockwave, flash, speed line, whoosh, wobble lines, crack, stone chip, confetti and mini-shape confetti, XP orb, rays. |
+| Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `Backdrop`. |
 
 ## Using it from game/
 
@@ -55,6 +57,29 @@ guide.show({ key, q, pieceX, pieceY, ghostX, ghostY, state, perfect, contacts })
 guide.update(dt);
 backdrop.update(dt, groundScreenY, sky.update(dt, biome, progress));
 ```
+
+### Checkpoint line and best height
+
+```ts
+const line = new CheckpointLine(tex, checkpointNumber, depth);
+// Every frame while it's the active line (world px; x0..x1 = the view plus a block each side):
+line.set({ y, x0, x1, near, hold, plaqueX }).update(dt);
+// On checkpoint_claimed: bunting pops off, rope turns gold, the flag plants. Keep updating it.
+line.claim(towerLeft, towerRight);
+
+const pb = new PbMarker(tex, depth);
+pb.set(y, x0, x1).update(dt);   // pb.pop() on pb_crossed
+```
+
+`near` (0 to 1) brightens the glow and speeds up the bunting; `hold` (0 to 1) fills the hold-steady ring. The plaque defaults to 1.3 blocks inside the right edge of the view.
+
+### Effects
+
+`tex.vfx(name)` returns an atlas frame, so a particle needs the texture key and the frame: `img.setTexture(r.key, r.frame)`. `VFX[name]` is each effect's natural size in blocks, so `scale = wantedBlocks / VFX[name] * tex.scale`. White effects are meant to be tinted: dust with `BIOMES[biome].dust`, rings and sparkles with the signal colors. Confetti `mini_I` through `mini_Z` come in their shape colors. `prewarm()` bakes every effect unless you pass `vfx: false`. The preview's `vfx=1` shows them all with a looping claim burst.
+
+### Backdrop
+
+The backdrop bakes each biome's props when the climb is about halfway through the biome before it, and frees them two biomes later, so only two or three biomes are in memory. Props above the Meadow are placed relative to the screen at the moment their biome arrives, then sink at their scroll factor as the tower climbs. On `biome_entered`, call `backdrop.arrival(biomeIndex)` to play the arrival moment: a bird flock for Treetops, the cloud punch-through for Cloudlands. The punch-through passes in front of the tower at `frontDepth` (default 950); keep that under the guide.
 
 ### Conventions
 
@@ -94,6 +119,10 @@ npm run shots -- "state=tip&maxtex=1" "gallery=1&maxtex=1"   # screenshots of di
 Add these to the preview URL:
 
 - `state=stable|perfect|risky|tip|miss` holds one guide state (otherwise they cycle).
+- `cp=near|hold|claim` holds one checkpoint-line phase (otherwise it cycles).
+- `vfx=1` shows every effect texture over a day and a night sky, with a looping claim burst.
+- `tour=1` climbs from the Meadow through Treetops into Cloudlands and plays each arrival. `arrive=1` replays the current biome's arrival every 4 s.
+- Options also work after a `#` (for example `#tour`), for hosts that drop the query string.
 - `gallery=1` shows every shape in every rotation, with worried, stone and space-rim looks.
 - `climb=<blocks>` scrolls up, `zoom=<n>` zooms the camera, `sp=<0..9.7>` sets the sky position, `tension=<0..1>` fixes tension.
 - `maxtex=1` or `renderer=canvas` for headless runs (see above).
