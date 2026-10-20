@@ -44,6 +44,8 @@ export interface PhysicsEngine {
   velocity(id: number): Velocity;
   setVelocity(id: number, v: Velocity): void;
   isAwake(id: number): boolean;
+  /** Continuous collision against other moving bodies too (fast falling pieces, QA-001). */
+  setBullet(id: number, on: boolean): void;
   mass(id: number): number;
   applyForce(id: number, fx: number, fy: number): void;
   /** Ids of tower and stone bodies overlapping these boxes placed at (x, y, rot). */

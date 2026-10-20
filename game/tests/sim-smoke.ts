@@ -1,7 +1,7 @@
 // Quick headless checks of the sim (Gameplay's own; QA owns the real suites).
 // Run: npm run sim:smoke
 
-import { createSim, replay } from '../src/sim/testApi.ts';
+import { createSim, replay, restore } from '../src/sim/testApi.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -129,6 +129,53 @@ for (const mortar of [true, false]) {
   const ev = t.drainEvents();
   check('Shape dropped beside the plinth is Lost and costs a heart', ev.some(e => e.name === 'piece_lost') && t.hearts === 2, `hearts ${t.hearts}`);
   t.dispose();
+}
+
+// QA-001: a thin piece falling fast onto a loose piece must not sink into it (F3.3: out within 3 steps).
+{
+  const t = createSim({ tuning: { mortar: false } });
+  t.placePiece({ shape: 'O', x: 0, y: 1 });
+  t.step(30);
+  const id = t.placePiece({ shape: 'Domino', x: 0.3, y: 18 });
+  let worst = 0, deep = 0, hitSpeed = 0;
+  for (let i = 0; i < 180; i++) {
+    t.step();
+    const o = t.pieces().find(p => p.shape === 'O')!, d = t.pieces().find(p => p.id === id);
+    if (!d) break;
+    const sink = (o.y + 1) - (d.y - 0.5);
+    if (sink > 0.02) { deep++; worst = Math.max(worst, sink); }
+    if (sink < 0.3) hitSpeed = Math.max(hitSpeed, Math.abs(d.vy));
+  }
+  check('QA-001 fast Domino onto a loose O does not sink', deep <= 3 && worst < 0.1, `worst sink ${worst.toFixed(3)} blocks, ${deep} steps deep, hit at ${hitSpeed.toFixed(1)} blocks/s`);
+  t.dispose();
+}
+
+// T4 needle (gameplay.md §16): 4 vertical I pieces with Mortar stand in calm air and a 0.08 g gust,
+// fall in a 0.12 g gust (3 s).
+{
+  const needle = (wind: number) => {
+    const t = createSim({ tuning: { mortar: true, firstGap: 100, gapCap: 100 } });
+    for (let i = 0; i < 4; i++) { t.placePiece({ shape: 'I', x: 0, y: 2 + 4 * i, rot: 1 }); t.step(40); }
+    t.step(60);
+    if (wind) { t.retune({ wind }); t.step(180); t.retune({ wind: 0 }); }
+    t.step(600);
+    const top = Math.max(...t.pieces().filter(p => p.state !== 'lost').map(p => p.y));
+    t.dispose();
+    return top > 13;
+  };
+  const calm = needle(0), soft = needle(0.08), hard = needle(0.12);
+  check('T4 needle stands calm and in 0.08 g, falls in a 0.12 g gust', calm && soft && !hard, `calm ${calm ? 'stands' : 'falls'}, 0.08 g ${soft ? 'stands' : 'falls'}, 0.12 g ${hard ? 'stands' : 'falls'}`);
+}
+
+// Snapshot and restore rebuild the same state.
+{
+  const t = createSim({ seed: 3, autoSpawn: true });
+  for (let i = 0; i < 600; i++) { if (t.controlled() && i % 50 === 0) t.intent({ type: 'hardDrop' }); t.step(); }
+  const snap = t.snapshot();
+  const u = restore(snap);
+  t.step(300); u.step(300);
+  check('Snapshot and restore continue identically', t.digest() === u.digest() && u.stepIndex === 900, `${t.digest()} vs ${u.digest()}`);
+  t.dispose(); u.dispose();
 }
 
 // Auto-play smoke: a run with auto spawn and a naive bot keeps going without errors.

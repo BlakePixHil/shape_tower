@@ -28,6 +28,10 @@ export interface Intent {
   lockX?: number;
 }
 
+/** A lab slider change mid-run, logged with the intents so a replay applies it at the same step. */
+export interface Retune { type: 'retune'; patch: Partial<Tuning> }
+export type LoggedInput = { s: number; i: Intent | Retune };
+
 export interface Ghost {
   x: number;
   y: number | null;
@@ -69,6 +73,7 @@ interface Piece {
   graded: boolean;
   tintAtDrop: Tint;
   bonds: Map<number, number>; // other id -> joint id
+  bullet: boolean;
   bondCheckAt: number;
   lostTime: number;
   top: number;
@@ -97,6 +102,7 @@ const ROOKIE_OPENING = ['O', 'I', 'L', 'O', 'J', 'T', 'I', 'O', 'L', 'J'];
 const BAG_SIZE = 10;
 const RESCUE = new Set(['O', 'I', 'Plank']);
 const FIRST_FOUNDATION_WIDTH = 8;
+const BULLET_SPEED = 10; // blocks/s
 
 export class Sim {
   readonly tuning: Tuning;
@@ -115,13 +121,13 @@ export class Sim {
   foundations: Foundation[] = [];
   lineY = 0;
   private camera = { x: 0, y: 0, timeScale: 1 };
-  readonly inputLog: { s: number; i: Intent }[] = [];
+  readonly inputLog: LoggedInput[] = [];
   budget = 0;
   used = 0;
   hearts: number;
   score = 0;
   combo = 0;
-  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, grades: [] as FoundationGrade[] };
+  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[] };
 
   // Steering
   ctrl: Controlled | null = null;
@@ -206,6 +212,13 @@ export class Sim {
     this.lastGhost = null;
   }
 
+  /** Applies lab slider changes. Most take effect on the next shape; gravity applies at once. */
+  retune(patch: Partial<Tuning>): void {
+    this.inputLog.push({ s: this.stepIndex, i: { type: 'retune', patch: { ...patch } } });
+    Object.assign(this.tuning, patch);
+    this.engine.setGravity(0, -this.tuning.gravity * this.gravityScale);
+  }
+
   /** Spawn the next shape now, ignoring timers (QA sandboxes, debug). */
   spawnControlled(opts: { shape?: string; x?: number; rot?: number } = {}): void {
     if (this.ctrl) return;
@@ -278,7 +291,7 @@ export class Sim {
 
   /** XP for the run so far (gameplay.md §10.1, before daily and streak boosts). */
   xp(quit = false): number {
-    const H = Math.max(0, Math.floor(this.height().committed));
+    const H = Math.max(0, Math.floor(this.stats.maxHeight - this.foundations[0].top));
     let cp = 0;
     for (const g of this.stats.grades) cp += 30 * GRADE_FACTOR[g];
     let raw = 3 * H + cp + this.stats.perfects + 8 * this.stats.rows + 15 * this.stats.biomes + 2 * this.stats.clutches;
@@ -305,10 +318,12 @@ export class Sim {
     this.updatePieces();
     this.updateMortar();
     this.updateTension();
+    const h = this.height().committed;
+    if (h > this.stats.maxHeight) this.stats.maxHeight = h;
     if (this.state === 'playing') {
       this.updateCheckpoint();
       this.applyHeartLosses();
-      this.updateSpawning();
+      if (this.state === 'playing') this.updateSpawning();
     } else {
       this.pendingLost = [];
     }
@@ -508,7 +523,7 @@ export class Sim {
     const p: Piece = {
       id, shape, state: stone ? 'stone' : 'landing', segment: this.checkpoint, claimed: false,
       landTime: this.time, landX: x, restTime: 0, graded: false, tintAtDrop: 'none',
-      bonds: new Map(), bondCheckAt: 0, lostTime: 0, top: y, bottom: y, cx: x, cy: y,
+      bonds: new Map(), bullet: false, bondCheckAt: 0, lostTime: 0, top: y, bottom: y, cx: x, cy: y,
     };
     this.pieces.set(id, p);
     this.updateBounds(p);
@@ -564,6 +579,10 @@ export class Sim {
       const speed = Math.sqrt(v.vx * v.vx + v.vy * v.vy);
       const spin = Math.abs(v.w);
       const awake = this.engine.isAwake(p.id);
+      // Box2D only sweeps against static bodies, so a thin piece falling fast onto a loose one can
+      // sink into it (QA-001). Fast pieces become bullets until they slow down.
+      const bullet = speed > BULLET_SPEED;
+      if (bullet !== p.bullet) { p.bullet = bullet; this.engine.setBullet(p.id, bullet); }
 
       if (this.isLostPosition(p)) { this.markLost(p); continue; }
 
@@ -697,19 +716,31 @@ export class Sim {
     return total ? hits / total : 0;
   }
 
+  /** Bisects from a contact sample out to where the support under it ends (dir -1 left, +1 right). */
+  private supportEdge(p: { x: number; y: number }, dir: number): number {
+    let hit = p.x, miss = p.x + dir * 0.1;
+    if (this.engine.overlapPoint(miss, p.y, 0.015).length) return miss;
+    for (let i = 0; i < 5; i++) {
+      const mid = (hit + miss) / 2;
+      if (this.engine.overlapPoint(mid, p.y, 0.015).length) hit = mid; else miss = mid;
+    }
+    return hit;
+  }
+
   private checkRows(p: Piece): void {
     const f = this.foundation;
     const k0 = Math.max(this.solidTo, Math.floor(p.bottom - f.top + 1e-3));
     const k1 = Math.floor(p.top - f.top - 1e-3);
     let newRows = 0;
+    const rows: number[] = [];
     for (let k = k0; k <= k1; k++) {
-      if (this.rowSolid(k)) { newRows++; this.solidify(f.top + k + 1); this.solidTo = k + 1; }
+      if (this.rowSolid(k)) { newRows++; rows.push(f.top + k + 0.5); this.solidify(f.top + k + 1); this.solidTo = k + 1; }
     }
     if (!newRows) return;
     this.stats.rows += newRows;
     const pts = [0, 500, 1200, 2000, 3000][Math.min(newRows, 4)];
     this.addScore(pts * this.biomeMult());
-    this.bus.emit('row_solid', { count: newRows });
+    this.bus.emit('row_solid', { count: newRows, rows, x: f.x, width: f.width });
   }
 
   private rowSolid(k: number): boolean {
@@ -899,12 +930,15 @@ export class Sim {
     if (this.time - this.outOfBricksAt >= t.budgetGrace) this.endRun('bricks');
   }
 
+  /** Ends the run from the pause menu (XP × 0.5). */
+  quit(): void { this.endRun('quit'); }
+
   private endRun(cause: string): void {
     if (this.state === 'over') return;
     this.state = 'over';
     this.cause = cause;
     this.ctrl = null;
-    this.bus.emit('run_over', { cause, height: this.height().committed, checkpoints: this.stats.checkpoints, score: Math.round(this.score), xp: this.xp() });
+    this.bus.emit('run_over', { cause, height: this.stats.maxHeight, checkpoints: this.stats.checkpoints, score: Math.round(this.score), xp: this.xp(cause === 'quit') });
   }
 
   // ------------------------------------------------------------------ hits, tension, signals
@@ -914,10 +948,14 @@ export class Sim {
     let n = 0;
     for (const h of hits) {
       if (n++ >= 8) break;
-      const mat = (id: number) => (this.isFoundation(id) || this.pieces.get(id)?.state === 'stone' ? 'stone' : 'wood');
+      // Stone for slabs and stone pieces. Other pieces leave the material out and say which biome
+      // they were placed in, so Sound can use that biome's finish (Art's BIOMES[].finish).
+      const mat = (id: number) => (this.isFoundation(id) || this.pieces.get(id)?.state === 'stone' ? 'stone' : undefined);
+      const biome = (id: number) => biomeFor(this.pieces.get(id)?.segment ?? this.checkpoint).id;
+      const cells = (id: number) => { const p = this.pieces.get(id); return p ? SHAPES[p.shape].cells.length : 0; };
       this.bus.emit('contact_hit', {
-        bodyA: h.a, bodyB: h.b, materialA: mat(h.a), materialB: mat(h.b),
-        approachSpeed: h.speed, impulsePerMass: h.speed, point: { x: h.x, y: h.y }, size: 1,
+        bodyA: h.a, bodyB: h.b, materialA: mat(h.a), materialB: mat(h.b), biomeA: biome(h.a), biomeB: biome(h.b),
+        approachSpeed: h.speed, impulsePerMass: h.speed, point: { x: h.x, y: h.y }, size: Math.max(1, cells(h.a), cells(h.b)),
       });
     }
   }
@@ -992,11 +1030,18 @@ export class Sim {
     let tint: Tint = 'ok';
     if (contacts.length === 0) tint = supportIds.length ? 'amber' : 'none';
     else {
-      let minX = Infinity, maxX = -Infinity;
-      for (const p of contacts) { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); }
+      let left = contacts[0], right = contacts[0];
+      for (const p of contacts) { if (p.x < left.x) left = p; if (p.x > right.x) right = p; }
+      // Samples are 0.2 apart, so find each end of the support properly (up to 0.1 past the last hit).
+      const minX = this.supportEdge(left, -1), maxX = this.supportEdge(right, 1);
       const span = Math.max(maxX - minX, 0.2);
-      if (cx < minX - 0.05 || cx > maxX + 0.05) tint = 'red';
-      else if (cx - minX < 0.15 * span || maxX - cx < 0.15 * span) tint = 'amber';
+      if (cx < minX - 0.02 || cx > maxX + 0.02) {
+        // A part hanging below the pivot that already touches something on the support side can't
+        // swing through it, so the shape is braced rather than tipping.
+        const dir = cx < minX ? 1 : -1;
+        const braced = this.engine.overlapBoxes(this.boxes(c.shape, c.rot), c.x + dir * (this.tuning.inset + 0.02), gy + 0.03, rotQ(c.rot)).length > 0;
+        tint = braced ? 'amber' : 'red';
+      } else if (cx - minX < 0.15 * span || maxX - cx < 0.15 * span) tint = 'amber';
     }
     return { x: c.x, y: gy, rot: c.rot, contacts, supportIds, tint, perfectFit: support >= 0.75, supportFraction: support, distance: c.y - gy };
   }

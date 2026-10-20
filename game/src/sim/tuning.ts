@@ -100,7 +100,7 @@ export const DEFAULT_TUNING: Tuning = {
   bondDelayGrowth: 0.06,
   bondDelayCap: 2.0,
   breakForce: 6,
-  breakTorque: 6,
+  breakTorque: 3.5,
   bondHertz: 8,
   bondDamping: 1,
   maxBonds: 4,

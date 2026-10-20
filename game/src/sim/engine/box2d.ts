@@ -130,6 +130,11 @@ export class Box2DEngine implements PhysicsEngine {
     B.b2Body_SetAngularVelocity(e.body, v.w);
   }
 
+  setBullet(id: number, on: boolean): void {
+    const e = this.bodies.get(id);
+    if (e) B.b2Body_SetBullet(e.body, on);
+  }
+
   isAwake(id: number): boolean {
     const e = this.bodies.get(id);
     return !!e && B.b2Body_IsAwake(e.body);
