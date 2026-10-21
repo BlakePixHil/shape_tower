@@ -276,6 +276,7 @@ export class PlayScene extends Phaser.Scene {
   /** The HUD's power slots and Second Wind button. */
   usePower(slot: number): void { this.intent({ type: 'power', slot }); }
   useSecondWind(): void { this.intent({ type: 'secondWind' }); }
+  hold(): void { this.intent({ type: 'hold' }); }
 
   retune(patch: Partial<Tuning>): void { this.sim.retune(patch); }
 

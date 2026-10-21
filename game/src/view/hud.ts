@@ -137,6 +137,8 @@ export class Hud {
   private lastWind: SecondWindState = 'earn';
   /** A power slot was tapped. */
   onPower: (slot: number) => void = () => {};
+  /** The Hold card was tapped (the same as a flick up). */
+  onHold: () => void = () => {};
   /** Second Wind was tapped twice (the first tap arms it, so a stray tap can't spend it). */
   onSecondWind: () => void = () => {};
   private lastHearts = -1;
@@ -207,6 +209,8 @@ export class Hud {
     this.activeEl = q('active');
     this.windBtn.querySelector('img')!.src = powerIconUrl('wind', 46);
     this.slotBtns.forEach((b, i) => { b.onclick = () => this.onPower(i); });
+    this.holdCard.style.pointerEvents = 'auto';
+    this.holdCard.onclick = () => { if (!this.holdCard.classList.contains('locked')) this.onHold(); };
     this.windBtn.onclick = () => {
       const now = performance.now();
       if (now < this.windArmedUntil) { this.windArmedUntil = 0; this.onSecondWind(); }

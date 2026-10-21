@@ -446,7 +446,8 @@ export class Sim {
     const e = (this.stepIndex - g.startStep) * DT;
     if (e >= g.dur) {
       g.phase = 'idle';
-      this.gustNext = this.time + spec.interval * (85 + this.rng.hazards.int(31)) / 100;
+      // §8.2's interval runs start to start: the next warning comes 2 s before it, never before now.
+      this.gustNext = Math.max(this.time, this.time - e + spec.interval * (85 + this.rng.hazards.int(31)) / 100 - GUST_WARNING);
       this.bus.emit('hazard_end', { type: 'gust' });
       return 0;
     }

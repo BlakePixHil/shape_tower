@@ -25,28 +25,28 @@ const shot = async name => page.screenshot({ path: `${out}/${name}.png` });
 const steps = [];
 const step = (name, ok, info = '') => { steps.push({ name, ok, info }); };
 
-await page.waitForSelector('.sc-root.show [data-act="play"]', { timeout: 20000 });
+await page.waitForSelector('.sc-root.show [data-action="play"]', { timeout: 20000 });
 await page.waitForTimeout(6500); // the logo drops in and the demo tower builds
 await shot('01-menu');
 const demo = await page.evaluate(() => { const s = window.__wobble.scene.sim; return { pieces: s.pieceViews().length, record: window.__wobble.shell.record }; });
 step('menu shows the demo tower and records nothing', demo.pieces >= 5 && demo.record === null, `${demo.pieces} pieces`);
 
-await page.click('[data-act="settings"]');
+await page.click('[data-action="settings"]');
 await page.waitForTimeout(400);
 await shot('02-settings');
-await page.click('.sc-seg[data-key="shake"] button[data-v="low"]');
-await page.click('[data-act="back"]');
+await page.click('label:has(> input[data-key="shake"][value="low"])');
+await page.click('[data-action="close"]');
 const shake = await page.evaluate(() => JSON.parse(localStorage.getItem('shape-tower-settings-v1') ?? '{}').shake);
 step('settings save', shake === 'low', `shake ${shake}`);
 
 await page.waitForTimeout(300);
-await page.click('[data-act="profile"]');
+await page.click('[data-action="profile"]');
 await page.waitForTimeout(400);
 await shot('03-profile');
-await page.click('[data-act="back"]');
+await page.click('[data-action="close"]');
 await page.waitForTimeout(300);
 
-await page.click('[data-act="play"]');
+await page.click('[data-action="play"]');
 await page.waitForTimeout(600);
 const started = await page.evaluate(() => { const s = window.__wobble.scene; return { started: s.started, menu: document.querySelector('.sc-root.show') !== null, hold: s.sim.tuning.holdUnlocked, mortar: s.sim.tuning.mortarStrength }; });
 step('Play starts a run with the level-1 settings', started.started && !started.menu && started.hold === false && started.mortar === 1.2, JSON.stringify(started));
@@ -72,13 +72,13 @@ await page.waitForTimeout(400);
 await shot('05-pause');
 const paused = await sim(() => window.__wobble.scene.paused);
 step('pause stops the run', paused === true);
-await page.click('[data-act="settings"]');
+await page.click('[data-action="settings"]');
 await page.waitForTimeout(300);
-await page.click('[data-act="back"]');
+await page.click('[data-action="close"]');
 await page.waitForTimeout(300);
-const backToPause = await page.evaluate(() => document.querySelector('[data-act="resume"]') !== null);
+const backToPause = await page.evaluate(() => document.querySelector('[data-action="resume"]') !== null);
 step('settings from pause returns to pause', backToPause);
-await page.click('[data-act="resume"]');
+await page.click('[data-action="resume"]');
 await page.waitForTimeout(300);
 
 // Keep building, then quit from the pause menu.
@@ -95,40 +95,46 @@ while (Date.now() - t1 < 25000) {
 }
 await page.click('[data-id="pause"]');
 await page.waitForTimeout(300);
-await page.click('[data-act="quit"]');
+await page.click('[data-action="quit"]');
 await page.waitForTimeout(2600);
 await shot('06-panorama');
-await page.waitForSelector('.sc-root.show [data-act="go"], .sc-root.show [data-act="again"]', { timeout: 15000 });
+await page.waitForSelector('.sc-root.show [data-action="continue"], .sc-root.show [data-action="again"]', { timeout: 15000 });
 await page.waitForTimeout(500);
 await shot('07-after-run');
-const lvl = await page.evaluate(() => document.querySelector('[data-act="go"]') !== null);
+await page.waitForTimeout(3000); // the tally runs, then the level-up takes over
+const lvl = await page.evaluate(() => document.querySelector('[data-action="continue"]') !== null);
 step('the first run levels up to 2 with the Hold unlock card', lvl);
 if (lvl) {
   await page.waitForTimeout(1200);
   await shot('08-levelup');
-  await page.click('[data-act="go"]');
+  await page.click('[data-action="continue"]');
   await page.waitForTimeout(400);
 }
 await shot('09-summary');
-const summary = await page.evaluate(() => ({ again: document.querySelector('[data-act="again"]') !== null, xp: document.querySelector('.sc-xpn')?.textContent, level: document.querySelector('.sc-lv')?.textContent }));
+const summary = await page.evaluate(() => ({ again: document.querySelector('[data-action="again"]') !== null, xp: document.querySelector('.ui-line.total b')?.textContent, level: document.querySelector('.ui-summary .ui-xp')?.dataset.level }));
 step('the summary shows the XP tally and Play again', summary.again && /\+\d+ XP/.test(summary.xp ?? ''), JSON.stringify(summary));
-await page.click('.sc-ask .sc-btn');
+await page.click('.sc-ask .ui-btn');
 const rec = await sim(() => window.__dbWrites.find(w => w.op === 'set' && w.data.kind === 'run')?.data ?? null);
 if (rec) writeFileSync(`${out}/run-record.json`, JSON.stringify(rec));
 step('the first run record: app game, juice-on warm-up, player id, feel answer', rec?.app === 'game' && rec?.juice === 'on' && rec?.juiceRun === 0 && /^p-/.test(rec?.player ?? '') && rec?.cause === 'quit', rec ? `${rec.app} ${rec.juice} run ${rec.juiceRun} ${rec.player} ${rec.cause} ${rec.stats?.placed} placed` : 'none');
 const answered = await sim(() => window.__dbWrites.filter(w => w.op === 'update').map(w => w.data));
 step('the face answer is saved as a number', answered.some(d => d.answers?.feel === 1), JSON.stringify(answered));
 
-await page.click('[data-act="home"]');
+await page.click('[data-action="home"]');
 await page.waitForTimeout(1500);
 await shot('10-home');
-const home = await page.evaluate(() => ({ menu: document.querySelector('[data-act="play"]') !== null, level: document.querySelector('.sc-chip b')?.textContent }));
+const home = await page.evaluate(() => ({ menu: document.querySelector('[data-action="play"]') !== null, level: document.querySelector('.ui-profile-chip .ui-badge')?.alt }));
 step('Home goes back to the menu at the new level', home.menu && home.level === 'Level 2', JSON.stringify(home));
-await page.click('[data-act="play"]');
+await page.click('[data-action="play"]');
 await page.waitForTimeout(600);
 const again = await sim(() => ({ hold: window.__wobble.scene.sim.tuning.holdUnlocked, locked: document.querySelector('[data-id="holdcard"]').classList.contains('locked'), juice: window.__wobble.scene.view.juice }));
 step('level 2 opens Hold', again.hold === true && again.locked === false, JSON.stringify(again));
 step('the second run is the first of a block: juice off', again.juice === false, JSON.stringify(again));
+await page.waitForFunction(() => window.__wobble.scene.sim.ctrl !== null, null, { timeout: 5000 });
+await page.click('[data-id="holdcard"]');
+await page.waitForTimeout(200);
+const held = await sim(() => window.__wobble.scene.sim.held);
+step('tapping the Hold card holds the shape', !!held, String(held));
 const exits = await sim(() => window.__dbWrites.filter(w => w.op === 'update' && w.data.exit).map(w => w.data.exit));
 step('leaving the card records exit', exits[0] === 'menu', JSON.stringify(exits));
 
