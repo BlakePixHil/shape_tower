@@ -70,7 +70,8 @@ describe.runIf(zenny)(`Zen on ${sut.kind} (${sut.engine})`, () => {
       if (split >= 0 || zd.length !== ed.length) problems.push(`seed ${seed}: Zen and Endless part at ${split >= 0 ? split + 1 : Math.min(zd.length, ed.length)} s (${zd.length} and ${ed.length} digests)`);
       for (const n of NEVER) if (zc[n]) problems.push(`seed ${seed}: Zen sent ${n} ${zc[n]} times`);
       if (zen.state !== 'playing') problems.push(`seed ${seed}: the Zen run ended on its own (${zen.state}, ${zen.cause})`);
-      if (zen.hearts !== zen.tuning.hearts) problems.push(`seed ${seed}: Zen hearts went from ${zen.tuning.hearts} to ${zen.hearts}`);
+      const hearts = (zen.tuning as Record<string, unknown>).hearts;
+      if (zen.hearts !== hearts) problems.push(`seed ${seed}: Zen hearts went from ${hearts} to ${zen.hearts}`);
       // Setup: shapes were lost, the run went past an ordinary budget, and there was something to claim.
       if ((zc.piece_lost ?? 0) < 3) problems.push(`setup: seed ${seed} lost only ${zc.piece_lost ?? 0} shapes`);
       if (!ec.heart_lost) problems.push(`setup: seed ${seed}'s Endless twin lost no heart, so the comparison shows nothing`);
