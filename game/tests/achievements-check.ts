@@ -70,14 +70,14 @@ function climb(to: number, from = 1): [string, Record<string, unknown>?][] {
 
 {
   const ids = new Set(ACHIEVEMENTS.map(a => a.id));
-  check('47 achievements with unique ids', ACHIEVEMENTS.length === 47 && ids.size === 47, `${ACHIEVEMENTS.length} / ${ids.size}`);
+  check('49 achievements with unique ids', ACHIEVEMENTS.length === 49 && ids.size === 49, `${ACHIEVEMENTS.length} / ${ids.size}`);
   const tiers = { bronze: 0, silver: 0, gold: 0, platinum: 0 };
   for (const a of ACHIEVEMENTS) tiers[a.tier]++;
-  check('16 Bronze, 18 Silver, 11 Gold, 2 Platinum (§18.2)', tiers.bronze === 16 && tiers.silver === 18 && tiers.gold === 11 && tiers.platinum === 2, JSON.stringify(tiers));
+  check('17 Bronze, 19 Silver, 11 Gold, 2 Platinum (§18.2, with the Daily Tower\'s two)', tiers.bronze === 17 && tiers.silver === 19 && tiers.gold === 11 && tiers.platinum === 2, JSON.stringify(tiers));
   const xp = ACHIEVEMENTS.reduce((s, a) => s + TIER_XP[a.tier], 0);
   const pts = ACHIEVEMENTS.reduce((s, a) => s + TIER_POINTS[a.tier], 0);
-  check('All XP adds up to 2,820 (§18.1)', xp === 2820, String(xp));
-  check('Console points 935, under 1,000, each a multiple of 5 and at most 100 (§18.5)', pts === 935 && Object.values(TIER_POINTS).every(v => v % 5 === 0 && v <= 100), String(pts));
+  check('All XP adds up to 2,890 (§18.1)', xp === 2890, String(xp));
+  check('Console points 955, under 1,000, each a multiple of 5 and at most 100 (§18.5)', pts === 955 && Object.values(TIER_POINTS).every(v => v % 5 === 0 && v <= 100), String(pts));
   // Read as text: Art's icon module needs a canvas to load.
   const kit = readFileSync(new URL('../../art/src/ui/icons.ts', import.meta.url).pathname, 'utf8');
   const icons = new Set([...(/UI_ICONS = \[([^\]]*)\]/.exec(kit)?.[1] ?? '').matchAll(/'(\w+)'/g)].map(m => m[1]));

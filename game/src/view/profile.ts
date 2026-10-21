@@ -2,6 +2,7 @@
 
 import type { AvatarSpec } from '@art/index.ts';
 import { freshCounts, type AchievementCounts, type AchievementState } from '../meta/achievements.ts';
+import { freshDaily, loadDaily, type DailyState } from '../meta/daily.ts';
 import { levelStep } from '../sim/tuning.ts';
 import type { ModeId } from './modes.ts';
 
@@ -25,6 +26,7 @@ export interface Profile {
   avatar: AvatarSpec;   // the player's Blockling on the menu and profile: shape, face and hat
   achievements: Record<string, AchievementState>; // earned achievements by id: the local date, and whether its XP is paid (§18)
   achCounts: AchievementCounts; // the counts achievements need that the stats don't keep: bubbles, powers used
+  daily: DailyState;    // the Daily Tower: scored tries by seed day (kept forever) and recent practice (meta/daily.ts)
 }
 
 export interface ProfileStats {
@@ -60,7 +62,7 @@ export const DEFAULT_AVATAR: AvatarSpec = { shape: 'O', face: 'idle', hat: 'part
 
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], seenBrittle: false, postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, achievements: {}, achCounts: freshCounts() });
+const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], seenBrittle: false, postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, achievements: {}, achCounts: freshCounts(), daily: freshDaily() });
 
 export function loadProfile(): Profile {
   try {
@@ -74,6 +76,7 @@ export function loadProfile(): Profile {
       if (!p.achievements || typeof p.achievements !== 'object') p.achievements = {};
       p.achCounts = { ...freshCounts(), ...p.achCounts };
       if (!Array.isArray(p.achCounts.powers)) p.achCounts.powers = [];
+      p.daily = loadDaily(p.daily);
       if (!p.player) { p.player = newPlayer(); saveProfile(p); }
       return p;
     }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launch screen, made by scripts/bake-native-assets.mjs: don't edit. assets/splash/layout.css is its twin on the web. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape><gradient android:angle="270" android:startColor="#6EC3FF" android:centerColor="#A9DEFF" android:centerY="0.6" android:endColor="#E4F7FF" /></shape></item>
+    <item android:gravity="top|left" android:left="20dp" android:top="140dp" android:width="100dp" android:height="59.1dp" android:drawable="@drawable/splash_cloud" />
+    <item android:gravity="top|right" android:right="22dp" android:top="236dp" android:width="70dp" android:height="41.4dp" android:drawable="@drawable/splash_cloud" />
+    <item android:gravity="bottom|right" android:right="48dp" android:bottom="196dp" android:width="86dp" android:height="50.8dp" android:drawable="@drawable/splash_cloud" />
+    <item android:gravity="bottom|fill_horizontal" android:height="150dp" android:drawable="@drawable/splash_hills" />
+    <item android:gravity="center" android:bottom="112dp" android:width="326dp" android:height="130dp" android:drawable="@drawable/splash_logo" />
+</layer-list>

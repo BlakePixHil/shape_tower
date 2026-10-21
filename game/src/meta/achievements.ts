@@ -6,6 +6,7 @@ import type { BusEvent } from '../sim/bus.ts';
 import type { Sim } from '../sim/sim.ts';
 import { biomeFor, minSlabWidthFor } from '../sim/tuning.ts';
 import type { Profile } from '../view/profile.ts';
+import { scoredFinished } from './daily.ts';
 
 export type Tier = 'bronze' | 'silver' | 'gold' | 'platinum';
 export type Group = 'climb' | 'craft' | 'survive' | 'powers' | 'lifetime' | 'secret';
@@ -87,6 +88,8 @@ export const ACHIEVEMENTS: Achievement[] = [
   A('lifetime', 'cps_100', 'Centurion', 'Claim 100 checkpoints', 'silver', 'flag', { goal: 100 }),
   A('lifetime', 'streak_3', 'Hooked', 'Play 3 days in a row', 'bronze', 'streak', { goal: 3 }),
   A('lifetime', 'streak_7', 'Creature of Habit', 'Play 7 days in a row', 'silver', 'streak', { goal: 7 }),
+  A('lifetime', 'daily_first', 'Daily Grind', 'Finish a scored Daily Tower try', 'bronze', 'daily'),
+  A('lifetime', 'daily_12', 'Daily Dozen', 'Finish 12 scored Daily Tower tries', 'silver', 'daily', { goal: 12 }),
 
   A('secret', 'avalanche', 'Avalanche!', 'Lose 5 pieces in one tumble', 'bronze', 'avalanche', { secret: true }),
   A('secret', 'so_close', 'So Close!', 'Run out of bricks within a block of the line', 'bronze', 'flag', { secret: true }),
@@ -129,6 +132,7 @@ export function lifetime(p: Profile, live?: { bricks: number; perfects: number; 
   return {
     bricks: s.bricks + (live?.bricks ?? 0), perfects: s.perfects + (live?.perfects ?? 0), rows: s.rows + (live?.rows ?? 0),
     checkpoints: s.checkpoints + (live?.checkpoints ?? 0), bubbles: p.achCounts.bubbles, powers: p.achCounts.powers.length, streak: p.streak,
+    dailies: scoredFinished(p.daily),
   };
 }
 
@@ -138,7 +142,7 @@ export function progress(p: Profile, a: Achievement): [number, number] | null {
   const l = lifetime(p);
   const have: Record<string, number> = {
     toolbox: l.powers, bubbles_50: l.bubbles, bricks_1k: l.bricks, bricks_10k: l.bricks, perfects_250: l.perfects,
-    rows_100: l.rows, cps_100: l.checkpoints, streak_3: l.streak, streak_7: l.streak,
+    rows_100: l.rows, cps_100: l.checkpoints, streak_3: l.streak, streak_7: l.streak, daily_12: l.dailies,
   };
   return [Math.min(a.goal, have[a.id] ?? 0), a.goal];
 }
@@ -155,6 +159,8 @@ function countedIds(l: ReturnType<typeof lifetime>): string[] {
   if (l.powers >= POWER_KINDS.length) out.push('toolbox');
   if (l.streak >= 3) out.push('streak_3');
   if (l.streak >= 7) out.push('streak_7');
+  if (l.dailies >= 1) out.push('daily_first');
+  if (l.dailies >= 12) out.push('daily_12');
   return out;
 }
 
@@ -172,6 +178,12 @@ export function grantHistory(p: Profile, now = new Date()): string[] {
   if (s.clutches >= 1) ids.push('clutch');
   ids.push(...countedIds(lifetime(p)));
   return ids.filter(id => unlock(p, id, now));
+}
+
+/** The Daily Tower's: finished scored tries, checked once a scored try is over. */
+export function grantDaily(p: Profile, now = new Date()): string[] {
+  const n = scoredFinished(p.daily);
+  return (['daily_first', 'daily_12'] as const).filter(id => n >= (BY_ID.get(id)!.goal ?? 1) && unlock(p, id, now));
 }
 
 /** Streaks are counted when a run's XP is (view/profile.ts updateStreak), so they are checked after it. */

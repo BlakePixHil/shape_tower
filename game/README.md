@@ -12,12 +12,14 @@ npm install          # also patches bugs in phaser-box2d 1.1.0 (scripts/patch-ph
 npm run typecheck
 npm run sim:smoke    # Gameplay's quick headless checks; QA's suites live in ../qa
 npm run gesture:check # touch gestures with synthetic pointer events (flick lock-in, steering)
+npm run daily:check  # the Daily Tower's rules in Node: UTC seed day, one scored try per seed, practice, streak, same shapes for everyone
 npm run build        # one self-contained HTML file in dist/
 npm run dev          # play it at http://localhost:5173 (also on your phone over Wi-Fi)
 
 node tests/play-check.mjs [outDir] [seconds]   # plays dist/ in headless Chromium at phone size, saves screenshots and a run record
 node tests/power-check.mjs [outDir]           # steers into power bubbles and taps every power and Second Wind through the HUD
 node tests/zen-check.mjs [outDir]             # plays Zen from the menu (npm run build:game first): no budget or hearts, Finish, half XP, records untouched
+node tests/daily-check.mjs [outDir]           # plays the Daily Tower from the menu (npm run build:game first): card, scored try spent at the first spawn, no restart, practice, midnight rollover
 node --experimental-strip-types tests/replay-record.ts run-record.json   # replays a run record, compares digests
 node scripts/artifact.mjs out.html             # turns dist/index.html into the body-only page the claude.ai Artifact tool publishes
 ```
