@@ -187,6 +187,21 @@ checks.voices = (r) => {
   assert.ok(Math.abs(r.said[2].t - 7.3) < 0.01 && r.said[3].t > r.said[2].t, 'a checkpoint gets a little chorus of yays');
 };
 
+checks.achievements = (r) => {
+  for (const k of ['on', 'off']) assert.equal(r[k].nonFinite, 0, 'no NaN');
+  const on = r.on.notes, off = r.off.notes;
+  assert.ok(on.bronze >= 2 && on.bronze < on.gold && on.gold < on.platinum, `the sparkle grows with the tier (${JSON.stringify(on)})`);
+  assert.equal(on.tooSoon, 0, 'a second toast within half a second is not stamped twice');
+  assert.ok(on.strip >= 3 && on.again === 0, `the run-over strip gets one sting (${JSON.stringify(on)})`);
+  assert.deepEqual(r.on.stamps, [1, 3.5, 6, 10], 'every toast and the strip get a stamp');
+  assert.equal(r.on.ducks, 0, 'achievements never duck the music');
+  assert.ok(r.on.bronzeDb > r.on.landingDb - 12 && r.on.platinumDb < r.on.landingDb, `a toast is heard but stays under the play (bronze ${r.on.bronzeDb}, platinum ${r.on.platinumDb}, a hard landing ${r.on.landingDb} dB RMS)`);
+  // juice off keeps the stamp, since it is information, and drops the sparkle
+  assert.deepEqual(r.off.stamps, [1, 3.5, 6, 10], 'juice off keeps every stamp');
+  assert.ok(Object.values(off).every((n) => n === 0), `juice off drops the sparkle notes (${JSON.stringify(off)})`);
+  assert.ok(!r.off.names.includes('shimmer') && !r.off.names.includes('confetti'), `and the shimmer (${r.off.names.join(' ')})`);
+};
+
 checks.gusts = (r) => {
   assert.equal(r.nonFinite, 0, 'no NaN');
   assert.ok(r.builtDb > -45, `a warning builds toward its gust (${r.builtDb} dB)`);
@@ -245,6 +260,7 @@ function summary(name, r) {
   if (name === 'bank') return `bake ${r.buildMs} ms, ${r.names} sounds, memory per biome ${r.memoryMB.join('/')} MB`;
   if (name === 'run') return `peak ${r.all.peak.toFixed(3)}, voices ${r.caps.total}/${r.capLimits.total}, contact ${r.contactCpuMs.mean.toFixed(3)} ms`;
   if (name === 'rest') return `resting tower ${r.quietPeakDb} dBFS`;
+  if (name === 'achievements') return `notes per tier ${['bronze', 'gold', 'platinum', 'strip'].map((k) => `${k} ${r.on.notes[k]}`).join(', ')}; bronze ${r.on.bronzeDb}, platinum ${r.on.platinumDb} against a hard landing ${r.on.landingDb} dB RMS; juice off: stamps only`;
   if (name === 'music') return `levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v.rmsDb}`).join(', ')} dB; ${r.stats.notes} notes, ${r.stats.stolen} stolen, ${r.stats.dropped} dropped, peak ${r.stats.peakVoices} voices`;
   if (name === 'screens') return `menu ${r.menuDb} dB, profile ${r.profileDb} dB, after ${r.afterDb} dB`;
   if (name === 'loudness') return `${r.softDb} / ${r.midDb} / ${r.hardDb} dB, below-screen ${r.belowDb} dB`;
