@@ -1055,10 +1055,12 @@ export class Sim {
 
   private makeBubble(top: number): void {
     const f = this.foundation;
-    // On whole-block columns across the foundation, 2.2 to 4.2 blocks above the tower, so the
-    // falling shape can be steered through it.
-    const cols = Math.max(1, Math.floor(f.width) - 1);
-    const x = f.x - (cols - 1) / 2 + this.rng.powers.int(cols);
+    // Beside the foundation, 1 to 1.5 blocks out from its edge (kept on screen), 2.2 to 4.2
+    // blocks above the tower. Shapes dropped onto the foundation miss it, so collecting one
+    // takes a deliberate steer out and back (QA found bubbles over the foundation were picked
+    // up by accident).
+    const side = this.rng.powers.int(2) ? 1 : -1;
+    const x = f.x + side * Math.min(f.width / 2 + 1 + 0.5 * this.rng.powers.int(2), 5.25);
     const y = top + 2.2 + 0.5 * this.rng.powers.int(5);
     this.bubble = { id: ++this.bubbleSeq, kind: this.pickKind(), x, y, r: this.tuning.bubbleRadius, shapesLeft: Math.max(1, Math.round(this.tuning.bubbleLife)) };
     this.bubbleIn = this.bubbleGap();
@@ -1102,7 +1104,8 @@ export class Sim {
     if (left <= 4) { w.clean += 2; w.undo += 1; }
     if (this.tensionValue >= 0.5) { w.quickset += 2; w.glue += 1; }
     if (this.checkpoint >= 4) w.slowmo += 1; // shapes fall faster from here
-    for (const k of this.slots) if (k) w[k] = Math.max(1, w[k] >> 1); // fewer doubles
+    for (const k of this.slots) if (k) w[k] = Math.max(1, w[k] >> 1); // fewer doubles, halves round down
+    if (!t.mortar) w.glue = 0; // Glue works through Mortar's bonds (QA-006)
     let r = this.rng.powers.int(POWER_KINDS.reduce((a, k) => a + w[k], 0));
     for (const k of POWER_KINDS) { r -= w[k]; if (r < 0) return k; }
     return 'clean';
@@ -1125,7 +1128,7 @@ export class Sim {
       case 'clean': { const r = this.sweep(); if (r.pieces.length) detail = r; break; }
       case 'quickset': detail = this.quickSet(); break;
       case 'undo': detail = this.undo(); break;
-      case 'glue': if (!this.glueLeft) { this.glueLeft = Math.max(1, Math.round(this.tuning.glueShapes)); detail = { shapes: this.glueLeft }; } break;
+      case 'glue': if (!this.glueLeft && this.tuning.mortar) { this.glueLeft = Math.max(1, Math.round(this.tuning.glueShapes)); detail = { shapes: this.glueLeft }; } break;
       case 'slowmo': if (!this.slowLeft) { this.slowLeft = Math.max(1, Math.round(this.tuning.slowShapes)); detail = { shapes: this.slowLeft }; } break;
     }
     // Nothing for it to do (no loose pieces, nothing to take back, already running): it stays.

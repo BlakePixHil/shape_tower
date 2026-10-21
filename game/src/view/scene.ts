@@ -647,7 +647,11 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private pop(text: string, x: number, y: number, color: string, size: number): void {
-    const t = this.text(text, size, color).setOrigin(0.5).setPosition(x * this.ppb, -y * this.ppb).setScale(0).setDepth(D.text);
+    const t = this.text(text, size, color).setOrigin(0.5).setScale(0).setDepth(D.text);
+    // Keep the whole label on screen (a bubble beside the foundation sits near the edge).
+    const edge = (this.cam.across / 2) * this.ppb - t.width / 2 - 8 * this.dpr;
+    const cx = this.cam.x * this.ppb;
+    t.setPosition(Math.max(cx - edge, Math.min(cx + edge, x * this.ppb)), -y * this.ppb);
     this.tweens.add({ targets: t, scale: 1, duration: 260, ease: 'Back.Out' });
     this.tweens.add({ targets: t, y: t.y - 30 * this.dpr, alpha: 0, delay: 520, duration: 600, ease: 'Quad.In', onComplete: () => t.destroy() });
   }
@@ -690,6 +694,8 @@ export class PlayScene extends Phaser.Scene {
     // Zoom out up to 15 blocks when overhangs reach the screen edge (gameplay.md §11.2).
     let dev = 0;
     for (const v of this.views) if (v.state !== 'lost') dev = Math.max(dev, Math.abs(v.x - this.cam.x) + 2.2);
+    // A power bubble beside the foundation stays fully in view, halo included.
+    if (sim.bubble) dev = Math.max(dev, Math.abs(sim.bubble.x - this.cam.x) + sim.bubble.r + 0.9);
     const across = Math.max(ACROSS, Math.min(ACROSS_MAX, dev * 2));
     this.cam.across += (across - this.cam.across) * (1 - Math.exp(-dt * 2));
     const ppbScreen = this.W / this.cam.across;

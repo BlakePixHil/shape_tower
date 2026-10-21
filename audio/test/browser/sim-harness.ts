@@ -26,6 +26,8 @@ const SR = 48000;
   const plan = new Map<number, Record<string, unknown>[]>();
   const later = (step: number, i: Record<string, unknown>) => plan.set(step, [...(plan.get(step) ?? []), i]);
   let foundationX = 0, worst = 0, total = 0, handled = 0;
+  // A shape steering out to a bubble beside the foundation, and the column it goes back to.
+  let chase: { id: number; aim: number } | null = null;
   const peak: Record<string, number> = {};
   let maxVoices = 0;
   const mixLog: string[] = [];
@@ -37,6 +39,7 @@ const SR = 48000;
     const sim = createSim({ autoSpawn: true, seed: seed + runs.length, secondWind: runs.length % 2 ? 'ready' : 'earn' });
     sim.drainEvents();
     plan.clear();
+    chase = null;
     runs.push({ from, hits: 0, overAt: null });
     return sim;
   };
@@ -54,6 +57,17 @@ const SR = 48000;
     }
     for (const i of plan.get(local) ?? []) t.intent(i);
     plan.delete(local);
+    if (chase) {
+      // Once the shape is past the bubble (or it's gone), back over the foundation and drop.
+      const s = (t as any).sim;
+      const b = s.bubble;
+      if (!s.ctrl) chase = null;
+      else if (!b || b.id !== chase.id || s.ctrl.y < b.y - 1) {
+        t.intent({ type: 'moveTo', x: chase.aim });
+        later(local + 15, { type: 'hardDrop' });
+        chase = null;
+      }
+    }
     t.step();
     for (const e of t.drainEvents()) {
       counts[e.name] = (counts[e.name] ?? 0) + 1;
@@ -66,9 +80,17 @@ const SR = 48000;
       if (e.name === 'piece_spawned') {
         // the bot: aim near the middle of the foundation, sometimes rotate, then drop
         const x = Math.round((foundationX + (rng() * 2 - 1) * 2.5) * 2) / 2;
-        later(local + 6, { type: 'moveTo', x });
+        // Bubbles sit beside the foundation, so half the time it steers out through one first.
+        const s = (t as any).sim;
+        const b = s.bubble;
+        if (b && s.slots.includes(null) && rng() < 0.5) {
+          chase = { id: b.id, aim: x };
+          later(local + 6, { type: 'moveTo', x: b.x });
+        } else {
+          later(local + 6, { type: 'moveTo', x });
+          later(local + 20 + Math.floor(rng() * 20), { type: 'hardDrop' });
+        }
         if (rng() < 0.5) later(local + 10, { type: 'rotate', dir: rng() < 0.5 ? 1 : -1 });
-        later(local + 20 + Math.floor(rng() * 20), { type: 'hardDrop' });
       }
       const c0 = performance.now();
       const before = d.mixer.state().base;

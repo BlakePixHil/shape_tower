@@ -15,7 +15,6 @@ import { CORE_SHAPES } from '../src/shapes';
 
 const sut = await loadSim();
 const game = await loadGameApi(sut);
-const glueBug = knownIssue('F18.4 glue without Mortar', sut);
 
 type Ev = { name: string; step: number; payload: Record<string, any> };
 type T = Record<string, any>;
@@ -79,6 +78,18 @@ function claimWith(t: T, xs: number[], log: Ev[]): Ev[] {
     if (named(ev, 'checkpoint_claimed').length) return ev;
   }
   throw new Error('no claim');
+}
+
+/**
+ * Where a bubble may be (gameplay.md §13, from game/power-fixes): beside the foundation, 1 or 1.5
+ * blocks out from its edge, capped at 5.25 from its centre to stay on screen. Null when it is.
+ */
+function besideFoundation(x: number, f: { x: number; width: number }): string | null {
+  const d = Math.abs(x - f.x);
+  const near = f.width / 2 + 1;
+  const far = Math.min(f.width / 2 + 1.5, 5.25);
+  if (Math.abs(d - near) < 1e-9 || Math.abs(d - far) < 1e-9) return null;
+  return `x ${fmt(x - f.x, 2)} from the centre of a ${f.width}-wide foundation, not ±${near} or ±${far}`;
 }
 
 describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
@@ -236,9 +247,9 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     expect(problems).toEqual([]);
   });
 
-  // Gameplay's call on QA-006: Glue only bonds through Mortar, so with Mortar off it is never
-  // offered, and one already in a slot is refused.
-  (glueBug ? it.fails : it)(`F18.4 with Mortar off Glue is never picked, and a Glue in a slot is refused${glueBug ? ` (known bug ${glueBug.id})` : ''}`, () => {
+  // Glue only bonds through Mortar, so with Mortar off it is never offered, and one already in a
+  // slot is refused (Gameplay's call on QA-006).
+  it('F18.4 with Mortar off Glue is never picked, and a Glue in a slot is refused', () => {
     const t = make({ mortar: false, powerUps: true });
     const s = S(t);
     const problems: string[] = [];
@@ -259,7 +270,7 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     if (!named(ev, 'power_refused').length) problems.push('a Glue in a slot was used with Mortar off');
     if (s.slots[0] !== 'glue') problems.push('the refused Glue left its slot');
     if (s.glueLeft) problems.push(`glueLeft ${s.glueLeft} after a refused Glue`);
-    writeReport({ suite: 'power-glue-mortar-off', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', problems.length ? [...(glueBug ? [`Known bug ${glueBug.id} (${glueBug.owner}, since ${glueBug.since}): ${glueBug.summary}`] : []), ...problems] : ['with Mortar off Glue was never picked in 12000 picks, and a Glue in a slot was refused and kept'], {});
+    writeReport({ suite: 'power-glue-mortar-off', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', problems.length ? problems : ['with Mortar off Glue was never picked in 12000 picks, and a Glue in a slot was refused and kept'], {});
     expect(problems).toEqual([]);
   });
 
@@ -343,7 +354,7 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     expect(problems).toEqual([]);
   });
 
-  it('F18.7 bubbles: every 5 to 8 shapes while a slot is free, last 3 shapes, fade when buried, collected by a hard drop, never by full slots', () => {
+  it('F18.7 bubbles: every 5 to 8 shapes while a slot is free, beside the foundation, last 3 shapes, fade when buried, collected by a hard drop, never by full slots', () => {
     const t = make({ powerUps: true });
     const problems: string[] = [];
     const lines: string[] = [];
@@ -353,6 +364,7 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     const gaps: number[] = [];
     const lives: number[] = [];
     const where: string[] = [];
+    const sides = new Set<number>();
     // Drop shapes away from any bubble, so none is collected, and record when bubbles come and go.
     const avoid = () => {
       const b = S(t).bubble;
@@ -372,8 +384,9 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
         const top = Math.max(S(t).height().provisional, S(t).foundation.top);
         const f = S(t).foundation;
         const dy = b.y - top;
-        if (!Number.isInteger(b.x - f.x + 0.5 * ((f.width + 1) % 2)) && !Number.isInteger(b.x)) where.push(`x ${b.x} is not a whole-block column`);
-        if (b.x < f.x - f.width / 2 || b.x > f.x + f.width / 2) where.push(`x ${b.x} is off the foundation`);
+        const off = besideFoundation(b.x, f);
+        if (off) where.push(off);
+        sides.add(Math.sign(b.x - f.x));
         if (dy < 2.2 - 1e-9 || dy > 4.2 + 1e-9) where.push(`y is ${fmt(dy, 2)} above the tower, outside 2.2 to 4.2`);
       }
       // A hard drop falls from where the shape is now, so the new column goes in as lockX.
@@ -398,6 +411,7 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     if (badGap.length) problems.push(`gaps outside 5 to 8: ${badGap.join(', ')}`);
     if (badLife.length) problems.push(`bubbles that didn't last 3 shapes: ${badLife.join(', ')}`);
     if (where.length) problems.push(...[...new Set(where)].slice(0, 5));
+    if (sides.size < 2) problems.push(`bubbles only turned up on one side of the foundation`);
 
     // Collected by a hard drop through it.
     const c = make({ powerUps: true, bubbleGap: 2 });
@@ -479,6 +493,47 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     if (spawnedWhileFull) problems.push(`${spawnedWhileFull} bubbles turned up while both slots were full`);
     lines.push(`with both slots full: ${passedThrough ? 'passing through a bubble collected nothing' : 'not reached'}, and ${spawnedWhileFull} new bubbles turned up in 30 shapes`);
     writeReport({ suite: 'power-bubbles', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', [...lines, ...problems.map((p) => `FAIL ${p}`)], { gaps, lives });
+    expect(problems).toEqual([]);
+  });
+
+  it('F18.7 a shape dropped onto the foundation never collects a bubble, by hard drop or natural fall', () => {
+    const t = make({ powerUps: true, bubbleGap: 2 });
+    const { extents } = game!.shapes;
+    const problems: string[] = [];
+    const seen = new Set<number>();
+    let collected = 0;
+    let seed = 99;
+    const r = () => ((seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31);
+    const N = FULL ? 700 : 160;
+    for (let i = 0; i < N; i++) {
+      const shape = CORE_SHAPES[i % CORE_SHAPES.length];
+      const rot = Math.floor(r() * 4);
+      t.spawnControlled({ shape, x: 0, rot });
+      drain(t);
+      const f = S(t).foundation;
+      const e = extents(shape, rot);
+      // A column on the 0.5 grid with the whole shape over the foundation.
+      const lo = Math.ceil((f.x - f.width / 2 - e.minX) * 2) / 2;
+      const hi = Math.floor((f.x + f.width / 2 - e.maxX) * 2) / 2;
+      const x = lo + Math.floor(r() * ((hi - lo) * 2 + 1)) / 2;
+      if (S(t).bubble) seen.add(S(t).bubble.id);
+      if (i % 3 === 0) t.intent({ type: 'moveTo', x });
+      else t.intent({ type: 'hardDrop', lockX: x });
+      for (let k = 0; k < 1500 && S(t).ctrl; k++) {
+        t.step();
+        if (S(t).bubble) seen.add(S(t).bubble.id);
+      }
+      const got = named(drain(t), 'power_collected');
+      if (got.length && collected < 3) problems.push(`a ${shape} (rot ${rot}) ${i % 3 === 0 ? 'falling' : 'hard-dropped'} at x ${x} over the foundation collected a bubble`);
+      collected += got.length;
+      // Keep the tower at the foundation so no bubble is buried, and the slots free.
+      S(t).slots = ['clean', null];
+      use(t, 0);
+      S(t).slots = [null, null];
+      drain(t);
+    }
+    if (seen.size < N / 12) problems.push(`only ${seen.size} bubbles turned up in ${N} shapes`);
+    writeReport({ suite: 'power-bubble-reach', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', [`${N} shapes dropped onto the foundation (a third falling naturally) under ${seen.size} bubbles collected ${collected}`, ...problems], { shapes: N, bubbles: seen.size, collected });
     expect(problems).toEqual([]);
   });
 
@@ -754,7 +809,7 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
           return;
         }
         const refused = named(ev, 'power_refused').length > 0;
-        const shouldRefuse = kind === 'clean' ? pre.loose === 0 : kind === 'quickset' ? pre.resting === 0 : kind === 'undo' ? !pre.undoable : kind === 'glue' ? pre.glue > 0 : pre.slow > 0;
+        const shouldRefuse = kind === 'clean' ? pre.loose === 0 : kind === 'quickset' ? pre.resting === 0 : kind === 'undo' ? !pre.undoable : kind === 'glue' ? pre.glue > 0 || !sim.tuning.mortar : pre.slow > 0;
         count(`${kind} ${refused ? 'refused' : 'used'}`);
         if (refused !== shouldRefuse) bad(`${kind} ${refused ? 'refused' : 'used'} when it should have been ${shouldRefuse ? 'refused' : 'used'}`);
         if (refused && sim.slots[i.slot] !== kind) bad(`a refused ${kind} left its slot`);
@@ -773,16 +828,20 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
       let crashed: string | null = null;
       try {
         while (sim.stepIndex < 60 * c.seconds && sim.state === 'playing') {
-          const pre = { slots: [...sim.slots], wind: sim.secondWind, bubble: sim.bubble?.id ?? null, left: sim.bubble?.shapesLeft ?? 0 };
+          const pre = { slots: [...sim.slots], wind: sim.secondWind, bubble: sim.bubble?.id ?? null, left: sim.bubble?.shapesLeft ?? 0, f: { x: sim.foundation.x, width: sim.foundation.width } };
           bot.tick(sim);
           sim.step();
           const ev = sim.drainEvents() as Ev[];
+          if (!c.mortar && sim.slots.includes('glue') && !pre.slots.includes('glue')) bad('Glue reached a slot with Mortar off');
           for (const e of ev) {
             if (e.name === 'second_wind') winds++;
             if (e.name === 'piece_landed') placements++;
             if (e.name === 'bubble_spawned') {
               count('bubbles');
               if (pre.slots.every((s) => s)) bad('a bubble turned up with both slots full');
+              // Beside the foundation it spawned over (a claim in the same step moves the foundation).
+              const off = besideFoundation(e.payload.x, pre.f) && besideFoundation(e.payload.x, sim.foundation);
+              if (off) bad(`bubble ${off}`);
               bubbleShapes = 0;
             }
             // Fades at the end of its 3 shapes, or early once the tower is as high as the bubble.

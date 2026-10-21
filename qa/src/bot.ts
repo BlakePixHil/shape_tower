@@ -66,6 +66,7 @@ export class Bot {
   private seen: object | null = null;
   private plan: { x: number; rot: number } | null = null;
   private phase: 'bubble' | 'aim' | 'fall' | 'done' = 'done';
+  private steered: unknown = null;
   private turns = 0;
   private hadCtrl = false;
 
@@ -90,6 +91,7 @@ export class Bot {
     const ctrl = sim.ctrl;
     if (ctrl !== this.seen) {
       this.seen = ctrl;
+      this.steered = null;
       this.plan = this.choose(sim);
       this.turns = 0;
       const b = sim.bubble;
@@ -106,7 +108,11 @@ export class Bot {
       const b = sim.bubble;
       if (!b || ctrl.y < b.y - 1.6) this.phase = 'aim';
       else {
-        if (ctrl.xTarget !== b.x) sim.intent({ type: 'moveTo', x: b.x });
+        // Once per bubble: moveTo snaps to the half-block grid, and bubbles can sit off it.
+        if (this.steered !== b) {
+          this.steered = b;
+          sim.intent({ type: 'moveTo', x: b.x });
+        }
         return;
       }
     }
