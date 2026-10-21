@@ -4,8 +4,8 @@
 // the XP tally's timing and QA's one-tap questions.
 
 import {
-  MENU_MODES, avatarPanel, injectUiCss, levelUp, mainMenu, onAction, pauseCard, prewarmUi, profilePanel, readAvatar, readSettings, rewardAt, setXpBar, settingsPanel,
-  showAllXpLines, showXpLine, summaryCard, uiIconUrl, type SettingGroup, type SettingValue,
+  MENU_MODES, armDailyScored, avatarPanel, dailyCard, dailyChip, dailyMenuDot, injectUiCss, levelUp, mainMenu, onAction, pauseCard, prewarmUi, profilePanel, readAvatar,
+  readSettings, rewardAt, setDailyCountdown, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type SettingGroup, type SettingValue,
 } from '@art/index.ts';
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
@@ -25,8 +25,11 @@ export interface ScreenSounds {
 /** The sound each kit action makes; anything else is a plain tap. */
 const ACTION_SOUND: Record<string, UiSound> = {
   play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
-  close: 'back', home: 'back', quit: 'back', continue: 'tap',
+  close: 'back', home: 'back', quit: 'back', continue: 'tap', scored: 'tap2', practice: 'start',
 };
+
+/** How long the Daily's scored button stays armed after its first tap. */
+const ARM_MS = 2500;
 
 // Only what the kit doesn't style: the container, the testing note, the build tag and QA's questions.
 const CSS = `
@@ -94,6 +97,8 @@ export interface SummaryOptions {
   onProfile(): void;
   onHome(): void;
   reducedMotion: boolean;
+  /** A Daily Tower run: its chip under the height, and the again button's label ("Practice"). */
+  daily?: { number: number; scored: boolean; again: string };
 }
 
 export class Screens {
@@ -152,6 +157,8 @@ export class Screens {
    */
   menu(o: {
     profile: Profile; build: string; note?: string; still?: boolean; subs?: Partial<Record<'daily' | 'zen', string>>;
+    /** Today's scored Daily try is still open: a "!" on the Daily button. */
+    dailyDot?: boolean;
     onPlay(): void; onMode(id: 'daily' | 'zen'): void; onProfile(): void; onSettings(): void;
   }): void {
     const p = o.profile;
@@ -163,20 +170,58 @@ export class Screens {
     const bottom = el.querySelector('.ui-menu-bottom')!;
     if (o.note) bottom.insertAdjacentHTML('afterbegin', `<div class="sc-testing">${esc(o.note)}</div>`);
     bottom.insertAdjacentHTML('beforeend', `<div class="sc-build">build ${esc(o.build)}</div>`);
+    const dailyBtn = el.querySelector('.ui-mode[data-action="daily"]:not(.locked)');
+    if (o.dailyDot && dailyBtn) dailyBtn.appendChild(dailyMenuDot());
     this.open('menu', el, { play: o.onPlay, daily: () => o.onMode('daily'), zen: () => o.onMode('zen'), profile: o.onProfile, settings: o.onSettings });
   }
 
   // ---------------------------------------------------------------- pause
 
-  /** The pause card. In Zen, Quit is Finish: it's how a Zen run ends, and it doesn't halve XP (gameplay.md §12). */
-  pause(o: { zen?: boolean; onResume(): void; onRestart(): void; onSettings(): void; onQuit(): void }): void {
+  /**
+   * The pause card. In Zen, Quit is Finish: it's how a Zen run ends, and it doesn't halve XP (gameplay.md §12).
+   * `restart: false` takes Restart off (a scored Daily try can't be restarted).
+   */
+  pause(o: { zen?: boolean; restart?: boolean; onResume(): void; onRestart(): void; onSettings(): void; onQuit(): void }): void {
     const el = pauseCard({ quitHalves: !o.zen });
     if (o.zen) {
       const quit = el.querySelector('[data-action="quit"]')!;
       quit.innerHTML = `<img alt="" src="${uiIconUrl('flag', 24)}">Finish`;
       quit.insertAdjacentHTML('afterend', `<p class="ui-note"><img alt="" src="${uiIconUrl('zen', 16)}">Finish to see your tower and bank its XP</p>`);
     }
+    if (o.restart === false) el.querySelector('[data-action="restart"]')?.remove();
     this.open('pause', el, { resume: o.onResume, restart: o.onRestart, settings: o.onSettings, quit: o.onQuit });
+  }
+
+  // ---------------------------------------------------------------- Daily Tower
+
+  /**
+   * The Daily card (gameplay.md §12). The countdown ticks while it's open, and at 00:00 UTC the card
+   * redraws for the new tower. The scored button needs two taps, so a stray one can't spend the day's
+   * only try (QA Q32: it's spent once its first shape spawns).
+   */
+  daily(o: { data(): DailyCardData; countdown(): { ms: number; text: string }; onScored(): void; onPractice(): void; onClose(): void }): void {
+    const el = dailyCard(o.data());
+    let armedAt = 0;
+    let disarm = 0;
+    this.open('daily', el, {
+      close: o.onClose,
+      practice: o.onPractice,
+      scored: () => {
+        if (performance.now() - armedAt < ARM_MS) { clearTimeout(disarm); this.sounds.ui('start'); o.onScored(); return; }
+        armedAt = performance.now();
+        armDailyScored(el, true);
+        clearTimeout(disarm);
+        disarm = window.setTimeout(() => { armedAt = 0; armDailyScored(el, false); }, ARM_MS);
+      },
+    });
+    const tick = window.setInterval(() => {
+      if (this.name !== 'daily' || !el.isConnected) { clearInterval(tick); return; }
+      const c = o.countdown();
+      setDailyCountdown(el, c.text);
+      if (c.ms < 1000) { clearInterval(tick); clearTimeout(disarm); window.setTimeout(() => { if (this.name === 'daily' && el.isConnected) this.daily(o); }, 1200); }
+    }, 1000);
+    const unbind = this.unbind;
+    this.unbind = () => { clearInterval(tick); clearTimeout(disarm); unbind?.(); };
   }
 
   // ---------------------------------------------------------------- settings
@@ -237,6 +282,12 @@ export class Screens {
     el.querySelector('[data-action="share"]')?.remove();
     const chip = el.querySelector('.ui-best');
     if (chip && s.bestLabel) chip.lastChild!.textContent = s.bestLabel;
+    if (o.daily) {
+      el.querySelector('.ui-sum-head')?.appendChild(dailyChip(o.daily.number, o.daily.scored));
+      const again = el.querySelector('[data-action="again"]');
+      const label = again && [...again.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim());
+      if (label) label.textContent = o.daily.again;
+    }
     this.open('summary', el, { again: o.onAgain, profile: o.onProfile, home: o.onHome });
     const extra = el.querySelector<HTMLElement>('.ui-sum-extra')!;
     if (o.achievements?.length) extra.appendChild(summaryStrip(o.achievements));

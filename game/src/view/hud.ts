@@ -49,6 +49,10 @@ const CSS = `
 .st-pill { background: #FFC23D; border: 3px solid ${INK}; border-radius: 999px; box-shadow: 0 3px 0 ${INK}; font: 700 13px 'Fredoka', sans-serif; padding: 1px 10px; white-space: nowrap; position: relative; overflow: hidden; }
 .st-pill .st-fill { position: absolute; inset: 0; background: #3EE6A8; transform-origin: left; transform: scaleX(0); }
 .st-pill span { position: relative; }
+.st-mode { background: ${INK}; color: #FFF7E8; border-radius: 8px; font: 700 11px 'Fredoka', sans-serif; letter-spacing: 0.08em; padding: 1px 7px; white-space: nowrap; }
+.st-mode[hidden] { display: none; }
+.st-mode.gold { background: #FFC23D; color: ${INK}; border: 2px solid ${INK}; padding: 0 6px; }
+.st-hud.st-moded .ui-offchip.up { --top: 104px; } /* under the mode tag */
 .st-hud .ui-rail { top: calc(env(safe-area-inset-top, 0px) + 148px); right: 23px; } /* centred under the Next column */
 .st-hud .ui-offchip.up { --top: 84px; } /* under the checkpoint pill */
 .st-vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px 30px rgba(255,77,109,0.85); opacity: 0; z-index: 4; }
@@ -107,6 +111,7 @@ export class Hud {
   private setKey = '';
   private heightEl: HTMLDivElement;
   private pill: HTMLDivElement;
+  private modeEl: HTMLDivElement;
   private pillText: HTMLSpanElement;
   private pillFill: HTMLDivElement;
   private next: HTMLCanvasElement[];
@@ -169,6 +174,7 @@ export class Hud {
       <div class="st-center">
         <div class="st-height" data-id="height">0<small> m</small></div>
         <div class="st-pill" data-id="pill"><div class="st-fill"></div><span>CP 1</span></div>
+        <div class="st-mode" data-id="mode" hidden></div>
       </div>
       <div class="st-hint" data-id="hint"><span>drag ↔ move</span><span>tap ⟳ rotate</span><span>drag ↓ faster</span><span>flick ↓ drop</span><span>flick ↑ bag</span></div>
       <div class="st-powers">
@@ -189,6 +195,7 @@ export class Hud {
     this.edge = this.root.appendChild(alertEdge());
     this.heightEl = q('height');
     this.pill = q('pill');
+    this.modeEl = q('mode');
     this.pillText = this.pill.querySelector('span')!;
     this.pillFill = this.pill.querySelector('.st-fill')!;
     this.next = [q('next0'), q('next1')];
@@ -578,6 +585,14 @@ export class Hud {
   closeCard(): void { this.overlay.classList.remove('show'); this.overlay.innerHTML = ''; }
   get cardOpen(): boolean { return this.overlay.classList.contains('show'); }
 
+  /** A small tag under the checkpoint pill naming the mode ("DAILY #12 · SCORED"); null hides it. Gold for a run that counts. */
+  setModeTag(text: string | null, gold = false): void {
+    this.modeEl.hidden = !text;
+    this.modeEl.textContent = text ?? '';
+    this.modeEl.classList.toggle('gold', gold);
+    this.root.classList.toggle('st-moded', !!text);
+  }
+
   reset(): void {
     this.powerKey = '';
     this.setKey = '';
@@ -589,7 +604,9 @@ export class Hud {
     this.windArmedUntil = 0;
     this.windSpentAt = 0;
     this.lastWind = 'earn';
-    for (const b of this.slotBtns) delete b.dataset.kind;
+    // Empty the slots' pictures too: setPowers skips a slot whose kind hasn't changed, so an icon left
+    // from the last run would stay in a slot this run starts empty.
+    for (const b of this.slotBtns) { delete b.dataset.kind; b.classList.add('empty'); b.innerHTML = ''; b.setAttribute('aria-label', 'Empty power-up slot'); }
     this.lastHearts = -1;
     this.lastHeight = 0;
     this.nextKey = '';

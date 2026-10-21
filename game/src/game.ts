@@ -1,10 +1,14 @@
 // Shape Tower, the game: main menu, runs, pause, the run-over panorama and summary, profile and
 // settings, on the same shell as the Wobble Lab. Tuning is gameplay.md §14's defaults; the only
 // per-player changes are the level unlocks (§10.3), gentle first runs (§8.4) and Settings.
+// Modes (§12): Endless from Play, the Daily Tower's card from its button (level 3), and Zen (level 8).
 
 import type { AudioDirector } from '@audio';
-import { BY_ID, RunTracker, grantHistory, grantStreaks, payAchievements, type Achievement } from './meta/achievements.ts';
-import type { Sim } from './sim/sim.ts';
+import { BY_ID, RunTracker, grantDaily, grantHistory, grantStreaks, payAchievements, type Achievement } from './meta/achievements.ts';
+import {
+  addPractice, beginScored, bestDays, countdown, dailyDay, dailyNumber, dailySeed, dailyStreak, msToNextDaily, scoredUsed, updateScored, type DailyResult,
+} from './meta/daily.ts';
+import { Sim } from './sim/sim.ts';
 import { biomeFor, type Tuning } from './sim/tuning.ts';
 import type { LabState } from './view/panel.ts';
 import type { RunOpts } from './view/scene.ts';
@@ -36,6 +40,7 @@ async function boot(): Promise<void> {
   const state: LabState = { tuning: {}, view: viewFor(settings, juice) };
   let dailyWind = false;
   let mode: RunMode = ENDLESS; // the run being played (or just played)
+  let runSim: Sim | null = null; // that run's sim (the menu's demo tower makes others)
   let screens: Screens | null = null; // made once the shell is up; the audio can arrive first
   let skipTap: ((e: PointerEvent) => void) | null = null;
 
@@ -52,7 +57,8 @@ async function boot(): Promise<void> {
     if (profile.level <= 1) { t.mortarStrength = 1.2; t.rookieBricks = 4; } // gentle first runs
     switch (m.id) {
       case 'endless': break;
-      case 'daily': break;
+      // Scored Daily tries start with empty power-up slots for everyone (§10.3); Second Wind is off (runOpts).
+      case 'daily': if (m.scored) t.startPower = false; break;
       case 'zen': t.zen = true; break; // no budget, no hearts to lose, no Second Wind, half XP (gameplay.md §12)
     }
     return t;
@@ -63,7 +69,12 @@ async function boot(): Promise<void> {
     const o: RunOpts = { seed: m.seed, record: { mode: m.id } };
     switch (m.id) {
       case 'endless': break;
-      case 'daily': break;
+      case 'daily': {
+        // Second Wind: off in a scored try; Daily practice earns it at checkpoint 2 (the day's free one is Endless's).
+        o.secondWind = m.scored ? 'off' : 'earn';
+        o.record = { ...o.record, daily: { day: m.day!, number: dailyNumber(m.day!), scored: !!m.scored } };
+        break;
+      }
       case 'zen': o.secondWind = 'off'; o.bestKey = ZEN_BEST; break;
     }
     return o;
@@ -86,6 +97,7 @@ async function boot(): Promise<void> {
         tracker = new RunTracker(sim, profile, { bestBefore: shell.bestBefore, onUnlock: a => { if (sim.state === 'playing') toasts.push(a); }, save: () => saveProfile(profile) });
       }
       if (tracker?.sim === sim) tracker.handle(e);
+      if (sim === runSim && mode.id === 'daily' && mode.scored) dailyEvent(e.name, sim);
       if (dailyWind && e.name === 'piece_landed') { dailyWind = false; spendDailyWind(profile); }
       if (e.name === 'hazard_start') {
         const type = String(e.payload.type ?? 'gust');
@@ -126,11 +138,15 @@ async function boot(): Promise<void> {
     scene.paused = false;
     scene.demo();
     audio()?.screen?.('menu');
+    const today = dailyDay();
+    const done = scoredUsed(profile.daily, today);
     sc.menu({
       profile, build: BUILD,
       still: menuShown || settings.reduceMotion, // the logo drops in once per visit
+      subs: { daily: done ? `Done today · new in ${countdown(msToNextDaily())}` : `#${dailyNumber(today)} is ready` },
+      dailyDot: !done,
       onPlay: () => play(),
-      onMode: id => { if (id === 'zen') play({ id: 'zen' }); else play({ id: 'daily' }); },
+      onMode: id => { if (id === 'zen') play({ id: 'zen' }); else openDaily(); },
       onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
       onSettings: () => { audio()?.screen?.('profile'); openSettings(home); },
       note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
@@ -138,12 +154,79 @@ async function boot(): Promise<void> {
     menuShown = true;
   }
 
+  // ------------------------------------------------------------------ Daily Tower (§12, QA F17)
+
+  /** Today's first shapes for the card, from a sim that never steps (the bag has its own stream). */
+  const openings = new Map<string, string[]>();
+  function dailyOpening(day: string): string[] {
+    let o = openings.get(day);
+    if (!o) {
+      const sim = new Sim({ seed: dailySeed(day), tuning: runTuning({ id: 'daily', scored: true, day }), autoSpawn: false, rookieOpening: false, secondWind: 'off' });
+      o = sim.queue.slice(0, 5);
+      sim.dispose();
+      openings.set(day, o);
+    }
+    return o;
+  }
+
+  function openDaily(): void {
+    audio()?.screen?.('profile');
+    sc.daily({
+      data: () => {
+        const day = dailyDay();
+        const d = profile.daily, s = d.scored[day] ?? null, pr = d.practice[day];
+        return {
+          number: dailyNumber(day), day, countdown: countdown(msToNextDaily()), opening: dailyOpening(day),
+          scored: s, practice: { runs: pr?.runs ?? 0, best: pr?.best ?? null }, streak: dailyStreak(d, day),
+          bestDays: bestDays(d, 3).map(b => ({ number: b.number, height: b.result.height, score: b.result.score, today: b.day === day })),
+        };
+      },
+      countdown: () => { const ms = msToNextDaily(); return { ms, text: countdown(ms) }; },
+      // The seed is the one showing when the button is tapped; a try that starts just before 00:00 UTC
+      // plays out under it (F17.2).
+      onScored: () => {
+        const day = dailyDay();
+        if (scoredUsed(profile.daily, day)) { openDaily(); return; }
+        play({ id: 'daily', seed: dailySeed(day), scored: true, day });
+      },
+      onPractice: practiceDaily,
+      onClose: home,
+    });
+  }
+
+  /** Practice on today's tower (after 00:00 UTC that's the new one). */
+  function practiceDaily(): void {
+    const day = dailyDay();
+    play({ id: 'daily', seed: dailySeed(day), scored: false, day });
+  }
+
+  /** A scored try is spent when its first shape spawns (QA Q32), and its result is kept as it climbs. */
+  function dailyEvent(name: string, sim: Sim): void {
+    const day = mode.day!;
+    if (name === 'piece_spawned' && !(day in profile.daily.scored)) { beginScored(profile.daily, day); saveProfile(profile); }
+    if (name === 'checkpoint_claimed') saveScored(sim);
+  }
+
+  function saveScored(sim: Sim, finished = false): void {
+    if (mode.id !== 'daily' || !mode.scored || sim !== runSim) return;
+    updateScored(profile.daily, mode.day!, dailyResult(sim), finished);
+    saveProfile(profile);
+  }
+
+  const dailyResult = (sim: Sim): Omit<DailyResult, 'at' | 'finished'> => ({
+    height: sim.stats.maxHeight - sim.foundations[0].top, score: sim.score, checkpoints: sim.stats.checkpoints, biome: biomeFor(sim.checkpoint).id,
+  });
+
+  // ------------------------------------------------------------------ runs
+
   function play(m: RunMode = ENDLESS): void {
     stopSkip();
     shell.unlockAudio();
     sc.close();
     mode = m;
-    ({ juice, juiceRun } = nextJuice(profile));
+    dailyWind = false; // set again by the shell's secondWind() if this run asks for it
+    // A scored Daily try always has its effects: the juice test (Gate 1) never takes the day's only try.
+    if (m.id === 'daily' && m.scored) { juice = true; juiceRun = -1; } else ({ juice, juiceRun } = nextJuice(profile));
     state.tuning = runTuning(m);
     state.view = viewFor(settings, juice);
     scene.applyView(state.view);
@@ -157,6 +240,8 @@ async function boot(): Promise<void> {
     trackNext = true;
     dailyWind = false; // set again only when the run asks for the day's free Second Wind
     scene.newRun(false, runOpts(m));
+    runSim = scene.sim;
+    hud.setModeTag(m.id === 'daily' ? `DAILY #${dailyNumber(m.day!)} · ${m.scored ? 'SCORED' : 'PRACTICE'}` : null, m.id === 'daily' && !!m.scored);
     scene.paused = false;
     scene.start();
     // Zen's card follows the run's biome title card, which sits in the same place.
@@ -180,9 +265,11 @@ async function boot(): Promise<void> {
     if (sc.current || !scene.started || !scene.sim || scene.sim.state !== 'playing') return;
     scene.paused = true;
     audio()?.handle('pause', {});
+    saveScored(scene.sim); // the app may not come back
     const resume = () => { sc.close(); scene.paused = false; audio()?.handle('resume', {}); };
     sc.pause({
       zen: mode.id === 'zen',
+      restart: !(mode.id === 'daily' && mode.scored),
       onResume: resume,
       onRestart: () => {
         shell.record?.finish(scene.sim, { abandoned: true, juiceRun, player: profile.player });
@@ -228,6 +315,11 @@ async function boot(): Promise<void> {
     const bestBefore = shell.bestBefore;
     const newBest = height > bestBefore + 0.05 && bestBefore > 0;
     const biome = biomeFor(sim.checkpoint).id;
+    // The Daily's results: the scored try's final result, or practice (gameplay.md §12).
+    if (mode.id === 'daily' && sim === runSim) {
+      if (mode.scored) { saveScored(sim, true); grantDaily(profile); }
+      else addPractice(profile.daily, mode.day!, { ...dailyResult(sim), at: new Date().toISOString() });
+    }
     addRunStats(profile, { height, biome, bricks: sim.stats.placed, perfects: sim.stats.perfects, rows: sim.stats.rows, checkpoints: sim.stats.checkpoints, clutches: sim.stats.clutches }, undefined, !zen);
     // Achievements: streaks count once today is in the streak, then everything earned and not yet paid
     // goes into this tally as flat XP lines (gameplay.md §18.1).
@@ -266,7 +358,8 @@ async function boot(): Promise<void> {
         achievements: earned,
         questions,
         onAnswer: (id, answer) => rec?.answer(id, answer),
-        onAgain: () => { rec?.exit('again'); play(mode); },
+        onAgain: () => { rec?.exit('again'); if (mode.id === 'daily') practiceDaily(); else play(mode); },
+        daily: mode.id === 'daily' ? { number: dailyNumber(mode.day!), scored: !!mode.scored, again: mode.scored ? 'Practice' : 'Practice again' } : undefined,
         onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
         onHome: () => { rec?.exit('menu'); home(); },
         reducedMotion: settings.reduceMotion,
