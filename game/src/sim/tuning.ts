@@ -104,6 +104,8 @@ export interface Tuning {
   junkImpulse: number;        // kg·m/s a piece of space junk hits with
   meteorImpulse: number;      // kg·m/s per meteor
   heartsEveryFrom: number;    // from this checkpoint on, a heart comes back only every third claim (0: every claim, all the way up)
+  // Modes (gameplay.md §12)
+  zen: boolean;               // Zen: no budget, no hearts to lose, no Second Wind, exactly half XP; only quitting ends it
   // Debug
   wind: number;               // constant sideways push in g, lab only
   infiniteBudget: boolean;
@@ -200,6 +202,7 @@ export const DEFAULT_TUNING: Tuning = {
   junkImpulse: 8,
   meteorImpulse: 7,
   heartsEveryFrom: 11,
+  zen: false,
   wind: 0,
   infiniteBudget: false,
   infiniteHearts: false,

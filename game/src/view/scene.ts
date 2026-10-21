@@ -60,6 +60,23 @@ interface PieceSprite {
 
 interface Pose { x: number; y: number; a: number }
 
+/** What a game mode fixes for one run (view/modes.ts). Left out, a run is Endless. */
+export interface RunOpts {
+  /** A fixed seed; random otherwise. A fixed seed never takes the first-run opening. */
+  seed?: number;
+  /** Second Wind at the start, instead of asking the hooks. */
+  secondWind?: SecondWindMode;
+  /** The best height marked on the tower and the rail (Endless reads its saved best). */
+  best?: number;
+  /** Where a new best is saved: Endless's key by default, null to save none. */
+  bestKey?: string | null;
+  /** Extra fields for the run record (mode, Daily details). */
+  record?: Partial<RunStart>;
+}
+
+/** Endless's personal best height. */
+const BEST_KEY = 'shape-tower-best';
+
 const ACROSS = 12;
 /** The longest the run-over panorama waits at the top for the backdrop to bake its path (ms). */
 const PANO_WAIT = 1000;
@@ -117,6 +134,7 @@ export class PlayScene extends Phaser.Scene {
   private rowWave: { x0: number; at: number } | null = null;
   private lastSettledId = -1;
   bestHeight = 0;
+  private bestKey: string | null = BEST_KEY;
   private pbCrossed = false;
   private overAt = -1;
   private slowOn = false;
@@ -209,7 +227,7 @@ export class PlayScene extends Phaser.Scene {
       this.party.resize(this.W, this.H);
     });
     this.events.once('shutdown', () => this.gestures.destroy());
-    try { this.bestHeight = Number(localStorage.getItem('shape-tower-best') ?? 0) || 0; } catch { /* none */ }
+    this.bestHeight = this.loadBest();
     this.newRun();
     this.readyResolve();
   }
@@ -223,7 +241,7 @@ export class PlayScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- runs
 
-  newRun(demo = false): void {
+  newRun(demo = false, run: RunOpts = {}): void {
     this.sim?.dispose();
     for (const s of this.sprites.values()) s.view.destroy();
     this.sprites.clear();
@@ -277,12 +295,25 @@ export class PlayScene extends Phaser.Scene {
     }
     let first = false;
     try { first = !localStorage.getItem('shape-tower-played'); localStorage.setItem('shape-tower-played', '1'); } catch { /* none */ }
-    const seed = (Math.random() * 0xffffffff) >>> 0;
-    const info: RunStart = { seed, tuning: { ...this.hooks.lab.tuning }, rookieOpening: first, secondWind: this.hooks.secondWind?.() ?? 'earn', juice: this.view.juice !== false };
+    // A fixed seed (the Daily Tower) deals everyone the same shapes, so it never takes the rookie opening.
+    const seed = run.seed ?? (Math.random() * 0xffffffff) >>> 0;
+    if (run.seed !== undefined) first = false;
+    this.bestKey = run.bestKey === undefined ? BEST_KEY : run.bestKey;
+    this.bestHeight = run.best ?? this.loadBest();
+    const info: RunStart = {
+      seed, tuning: { ...this.hooks.lab.tuning }, rookieOpening: first, secondWind: run.secondWind ?? this.hooks.secondWind?.() ?? 'earn', juice: this.view.juice !== false,
+      ...(run.record ?? {}),
+    };
     this.sim = new Sim({ seed, tuning: { ...info.tuning }, autoSpawn: true, rookieOpening: first, secondWind: info.secondWind });
     this.hooks.hud.showHint();
     this.hooks.onRunStart?.(this.sim, info);
     for (const e of this.sim.drainEvents()) this.onEvent(e);
+  }
+
+  /** The saved best under this run's key (Endless's before the first run). */
+  private loadBest(): number {
+    if (!this.bestKey) return 0;
+    try { return Number(localStorage.getItem(this.bestKey) ?? 0) || 0; } catch { return 0; }
   }
 
   start(): void { this.started = true; }
@@ -579,7 +610,7 @@ export class PlayScene extends Phaser.Scene {
         this.overAt = now + 1300;
         this.overPayload = p;
         const h = Number(p.height) - this.sim.foundations[0].top;
-        if (h > this.bestHeight) { this.bestHeight = h; try { localStorage.setItem('shape-tower-best', String(h)); } catch { /* none */ } }
+        if (h > this.bestHeight) { this.bestHeight = h; if (this.bestKey) try { localStorage.setItem(this.bestKey, String(h)); } catch { /* none */ } }
         for (const s of this.sprites.values()) if (!s.lost && s.stone < 1) s.view.setExpression('dizzy');
         break;
       }

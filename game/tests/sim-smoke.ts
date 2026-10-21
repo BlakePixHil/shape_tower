@@ -1127,6 +1127,61 @@ for (const cp of [11, 17, 23]) {
     `CP 7 bag P ${b7.P} U ${b7.U} V ${b7.V}; CP 19 P ${b19.P} Arch ${b19.Arch} Plus ${b19.Plus}; ${settled}/${total} settle`);
 }
 
+// ---------------------------------------------------------------- Zen (gameplay.md §12)
+
+// Zen: no budget, no hearts to lose and no Second Wind. Shapes keep coming past any budget, and
+// shapes dropped off the edge are only lost: no heart events, and the run never ends on its own.
+{
+  const t = createSim({ autoSpawn: true, seed: 11, tuning: { zen: true } });
+  const counts: Record<string, number> = {};
+  let landed = 0, pastBudget = false;
+  for (let i = 0; i < 60 * 150 && t.sim.state === 'playing'; i++) {
+    if (t.sim.used > t.sim.budget) pastBudget = true;
+    const c = t.sim.ctrl;
+    if (c && !c.hard && c.speed > 0) {
+      // Every third shape goes off the edge; the rest build on the foundation.
+      const x = landed % 3 === 2 ? t.sim.foundation.x + 7 : t.sim.foundation.x - 1 + (landed % 3);
+      if (Math.abs(c.xTarget - x) > 0.01) t.intent({ type: 'moveTo', x });
+      else t.intent({ type: 'hardDrop' });
+    }
+    t.step();
+    for (const e of t.drainEvents()) {
+      counts[e.name] = (counts[e.name] ?? 0) + 1;
+      if (e.name === 'piece_landed' || e.name === 'piece_lost') landed++;
+    }
+  }
+  const sim = t.sim;
+  const quiet = !counts.heart_lost && !counts.last_heart && !counts.budget_low && !counts.bricks_out && !counts.run_over;
+  check('Zen: shapes keep coming past the budget, lost ones cost nothing, and only quitting ends it',
+    sim.state === 'playing' && sim.tuning.infiniteBudget && sim.tuning.infiniteHearts && sim.secondWind === 'off' && (counts.piece_lost ?? 0) >= 5 && pastBudget && sim.hearts === sim.tuning.hearts && quiet,
+    `${counts.piece_spawned} spawned, ${sim.stats.placed} placed, ${counts.piece_lost ?? 0} lost, hearts ${sim.hearts}, second wind ${sim.secondWind}, checkpoints ${sim.stats.checkpoints}`);
+  // Exactly half XP, and quitting doesn't halve it again (QA Q33).
+  const xpZen = sim.xp(), xpQuit = sim.xp(true);
+  t.intent({ type: 'quit' });
+  t.step();
+  const over = t.drainEvents().find(e => e.name === 'run_over');
+  check('Zen: quitting ends it with exactly half XP, not halved again', xpZen === xpQuit && over?.payload.cause === 'quit' && over?.payload.xp === xpZen && xpZen > 5, `xp ${xpZen}, on quit ${xpQuit}, run_over ${JSON.stringify(over?.payload)}`);
+  // The same tower outside Zen: half of its XP (rounded) is what Zen paid.
+  sim.tuning.zen = false;
+  const full = sim.xp(false), half = sim.xp(true);
+  check('Zen: half of what the same tower pays in Endless', half === xpZen && Math.abs(full / 2 - xpZen) <= 0.5, `endless ${full}, half ${half}, zen ${xpZen}`);
+  sim.tuning.zen = true;
+  // A Zen run replays exactly from its record: the tuning patch carries zen.
+  const steps = sim.stepIndex;
+  const a = replay({ seed: 11, tuning: { zen: true }, inputs: sim.inputLog, steps });
+  const b = replay({ seed: 11, tuning: { zen: true }, inputs: sim.inputLog, steps });
+  check('Zen: a run replays step for step from its inputs', a.digests.join() === b.digests.join() && a.sim.digest() === sim.digest() && a.sim.state === 'over', `${a.digests.length} digests, ${a.sim.digest()} vs ${sim.digest()}`);
+  a.sim.dispose(); b.sim.dispose();
+  t.dispose();
+}
+
+// Zen never earns Second Wind: checkpoint 2 hands out a power-up instead, as in a scored Daily.
+{
+  const t = createSim({ autoSpawn: false, seed: 3, tuning: { zen: true }, secondWind: 'earn' });
+  check('Zen: Second Wind is off whatever the run asks for', t.sim.secondWind === 'off', t.sim.secondWind);
+  t.dispose();
+}
+
 // The phone bench ends each phase with the world's digest, the same on every run, so a phone's
 // bench (both engines) can be checked against Node without the game running on that engine.
 {
