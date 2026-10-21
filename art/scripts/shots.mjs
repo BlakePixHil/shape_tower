@@ -1,7 +1,7 @@
 // Screenshots of the built preview (npm run build first), one per query string, at phone size.
 // npm run shots -- "state=stable&maxtex=1" "gallery=1&maxtex=1"
 // Headless Chromium renders WebGL with SwiftShader; pass maxtex=1 there (see README, "Headless WebGL").
-// CHROMIUM=/path/to/chrome uses that browser instead of Playwright's own download.
+// CHROMIUM=/path/to/chrome uses that browser instead of Playwright's own download. H=<px> makes the page taller (long sheets).
 
 import { chromium } from '@playwright/test';
 import { existsSync, readFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ if (!queries.length) queries.push('state=stable&maxtex=1');
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || undefined, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const errors = [];
 for (const q of queries) {
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  const page = await browser.newPage({ viewport: { width: 390, height: Number(process.env.H ?? 844) }, deviceScaleFactor: 2 });
   // Headless Chromium can't reach Google Fonts through a TLS-inspecting proxy. If shots/fonts/ holds
   // a copy (fonts.css plus its .woff2 files, fetched with curl), serve the fonts from there.
   const fonts = `${dir}shots/fonts/`;

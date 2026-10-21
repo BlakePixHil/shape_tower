@@ -7,7 +7,8 @@
     "build": "vite build",
     "typecheck": "tsc -p .",
     "config": "node --experimental-strip-types --no-warnings scripts/export-config.ts",
-    "shots": "node scripts/shots.mjs"
+    "shots": "node scripts/shots.mjs",
+    "export:badges": "node scripts/export-badges.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

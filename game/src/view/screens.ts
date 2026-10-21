@@ -7,8 +7,10 @@ import {
   MENU_MODES, avatarPanel, injectUiCss, levelUp, mainMenu, onAction, pauseCard, prewarmUi, profilePanel, readAvatar, readSettings, rewardAt, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, type SettingGroup, type SettingValue,
 } from '@art/index.ts';
+import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
 import type { Award, Profile } from './profile.ts';
+import { achievementsPanel, profileRow, summaryStrip } from './trophies.ts';
 import type { PlayerSettings } from './settings.ts';
 import { INK, INK_SOFT } from './palette.ts';
 
@@ -22,7 +24,7 @@ export interface ScreenSounds {
 
 /** The sound each kit action makes; anything else is a plain tap. */
 const ACTION_SOUND: Record<string, UiSound> = {
-  play: 'start', again: 'start', resume: 'resume', profile: 'open', settings: 'open', share: 'open', avatar: 'open', done: 'tap2',
+  play: 'start', again: 'start', resume: 'resume', profile: 'open', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap',
 };
 
@@ -80,6 +82,8 @@ export interface SummaryStats {
 export interface SummaryOptions {
   stats: SummaryStats;
   award: Award;
+  /** Achievements earned this run, and earlier ones whose XP this tally pays (gameplay.md §18.3). */
+  achievements?: Achievement[];
   /** One-tap prompts for QA, in order. 'faces' is five faces stored as 1 to 5. */
   questions: { id: string; text: string; kind?: 'yesno' | 'faces' }[];
   onAnswer(id: string, answer: string | number): void;
@@ -180,8 +184,17 @@ export class Screens {
       stats: { bestHeight: st.bestHeight, bestBiome: Math.max(0, st.bestBiome - 1), bricks: st.bricks, perfects: st.perfects, rows: st.rows, checkpoints: st.checkpoints, runs: p.runs, streak: p.streak },
       postcards: p.postcards,
     });
+    // Achievements (gameplay.md §18.3): a row under the stats opens the panel.
+    const row = profileRow(p);
+    const cards = el.querySelector('.ui-cards');
+    if (cards?.previousElementSibling) cards.previousElementSibling.before(row); else el.querySelector('.ui-panel')?.appendChild(row);
     const back = () => this.profile(p, onBack, onSave);
-    this.open('profile', el, { close: onBack, avatar: () => this.avatar(p, back, onSave) });
+    this.open('profile', el, { close: onBack, avatar: () => this.avatar(p, back, onSave), achievements: () => this.achievements(p, back) });
+  }
+
+  /** Every achievement by group: earned ones with their date, counted ones with progress. */
+  achievements(p: Profile, onBack: () => void): void {
+    this.open('achievements', achievementsPanel(p), { close: onBack });
   }
 
   /** Art's avatar picker: shape, face and a hat (hats above the player's level stay locked). Done keeps the choice. */
@@ -207,6 +220,7 @@ export class Screens {
     el.querySelector('[data-action="share"]')?.remove();
     this.open('summary', el, { again: o.onAgain, profile: o.onProfile, home: o.onHome });
     const extra = el.querySelector<HTMLElement>('.ui-sum-extra')!;
+    if (o.achievements?.length) extra.appendChild(summaryStrip(o.achievements));
     for (const q of o.questions) extra.appendChild(this.ask(q, o.onAnswer));
     this.sounds.ui('open');
     this.tally(el, o);

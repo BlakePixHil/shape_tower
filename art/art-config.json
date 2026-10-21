@@ -1031,7 +1031,13 @@
       "junk",
       "meteor",
       "swirl",
-      "plumb"
+      "plumb",
+      "combo",
+      "avalanche",
+      "toolbox",
+      "undo",
+      "needle",
+      "purist"
     ],
     "hazards": {
       "gust": {
@@ -1063,6 +1069,48 @@
         "icon": "plumb",
         "title": "Tidal sway!",
         "tip": "Build down the middle."
+      }
+    },
+    "achievementTiers": {
+      "bronze": {
+        "name": "Bronze",
+        "base": "#D08A4E",
+        "light": "#F2B98A",
+        "shade": "#9A5A2A",
+        "field": [
+          "#FFF8F0",
+          "#F7D9BC"
+        ]
+      },
+      "silver": {
+        "name": "Silver",
+        "base": "#C9D1DE",
+        "light": "#F4F7FB",
+        "shade": "#8E98AB",
+        "field": [
+          "#FFFFFF",
+          "#DCE4F0"
+        ]
+      },
+      "gold": {
+        "name": "Gold",
+        "base": "#FFC23D",
+        "light": "#FFE08A",
+        "shade": "#D9971A",
+        "field": [
+          "#FFFDF2",
+          "#FFE6A0"
+        ]
+      },
+      "platinum": {
+        "name": "Platinum",
+        "base": "#CFE0F7",
+        "light": "#FFFFFF",
+        "shade": "#8C9FC6",
+        "field": [
+          "#FFF6FD",
+          "#D3E3FF"
+        ]
       }
     }
   }

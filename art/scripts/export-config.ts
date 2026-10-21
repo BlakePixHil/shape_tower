@@ -12,6 +12,7 @@ import { POWER, POWER_COLORS } from '../src/powers.ts';
 import { COSMOS_PALETTES, LANDMARKS } from '../src/cosmos.ts';
 import { BADGE_TIERS, TITLES } from '../src/ui/badge.ts';
 import { UI_ICONS } from '../src/ui/icons.ts';
+import { ACH_TIERS } from '../src/ui/achievements.ts';
 import { UNLOCKS } from '../src/ui/screens.ts';
 import { HAZARDS } from '../src/ui/hazard.ts';
 import { WIND, WIND_VARIANTS } from '../src/wind.ts';
@@ -33,7 +34,7 @@ const out = {
   powers: { ...POWER, colors: POWER_COLORS },
   cosmos: { palettes: COSMOS_PALETTES, landmarks: LANDMARKS.map(l => ({ name: l.name, dur: l.dur })), checkpointsPerPalette: 6 },
   wind: { sizes: WIND, variants: WIND_VARIANTS },
-  ui: { badgeTiers: BADGE_TIERS, titles: TITLES, unlocks: UNLOCKS, icons: UI_ICONS, hazards: HAZARDS },
+  ui: { badgeTiers: BADGE_TIERS, titles: TITLES, unlocks: UNLOCKS, icons: UI_ICONS, hazards: HAZARDS, achievementTiers: ACH_TIERS },
 };
 
 const path = new URL('../art-config.json', import.meta.url);

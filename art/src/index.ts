@@ -40,6 +40,10 @@ export { prewarmUi } from './ui/prewarm.ts';
 export { warmUrls } from './urls.ts';
 export { HATS, drawHat, hatUrl, type Hat, type HatInfo } from './ui/hats.ts';
 export {
+  ACH_TIERS, achievementBadgeUrl, achievementStrip, achievementToast, achievementsPanel, achievementsRow, bakeAchievementBadge, bakeAchievementForStore, drawAchievementBadge,
+  type AchTier, type AchTierInfo, type AchievementBadge, type AchievementGroup, type AchievementItem, type AchievementStripItem, type AchievementToastData, type AchievementToastOptions,
+} from './ui/achievements.ts';
+export {
   AVATAR_FACES, AVATAR_SHAPES, MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarPanel, avatarUrl, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel,
   readAvatar, readSettings, rewardAt, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, xpBar,
   type AvatarPanelData, type AvatarSpec, type LevelUpOptions, type MenuData, type MenuMode, type PauseOptions, type ProfileData, type ProfileStats,

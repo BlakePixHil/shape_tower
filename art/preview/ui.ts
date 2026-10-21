@@ -1,10 +1,12 @@
 // UI kit preview: the DOM screens over the running scene, and sheets of the kit's parts.
 // &ui=menu|pause|summary|levelup|profile|settings|avatar opens that screen (buttons work: Settings, Profile,
-// Close and so on). &ui=icons|badges|logo|brand|hats shows a sheet (brand: app icon, Android layers, splash, share card). &lv=<level> sets the player's level (default 7).
+// Close and so on). &ui=achievements opens the Achievements panel (&all=1: everything earned), &ui=achtoast plays three toasts (&plain=1: juice off).
+// &ui=icons|badges|logo|brand|hats|ach shows a sheet (brand: app icon, Android layers, splash, share card). &lv=<level> sets the player's level (default 7).
 // &still=1 skips the animations, as Reduce Motion does. Without &ui, a Screens row sits above the biome picker.
 // &rail=1 shows the altitude rail climbing through a few biomes, with the off-screen checkpoint and lost-piece chips.
 // &top=<blocks> starts it there, &hold=1 stops the climb, &span=<blocks> shows a scrolling window instead of the whole run.
 
+import { achievementsDemoPanel, achievementsDemoToasts, achievementsSheet } from './achievements.ts';
 import { demoTower } from './tower.ts';
 import {
   bakeAppIcon, bakePanorama, bakeShareCard, bakeSplash, panoramaBiome,
@@ -46,8 +48,8 @@ export function openScreen(name: string): void {
   } else if (name === 'profile') {
     const dates = ['20 OCT 2026', '20 OCT 2026', '21 OCT 2026', '21 OCT 2026', '', null, null, null, null, null];
     const p = mount(profilePanel({ name: 'Blake', ...xpAt(level, 0.62), avatar, postcards: dates,
-      stats: { bestHeight: 84.6, bestBiome: 4, bricks: 2318, perfects: 412, rows: 57, checkpoints: 31, runs: 46, streak: 3 } }));
-    onAction(p, a => { if (a === 'avatar') openScreen('avatar'); else p.remove(); });
+      stats: { bestHeight: 84.6, bestBiome: 4, bricks: 2318, perfects: 412, rows: 57, checkpoints: 31, runs: 46, streak: 3 }, achievements: { got: 17, total: 47 } }));
+    onAction(p, a => { if (a === 'avatar' || a === 'achievements') openScreen(a); else p.remove(); });
   } else if (name === 'avatar') {
     // Done keeps the choice and refreshes the avatar wherever it shows.
     const v = mount(avatarPanel({ avatar, level }));
@@ -58,6 +60,11 @@ export function openScreen(name: string): void {
   } else if (name === 'settings') {
     const s = mount(settingsPanel(settings));
     onAction(s, a => { if (a === 'close') { settings = readSettings(s); s.remove(); } });
+  } else if (name === 'achievements') {
+    const p = mount(achievementsDemoPanel(qs.has('all')));
+    onAction(p, close(p));
+  } else if (name === 'achtoast') {
+    achievementsDemoToasts(still, qs.has('plain'));
   } else if (name === 'btitle') {
     const freeze = qs.has('bt'), el = mount(biomeCard(Number(qs.get('b') ?? 2), { newPostcard: !qs.has('seen'), stay: freeze }));
     if (freeze) for (const a of el.getAnimations({ subtree: true })) { a.pause(); a.currentTime = Number(qs.get('bt')); }
@@ -166,6 +173,8 @@ function sheet(name: string): void {
     const img = (cv: HTMLCanvasElement) => { const i = document.createElement('img'); i.src = cv.toDataURL(); i.style.cssText = `width:min(360px,100%);border-radius:12px;box-shadow:0 3px 0 ${INK}`; return i; };
     root.querySelector('.pv-pano')!.append(...(qs.has('card') ? [img(card), img(pano)] : [img(pano), img(card)]));
     root.querySelector('h3')!.textContent += ` (baked in ${ms} ms)`;
+  } else if (name === 'ach') {
+    achievementsSheet(root);
   } else if (name === 'titles') {
     root.innerHTML = `<h3>Biome title cards (the first visit adds the New postcard chip)</h3><div class="pv-titles"></div>`;
     const list = root.querySelector('.pv-titles')!;
@@ -179,14 +188,14 @@ function sheet(name: string): void {
 export function screensBar(): void {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 62px);display:flex;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;z-index:3;font:600 11px Fredoka,Nunito,system-ui,sans-serif';
-  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama'], ['avatar', 'Avatar'], ['hats', 'Hats']]) {
+  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama'], ['avatar', 'Avatar'], ['hats', 'Hats'], ['ach', 'Badges 2'], ['achievements', 'Achievements'], ['achtoast', 'Toast']]) {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = `background:#FFC23D;color:${INK};border:2px solid ${INK};border-radius:10px;box-shadow:0 2px 0 ${INK};padding:2px 8px;font:inherit;cursor:pointer`;
     b.onclick = () => {
       document.querySelectorAll('.pv-sheet').forEach(e => e.remove());
       openScreen(k);
-      if (k === 'icons' || k === 'badges' || k === 'logo' || k === 'brand' || k === 'titles' || k === 'pano') {
+      if (k === 'icons' || k === 'badges' || k === 'logo' || k === 'brand' || k === 'titles' || k === 'pano' || k === 'ach') {
         const x = document.createElement('button');
         x.className = 'ui-btn icon sm'; x.style.cssText = 'position:fixed;top:10px;right:10px;z-index:41';
         x.innerHTML = `<img alt="Close" src="${uiIconUrl('close', 20)}">`;
