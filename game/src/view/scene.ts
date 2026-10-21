@@ -58,6 +58,8 @@ interface PieceSprite {
 interface Pose { x: number; y: number; a: number }
 
 const ACROSS = 12;
+/** The longest the run-over panorama waits at the top for the backdrop to bake its path (ms). */
+const PANO_WAIT = 1000;
 const ACROSS_MAX = 15;
 const TAU = Math.PI * 2;
 const PEDESTAL_LEGS = 0.4; // deck 0.6 + legs 0.4 = the sim's 1-block plinth
@@ -130,7 +132,8 @@ export class PlayScene extends Phaser.Scene {
   private demoIdx = 0;
   private demoAt = 0;
   // Run over: the camera glides down the whole tower (the panorama), with the sky following height.
-  private pano: { from: number; to: number; t0: number; dur: number; done: (() => void) | null } | null = null;
+  // The glide waits (up to PANO_WAIT ms) for the backdrop to bake the biomes on its path.
+  private pano: { from: number; to: number; t0: number; dur: number; done: (() => void) | null; start: number } | null = null;
   private skyMarks: { y: number; sp: number }[] = [];
 
   private readyResolve: () => void = () => {};
@@ -230,6 +233,7 @@ export class PlayScene extends Phaser.Scene {
     this.pbCrossed = false;
     this.skyClock.set(0);
     this.pano = null;
+    this.backdrop?.endTour();
     this.skyMarks = [{ y: -1, sp: 0 }];
     this.cam.x = 0;
     this.cam.y = -1 + 0.3 * this.H / this.ppb;
@@ -271,7 +275,9 @@ export class PlayScene extends Phaser.Scene {
     if (this.view.reducedMotion || from - to < 2) { done(); return; }
     const dur = Math.max(1.4, Math.min(4.5, 1.2 + (from - to) / 30)) * 1000;
     this.skyMarks.push({ y: from, sp: this.skyClock.sp });
-    this.pano = { from, to, t0: performance.now() + 250, dur, done };
+    this.backdrop.prepareTour(this.skyClock.sp, this.skyAt(to));
+    const now = performance.now();
+    this.pano = { from, to, t0: Infinity, dur, done, start: now };
   }
 
   /** A tap during the panorama skips to the end. */
@@ -279,6 +285,7 @@ export class PlayScene extends Phaser.Scene {
     const p = this.pano;
     if (!p?.done) return;
     p.t0 = performance.now() - p.dur;
+    this.backdrop.tourGlide();
   }
 
   /** The sky position for a camera height during the panorama: between the claims' marks. */
@@ -949,10 +956,15 @@ export class PlayScene extends Phaser.Scene {
     const sim = this.sim;
     const pano = this.pano;
     if (pano) {
+      // A beat at the top (250 ms, longer while the backdrop bakes the path), then the glide.
+      if (pano.t0 === Infinity && now - pano.start >= 250 && (this.backdrop.tourReady || now - pano.start >= PANO_WAIT)) {
+        pano.t0 = now;
+        this.backdrop.tourGlide();
+      }
       const t = Math.max(0, Math.min(1, (now - pano.t0) / pano.dur));
       const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
       this.cam.y = pano.from + (pano.to - pano.from) * e;
-      if (t >= 1 && pano.done && now - pano.t0 >= pano.dur + 350) { const d = pano.done; pano.done = null; d(); }
+      if (t >= 1 && pano.done && now - pano.t0 >= pano.dur + 350) { const d = pano.done; pano.done = null; this.backdrop.endTour(); d(); }
       return;
     }
     // Zoom out up to 15 blocks when overhangs reach the screen edge (gameplay.md §11.2).
