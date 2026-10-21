@@ -1,8 +1,24 @@
 // QA's headless contract (agreed with the QA thread). Pure TypeScript, no Phaser.
 // Units: blocks, y up, rot in quarter turns. Angles reported here are radians, for tests only.
 
-import { Sim, type Ghost, type Intent, type LoggedInput, type PieceState, type SecondWindMode, type SimOptions } from './sim.ts';
+import { RapierEngine, initRapier } from './engine/rapier.ts';
+import { Sim, registerEngine, type Ghost, type Intent, type LoggedInput, type PieceState, type SecondWindMode, type SimOptions } from './sim.ts';
 import type { Tuning } from './tuning.ts';
+
+// Held in a variable so bundlers (Sound's IIFE sim check, Vite) leave the 3.4 MB of WASM out.
+const RAPIER_PACKAGE = '@dimforge/rapier2d-deterministic-compat';
+
+/**
+ * Loads Rapier and registers it, so createSim({ engine: 'rapier' }) works: the bake-off's contender
+ * (gameplay.md §15, QA_ENGINE=rapier). Safe to call more than once.
+ */
+export async function useRapier(): Promise<void> {
+  await initRapier(() => import(/* @vite-ignore */ RAPIER_PACKAGE));
+  registerEngine('rapier', s => new RapierEngine(s));
+}
+
+/** SIM_ENGINE=rapier runs a whole suite on Rapier (npm run sim:smoke, for the bake-off); call useRapier() first. */
+const DEFAULT_ENGINE: 'box2d' | 'rapier' = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SIM_ENGINE === 'rapier' ? 'rapier' : 'box2d';
 
 export interface CreateSimOptions {
   engine?: 'box2d' | 'rapier';
@@ -67,7 +83,7 @@ export function restore(snap: TestSnapshot): TestSim {
 
 export function createSim(opts: CreateSimOptions = {}): TestSim {
   const simOpts: SimOptions = {
-    engine: opts.engine ?? 'box2d',
+    engine: opts.engine ?? DEFAULT_ENGINE,
     seed: opts.seed ?? 1,
     tuning: opts.tuning,
     autoSpawn: opts.autoSpawn ?? false,
@@ -103,14 +119,14 @@ export function createSim(opts: CreateSimOptions = {}): TestSim {
   };
 }
 
-export interface ReplayInput { seed: number; tuning?: Partial<Tuning>; rookieOpening?: boolean; secondWind?: SecondWindMode; inputs: LoggedInput[]; steps: number }
+export interface ReplayInput { engine?: 'box2d' | 'rapier'; seed: number; tuning?: Partial<Tuning>; rookieOpening?: boolean; secondWind?: SecondWindMode; inputs: LoggedInput[]; steps: number }
 
 /**
  * Replays a recorded run (auto spawn on, as in the game) and returns the digest every 60 steps,
  * for comparing with the digests in a run record.
  */
 export function replay(rec: ReplayInput): { digests: string[]; sim: Sim } {
-  const sim = new Sim({ seed: rec.seed, tuning: rec.tuning, autoSpawn: true, rookieOpening: rec.rookieOpening ?? false, secondWind: rec.secondWind });
+  const sim = new Sim({ engine: rec.engine ?? DEFAULT_ENGINE, seed: rec.seed, tuning: rec.tuning, autoSpawn: true, rookieOpening: rec.rookieOpening ?? false, secondWind: rec.secondWind });
   const digests: string[] = [];
   let k = 0;
   while (sim.stepIndex < rec.steps) {
