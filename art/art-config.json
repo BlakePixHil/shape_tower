@@ -770,5 +770,64 @@
       "slowmo": "#7FD8FF",
       "wind": "#7FD8FF"
     }
+  },
+  "cosmos": {
+    "palettes": [
+      {
+        "name": "Bubblegum Nebula",
+        "colors": [
+          "#FF5FC8",
+          "#8A4DFF",
+          "#3BC8FF"
+        ],
+        "core": "#FFD6F4"
+      },
+      {
+        "name": "Lagoon Nebula",
+        "colors": [
+          "#2EE6C8",
+          "#2E7BFF",
+          "#9BFF8A"
+        ],
+        "core": "#D6FFF6"
+      },
+      {
+        "name": "Ember Nebula",
+        "colors": [
+          "#FF8A3C",
+          "#FF3F6E",
+          "#FFD15C"
+        ],
+        "core": "#FFF0D6"
+      },
+      {
+        "name": "Aurora Nebula",
+        "colors": [
+          "#B48CFF",
+          "#5CE1FF",
+          "#FF9BE0"
+        ],
+        "core": "#EEE6FF"
+      }
+    ],
+    "landmarks": [
+      {
+        "name": "Cosmic whale",
+        "dur": 16
+      },
+      {
+        "name": "Butterblock constellation",
+        "dur": 10
+      },
+      {
+        "name": "Comet swarm",
+        "dur": 4.5
+      },
+      {
+        "name": "Derelict station",
+        "dur": 18
+      }
+    ],
+    "checkpointsPerPalette": 6
   }
 }
