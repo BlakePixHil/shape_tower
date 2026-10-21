@@ -151,6 +151,12 @@ export class Box2DEngine implements PhysicsEngine {
     B.b2Body_ApplyForceToCenter(e.body, new B.b2Vec2(fx, fy), true);
   }
 
+  applyImpulse(id: number, jx: number, jy: number, px: number, py: number): void {
+    const e = this.bodies.get(id);
+    if (!e) return;
+    B.b2Body_ApplyLinearImpulse(e.body, new B.b2Vec2(jx, jy), new B.b2Vec2(px, py), true);
+  }
+
   overlapBoxes(boxes: ColliderBox[], x: number, y: number, rot: Rot): number[] {
     const out = new Set<number>();
     const xf = new B.b2Transform(new B.b2Vec2(x, y), new B.b2Rot(rot.c, rot.s));

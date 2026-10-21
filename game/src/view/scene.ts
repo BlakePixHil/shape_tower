@@ -6,15 +6,15 @@
 
 import * as Phaser from 'phaser';
 import {
-  ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, CheckpointLine, GuideView, PbMarker, POWER_COLORS, PowerBubble, SkyClock, VFX,
+  ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, CheckpointLine, GuideView, HazardFx, JUNK_KINDS, PbMarker, POWER_COLORS, PowerBubble, SkyClock, VFX,
   WindView, windDrifters,
   biomeForCheckpoint, rimAmount, type Expression, type Finish, type GuideState, type TexRef, type VfxName,
 } from '@art/index.ts';
-import { DT, Sim, type Bubble, type PieceView, type PowerKind, type SecondWindMode, type Tint } from '../sim/sim.ts';
+import { DT, Sim, type Bubble, type PieceView, type PowerKind, type SecondWindMode, type Shot, type Tint } from '../sim/sim.ts';
 import { SHAPES, extents } from '../sim/shapes.ts';
 import { biomeFor, type Tuning } from '../sim/tuning.ts';
 import { Particles, Shaker, TimeControl, easeElasticOut, type ParticleOpts } from './fx.ts';
-import { Hud, POWER_NAMES } from './hud.ts';
+import { Hud, POWER_NAMES, type HazardWant } from './hud.ts';
 import { Gestures } from './input.ts';
 import type { LabState, ViewSettings } from './panel.ts';
 import type { RunStart } from './records.ts';
@@ -116,6 +116,10 @@ export class PlayScene extends Phaser.Scene {
   private poppedBubbles: PowerBubble[] = []; // still playing their collect or fade
   private taughtBubble = false;
   private wind!: WindView; // Art's gust telegraph and streaks: information, so they stay with juice off
+  private hz!: HazardFx; // Art's space hazards (junk, meteors, dust devils): information too
+  private hzShots = new Map<number, Shot['phase']>(); // what's drawn for each shot
+  private hzDevil: { id: number; phase: 'warn' | 'blow' } | null = null;
+  private dustPuffAt = 0; // sim s
   private demoing = false;
   private demoIdx = 0;
   private demoAt = 0;
@@ -143,12 +147,13 @@ export class PlayScene extends Phaser.Scene {
     this.ppb = this.W / ACROSS;
     // The canvas already renders at device resolution, so the kit bakes at 1 texture px per game px.
     this.art = new ArtTextures(this, { cellPx: this.ppb, texScale: 1 });
-    this.art.prewarm(Object.keys(SHAPES), { finishes: ['wood'] });
+    this.art.prewarm(Object.keys(SHAPES), { finishes: ['wood'], hazards: true });
     this.backdrop = new Backdrop(this, { width: this.W, height: this.H, texScale: 1, frontDepth: D.front, reduceMotion: this.view.reducedMotion });
     this.guide = new GuideView(this.art, D.guide);
     this.pb = new PbMarker(this.art, D.line - 0.1);
     this.particles = new Particles(this, D.fx);
     this.wind = new WindView(this.art, { width: this.W, height: this.H, drifters: 'leaves' });
+    this.hz = new HazardFx(this.art, { depth: D.fx });
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
       ctrlX: () => (this.started && !this.paused && this.sim?.ctrl ? this.sim.ctrl.xTarget : null),
@@ -193,6 +198,11 @@ export class PlayScene extends Phaser.Scene {
     this.slabs.clear();
     this.particles?.clear();
     this.wind?.clear();
+    this.hz?.clear();
+    this.hzShots.clear();
+    this.hzDevil = null;
+    this.dustPuffAt = 0;
+    this.backdrop?.setTilt(0);
     this.guide.hide();
     for (const l of this.lines) l.destroy();
     this.lines = [];
@@ -292,6 +302,7 @@ export class PlayScene extends Phaser.Scene {
     this.guide.reduceMotion = v.reducedMotion;
     this.backdrop.reduceMotion = v.reducedMotion;
     this.wind.reduceMotion = v.reducedMotion;
+    this.hz.reduceMotion = v.reducedMotion;
     for (const l of this.lines) l.reduceMotion = v.reducedMotion;
     this.pb.reduceMotion = v.reducedMotion;
     this.guide.opacity = v.guideOpacity ?? 1;
@@ -323,7 +334,9 @@ export class PlayScene extends Phaser.Scene {
   update(_time: number, deltaMs: number): void {
     const now = performance.now();
     const dt = Math.min(deltaMs, 50) / 1000;
-    this.hooks.onFrame?.(deltaMs);
+    // Run records want the real frame time (QA-009): Phaser's delta is smoothed over 10 frames and caps
+    // stalls, so hitches would vanish from the stats. Gameplay keeps the smoothed one.
+    this.hooks.onFrame?.(this.game.loop.rawDelta);
     this.gestures.update(now);
     if (this.demoing && !this.paused && this.demoIdx < DEMO.length && now >= this.demoAt) {
       const [shape, x, rot] = DEMO[this.demoIdx++];
@@ -432,13 +445,23 @@ export class PlayScene extends Phaser.Scene {
         break;
       }
       case 'budget_low': this.hooks.hud.pulseBricks(); break;
+      // Gusts and crosswind are WindView's; junk, meteors and dust devils draw from the sim each frame (drawHazards).
       case 'hazard_warning':
-        this.wind.drifters = windDrifters(this.biomeIndex());
-        this.wind.warn(p.dir, p.eta);
-        if (p.intro) this.hooks.hud.hazardCard('gust', this.view.reducedMotion);
+        if (p.type === 'gust') {
+          this.wind.drifters = windDrifters(this.biomeIndex());
+          this.wind.warn(p.dir, p.eta);
+        }
+        if (p.intro) this.hooks.hud.hazardCard(p.type, this.view.reducedMotion);
         break;
-      case 'hazard_start': this.wind.start(p.strength, p.dir); break;
-      case 'hazard_end': this.wind.end(); break;
+      case 'hazard_start':
+        if (p.type === 'gust') this.wind.start(p.strength, p.dir);
+        else if (p.type === 'crosswind') { this.wind.drifters = windDrifters(this.biomeIndex()); this.wind.steady(p.strength, p.dir); }
+        break;
+      case 'hazard_end':
+        if (p.type === 'gust') this.wind.end();
+        else if (p.type === 'crosswind') this.wind.steady(0);
+        break;
+      case 'hazard_hit': this.onHazardHit(p); break;
       case 'checkpoint_cancelled': this.pop('Wobbly!', this.sim.foundation.x, this.sim.lineY + 0.6, AMBER, 18); break;
       case 'checkpoint_claimed':
         this.onClaim(p, now);
@@ -587,11 +610,103 @@ export class PlayScene extends Phaser.Scene {
     this.poppedBubbles = this.poppedBubbles.filter(p => { if (p.done) p.destroy(); return !p.done; });
   }
 
-  /** The HUD's gust chip follows the sim; Art's WindView draws the streaks from the hazard events. */
-  private drawGust(): void {
-    const g = this.sim.gust;
-    this.hooks.hud.setHazard(this.started && !this.demoing ? g.phase : 'idle', g.dir);
+  /**
+   * The hazards from the sim's state each frame (gameplay.md §8.3): the HUD's chips and weather
+   * gauges, HazardFx's telegraphs and objects for junk, meteors and dust devils, and the backdrop
+   * leaning with tidal sway. Gust and crosswind streaks are WindView's, from the hazard events.
+   */
+  private drawHazards(dt: number): void {
+    const sim = this.sim, u = this.ppb, live = this.started && !this.demoing, step = sim.stepIndex;
+    const want: HazardWant[] = [];
+    const g = sim.gust;
+    if (g.phase !== 'idle') want.push({ type: 'gust', dir: g.dir > 0 ? 1 : -1, left: g.phase === 'warn' ? (g.startStep - step) * DT : 0 });
+    // Crosswind and sway get a chip to announce them; after that the gauges show them.
+    const w = sim.weather, wl = (w.startStep - step) * DT;
+    if (w.phase !== 'idle' && wl > -1.5) {
+      if (w.crosswind > 0) want.push({ type: 'crosswind', dir: w.crossDir, left: Math.max(0, wl) });
+      if (w.sway) want.push({ type: 'sway', dir: 1, left: Math.max(0, wl) });
+    }
+    const on = w.phase === 'on';
+    this.hooks.hud.setGauges(on && w.crosswind > 0 ? w.crossDir * w.crosswind * Math.min(1, -wl / 2) : null, on && w.sway ? sim.swayAhead(1) : null);
+    this.backdrop.setTilt(-sim.tilt); // gravity pulling right: the world leans the other way
+
+    // Junk and meteors: dashes and a reticle while warned, the object while it flies, gone after.
+    const seen = new Set<number>();
+    for (const s of sim.shots) {
+      seen.add(s.id);
+      const id = `s${s.id}`, was = this.hzShots.get(s.id), hx = s.hitX * u, hy = -s.hitY * u;
+      if (!was) {
+        const left = Math.max(0.1, (s.hitStep - step) * DT);
+        if (s.kind === 'junk') this.hz.trajectory(id, s.x * u, -s.y * u, hx, hy);
+        else this.hz.incoming(`${id}i`, hx, hy, Math.atan2(s.hitY - s.y, s.x - s.hitX));
+        this.hz.reticle(`${id}t`, hx, hy, left);
+      }
+      if (s.phase === 'out' && was !== 'out') {
+        this.hz.unmark(id).unmark(`${id}t`).unmark(`${id}i`);
+        if (s.kind === 'meteor') this.hz.remove(id);
+      }
+      if (s.kind === 'junk' && s.phase !== 'warn') this.hz.junk(id, JUNK_KINDS[s.skin % JUNK_KINDS.length], s.x * u, -s.y * u, (step - s.appearStep) * DT * 3 * s.dir);
+      if (s.kind === 'meteor' && s.phase === 'fly') this.hz.meteor(id, s.x * u, -s.y * u);
+      this.hzShots.set(s.id, s.phase);
+      if (s.phase !== 'out' && !want.some(x => x.type === s.kind)) {
+        want.push({ type: s.kind, dir: s.dir > 0 ? -1 : 1, left: Math.max(0, (s.hitStep - step) * DT), id: s.kind === 'junk' ? s.id : undefined });
+      }
+    }
+    for (const sid of [...this.hzShots.keys()]) {
+      if (seen.has(sid)) continue;
+      this.hz.remove(`s${sid}`).unmark(`s${sid}`).unmark(`s${sid}t`).unmark(`s${sid}i`);
+      this.hzShots.delete(sid);
+    }
+
+    // Dust devils: the swirl on the side it comes from, then the column crossing the top and the dim.
+    const d = sim.devil, shown = this.hzDevil;
+    if (shown && (!d || d.id !== shown.id)) {
+      this.hz.unmark(`d${shown.id}`).remove(`d${shown.id}c`).dim(0);
+      this.hzDevil = null;
+    }
+    if (d) {
+      if (!this.hzDevil) {
+        this.hz.swirl(`d${d.id}`, d.x0 * u, -(d.y + 3) * u, Math.max(0.1, (d.startStep - step) * DT), d.dir);
+        this.hzDevil = { id: d.id, phase: 'warn' };
+      }
+      if (d.phase === 'blow') {
+        if (this.hzDevil.phase === 'warn') { this.hz.unmark(`d${d.id}`).dim(0.8); this.hzDevil.phase = 'blow'; }
+        this.hz.column(`d${d.id}c`, d.x * u, -d.y * u, d.dir);
+        const f = sim.foundation, top = sim.height().provisional;
+        if (Math.abs(d.x - f.x) < f.width / 2 + 0.5 && sim.time > this.dustPuffAt) {
+          this.dustPuffAt = sim.time + 0.12;
+          this.particles.spawn((d.x + (Math.random() - 0.5)) * u, -(top - Math.random()) * u, d.dir * u * (2 + Math.random() * 2), -u * Math.random(), this.fx('puff', 0.35, 0.8, { tint: num(ART_BIOMES[this.biomeIndex()].dust), life: 0.5, drag: 3, alpha: 0.85 }));
+        }
+      }
+      want.push({ type: 'dust', dir: d.dir, left: d.phase === 'warn' ? Math.max(0, (d.startStep - step) * DT) : 0, id: d.id });
+    }
+
+    this.hooks.hud.syncHazards(live ? want : []);
     this.hooks.hud.pauseHazard(this.paused);
+    this.hz.update(dt);
+  }
+
+  /** The contact puff (Art's README, "Space hazards"): gold sparks and a ring for junk, dust and chips for a meteor. */
+  private onHazardHit(p: Record<string, any>): void {
+    const u = this.ppb, x = Number(p.x) * u, y = -Number(p.y) * u, dir = Number(p.dir) || 1;
+    if (p.type === 'junk') {
+      const n = 4 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n; i++) {
+        const a = Math.PI + (dir > 0 ? Math.PI : 0) + (Math.random() - 0.5) * 1.6, v = u * (3 + Math.random() * 3);
+        const vx = Math.cos(a) * v, vy = Math.sin(a) * v;
+        this.particles.spawn(x, y, vx, vy, this.fx('spark', 0.4, 0.15, { tint: num(GOLD), life: 0.35, drag: 2, angle: Math.atan2(vy, vx), blend: Phaser.BlendModes.ADD }));
+      }
+      this.particles.spawn(x, y, 0, 0, this.fx('ring', 0.4, 1.6, { tint: num(GOLD), life: 0.35, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
+      this.shaker.add(0.22);
+    } else {
+      const dust = num(ART_BIOMES[this.biomeIndex()].dust);
+      this.particles.spawn(x, y, 0, -u * 0.5, this.fx('puff', 0.6, 1.4, { tint: dust, life: 0.55, drag: 3, alpha: 0.9 }));
+      for (let i = 0; i < 3; i++) {
+        const a = -Math.PI / 2 + (Math.random() - 0.5) * 2, v = u * (2 + Math.random() * 3);
+        this.particles.spawn(x, y, Math.cos(a) * v, Math.sin(a) * v, this.fx('chip', 0.24, 0.12, { tint: STONE_CHIP, life: 0.6, gravity: u * 14, spin: 8 }));
+      }
+      this.shaker.add(0.18);
+    }
   }
 
   /** The bubble bursts and its icon flies to the slot it fills (collected), or drifts away. */
@@ -793,7 +908,7 @@ export class PlayScene extends Phaser.Scene {
     this.drawCtrl(dt, alpha, now, sp);
     this.drawGuide(now);
     this.drawBubble(dt);
-    this.drawGust();
+    this.drawHazards(dt);
     this.particles.update(dt);
     this.wind.update(dt);
     this.updateHud(committed);

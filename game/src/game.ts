@@ -28,7 +28,7 @@ async function boot(): Promise<void> {
 
   /** The tuning a new run starts with. */
   const runTuning = (): Partial<Tuning> => {
-    const t: Partial<Tuning> = { ...tuningFor(settings), holdUnlocked: profile.level >= 2, startPower: profile.level >= 6, hazardIntro: !profile.seenGusts };
+    const t: Partial<Tuning> = { ...tuningFor(settings), holdUnlocked: profile.level >= 2, startPower: profile.level >= 6, hazardIntro: !profile.seenGusts, seenHazards: [...profile.seenHazards] };
     if (profile.level <= 1) { t.mortarStrength = 1.2; t.rookieBricks = 4; } // gentle first runs
     return t;
   };
@@ -42,7 +42,11 @@ async function boot(): Promise<void> {
     },
     onEvent(e) {
       if (dailyWind && e.name === 'piece_landed') { dailyWind = false; spendDailyWind(profile); }
-      if (e.name === 'hazard_start' && !profile.seenGusts) { profile.seenGusts = true; saveProfile(profile); }
+      if (e.name === 'hazard_start') {
+        const type = String(e.payload.type ?? 'gust');
+        if (type === 'gust' && !profile.seenGusts) { profile.seenGusts = true; saveProfile(profile); }
+        else if (type !== 'gust' && !profile.seenHazards.includes(type)) { profile.seenHazards.push(type); saveProfile(profile); }
+      }
     },
     onRunOver: (sim, p) => runOver(sim, p),
     onAudio: a => { applyAudio(settings, a); if (screens?.current === 'menu') (a as Director).screen?.('menu'); },

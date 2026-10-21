@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { Box2DEngine } from '../src/sim/engine/box2d.ts';
 import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { createSim, replay, restore } from '../src/sim/testApi.ts';
-import { DEFAULT_TUNING, gustFor } from '../src/sim/tuning.ts';
+import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor } from '../src/sim/tuning.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -704,6 +704,252 @@ for (const cp of [3, 6]) {
   };
   const on = drift(true), off = drift(false);
   check('A gust pushes a loose piece; with gusts off nothing moves', on.blew > 60 && Math.abs(on.dx) > 0.05 && Math.abs(off.dx) < 1e-6, `on: moved ${on.dx.toFixed(3)} over ${on.blew} steps of gust; off: ${off.dx.toExponential(1)}`);
+}
+
+// ---------------------------------------------------------------- late hazards (gameplay.md §8.2)
+
+const QUIET = { firstGap: 1000, gapCap: 1000, infiniteBudget: true, infiniteHearts: true, powerUps: false, gusts: false } as const;
+type Ev = { name: string; step: number; payload: Record<string, any> };
+
+// The schedule: one new hazard per biome from the Storm Belt, ramping over the biome.
+{
+  const h = (n: number) => hazardsFor(n);
+  const ok = h(6).crosswind === 0 && h(7).crosswind === 0.04 && h(10).crosswind === 0.1 && h(11).crosswind === 0
+    && h(10).junk === 0 && h(11).junk === 18 && h(13).junk === 12 && h(14).junk === 0
+    && h(14).meteor === 22 && h(16).meteor === 15 && h(17).meteor === 0
+    && h(17).dust?.strength === 0.15 && h(19).dust?.strength === 0.25 && h(20).dust === null
+    && h(20).sway?.amplitude === 0.08 && h(22).sway?.amplitude === 0.14 && h(20).fallMult === 1.15 && h(19).fallMult === 1 && h(23).fallMult === 1
+    && h(11).gust === null && h(10).gust?.strength === 0.15;
+  const dc = hazardsFor(30, ['junk', 'dust']);
+  const dcOk = dc.junk === 12 / cosmosScale(30) && dc.dust!.strength === 0.25 * cosmosScale(30) && dc.meteor === 0 && dc.gust === null && dc.sway?.period === 24
+    && hazardsFor(30, ['sway', 'gust']).sway?.period === 8 && cosmosScale(23) === 1.05 && cosmosScale(60) === 2;
+  check('Late hazards: crosswind 7-10, junk 11-13, meteors 14-16, dust devils 17-19, tidal sway 20-22, Deep Cosmos remixes', ok && dcOk,
+    `CP 7 crosswind ${h(7).crosswind}, CP 13 junk every ${h(13).junk} s, CP 16 showers every ${h(16).meteor} s, CP 19 dust ${h(19).dust?.strength} g, CP 22 sway ±${h(22).sway?.amplitude} g; CP 30 remix junk every ${dc.junk.toFixed(1)} s`);
+}
+
+// Crosswind: warned 2 s into the stretch, then a steady push one way; the next checkpoint flips it.
+{
+  // 0.04 g is under any real friction, so the O sits on near-ice here (0.03) to show the push.
+  const t = createSim({ seed: 3, startCheckpoint: 7, tuning: { ...QUIET, mortar: false, friction: 0.03, foundationFriction: 0.03, seenHazards: ['crosswind'] } });
+  t.placePiece({ shape: 'O', x: 0, y: 1, as: 'dynamic' });
+  const evs: Ev[] = [];
+  const run = (secs: number) => { for (let i = 0; i < 60 * secs; i++) { t.step(); evs.push(...t.drainEvents()); } };
+  run(1);
+  const x0 = t.pieces()[0].x;
+  run(5);
+  const x1 = t.pieces()[0].x;
+  const warn = evs.find(e => e.name === 'hazard_warning' && e.payload.type === 'crosswind');
+  const start = evs.find(e => e.name === 'hazard_start' && e.payload.type === 'crosswind');
+  const dir1 = t.sim.weather.crossDir;
+  t.sim.checkpoint = 8;
+  run(6);
+  const x2 = t.pieces()[0].x;
+  const dir2 = t.sim.weather.crossDir;
+  t.dispose();
+  const lead = warn && start ? (start.step - warn.step) / 60 : -1;
+  check('Crosswind is warned 2 s ahead, pushes steadily its way, and flips at the next checkpoint',
+    lead === 2 && warn!.payload.strength === 0.04 && Math.sign(x1 - x0) === dir1 && Math.abs(x1 - x0) > 0.05 && dir2 === -dir1 && Math.sign(x2 - x1) === dir2 && !warn!.payload.intro,
+    `lead ${lead} s, ${warn?.payload.strength} g, moved ${(x1 - x0).toFixed(2)} (dir ${dir1}), then ${(x2 - x1).toFixed(2)} (dir ${dir2})`);
+}
+
+// A first-ever late hazard comes at half strength with its card; met before, it's full.
+{
+  const first = (seen: string[]) => {
+    const t = createSim({ seed: 3, startCheckpoint: 7, tuning: { ...QUIET, seenHazards: seen } });
+    t.step(60 * 3);
+    const w = t.drainEvents().find(e => e.name === 'hazard_warning' && e.payload.type === 'crosswind');
+    t.dispose();
+    return w?.payload;
+  };
+  const fresh = first([]), seen = first(['crosswind']);
+  check('A first-ever crosswind is half strength with intro; a seen one is full', fresh?.intro === true && fresh?.strength === 0.02 && seen?.intro === false && seen?.strength === 0.04,
+    `fresh ${fresh?.strength} intro ${fresh?.intro}; seen ${seen?.strength} intro ${seen?.intro}`);
+}
+
+// Space junk (Orbit): a reticle on an outer piece 2 s ahead, it cracks its mortar and shoves it outward, and leaves.
+{
+  const t = createSim({ seed: 4, startCheckpoint: 11, tuning: { ...QUIET, friction: 0.005, foundationFriction: 0.005, seenHazards: ['junk'] } });
+  t.placePiece({ shape: 'O', x: -0.5, y: 1, as: 'dynamic' });
+  const id = t.placePiece({ shape: 'O', x: 2, y: 1, as: 'dynamic' });
+  const evs: Ev[] = [];
+  let dv = 0, flyStep = -1, steered = 0;
+  for (let i = 0; i < 60 * 40 && !evs.some(e => e.name === 'hazard_end' && e.payload.type === 'junk'); i++) {
+    const before = t.pieces().find(p => p.id === id)!;
+    t.step();
+    const now = t.drainEvents();
+    evs.push(...now);
+    const after = t.pieces().find(p => p.id === id)!;
+    if (now.some(e => e.name === 'hazard_hit')) dv = Math.hypot(after.vx - before.vx, after.vy - before.vy);
+    const s = t.sim.shots[0];
+    if (s && s.phase === 'fly' && flyStep < 0) flyStep = t.stepIndex;
+    if (s && s.phase === 'fly') steered++;
+  }
+  const warn = evs.find(e => e.name === 'hazard_warning' && e.payload.type === 'junk');
+  const hit = evs.find(e => e.name === 'hazard_hit');
+  const end = evs.find(e => e.name === 'hazard_end' && e.payload.type === 'junk');
+  t.dispose();
+  const lead = warn && hit ? (hit.step - warn.step) / 60 : -1;
+  const cracked = evs.some(e => e.name === 'bond_broken' && e.payload.by === 'junk');
+  check('Space junk is aimed at an outer piece 2 s ahead, cracks its mortar and shoves it outward, then leaves',
+    lead === 2 && hit!.payload.pieceId === id && hit!.payload.dir === 1 && cracked && dv > 0.5 && !!end && !end.payload.cancelled && flyStep > warn!.step,
+    `lead ${lead} s, hit piece ${hit?.payload.pieceId} at (${hit?.payload.x.toFixed(2)}, ${hit?.payload.y.toFixed(2)}) pushing ${hit?.payload.dir}, cracked ${cracked}, Δv ${dv.toFixed(2)} m/s, flew ${steered} steps`);
+}
+
+// Meteor showers (Moon): 2 to 4 meteors, each warned 2 s ahead, 0.35 s apart.
+{
+  const t = createSim({ seed: 9, startCheckpoint: 14, tuning: { ...QUIET, seenHazards: ['meteor'] } });
+  for (const x of [-2, 0, 2]) t.placePiece({ shape: 'O', x, y: 1, as: 'dynamic' });
+  const evs: Ev[] = [];
+  for (let i = 0; i < 60 * 30; i++) { t.step(); evs.push(...t.drainEvents()); if (evs.some(e => e.name === 'hazard_warning' && e.payload.type === 'meteor') && !t.sim.shots.length) break; }
+  const warn = evs.find(e => e.name === 'hazard_warning' && e.payload.type === 'meteor');
+  const hits = evs.filter(e => e.name === 'hazard_hit' && e.payload.type === 'meteor');
+  const misses = evs.filter(e => e.name === 'hazard_end' && e.payload.type === 'meteor' && e.payload.missed);
+  t.dispose();
+  const n = warn?.payload.count ?? 0;
+  const gaps = hits.map(h => (h.step - warn!.step) / 60);
+  const timed = gaps.every((g, k) => Math.abs(g - (2 + 0.35 * k)) < 0.02);
+  const cracked = evs.some(e => e.name === 'bond_broken' && e.payload.by === 'meteor');
+  check('A meteor shower brings 2 to 4 meteors, the first 2 s after the warning, then 0.35 s apart, cracking mortar', n >= 2 && n <= 4 && hits.length + misses.length === n && hits.length > 0 && timed && cracked,
+    `${n} meteors, ${hits.length} hits at ${gaps.map(g => g.toFixed(2)).join(', ')} s, ${misses.length} missed, cracked ${cracked}`);
+}
+
+// Dust devils (Red Planet): warned at their side, then they cross the top and push it their way.
+{
+  const t = createSim({ seed: 2, startCheckpoint: 17, tuning: { ...QUIET, mortar: false, friction: 0.005, foundationFriction: 0.005, seenHazards: ['dust'] } });
+  const id = t.placePiece({ shape: 'I', x: 0, y: 1, as: 'dynamic' });
+  const evs: Ev[] = [];
+  let x0 = 0, x1 = 0;
+  for (let i = 0; i < 60 * 30; i++) {
+    t.step();
+    const now = t.drainEvents();
+    evs.push(...now);
+    if (now.some(e => e.name === 'hazard_start' && e.payload.type === 'dust')) x0 = t.pieces().find(p => p.id === id)!.x;
+    if (now.some(e => e.name === 'hazard_end' && e.payload.type === 'dust')) { x1 = t.pieces().find(p => p.id === id)!.x; break; }
+  }
+  const warn = evs.find(e => e.name === 'hazard_warning' && e.payload.type === 'dust');
+  const start = evs.find(e => e.name === 'hazard_start' && e.payload.type === 'dust');
+  t.dispose();
+  const lead = warn && start ? (start.step - warn.step) / 60 : -1;
+  const dir = warn?.payload.dir ?? 0;
+  check('A dust devil is warned 2 s ahead on its side, then crosses the top and pushes it its way', lead === 2 && Math.sign(warn!.payload.x) === -dir && Math.sign(x1 - x0) === dir && Math.abs(x1 - x0) > 0.05,
+    `lead ${lead} s, from x ${warn?.payload.x.toFixed(1)} going ${dir}, piece moved ${(x1 - x0).toFixed(2)}`);
+}
+
+// Tidal sway (Ringed Giant): gravity leans side to side, ±0.08 g every 8 s, and shapes fall 15% faster.
+{
+  const t = createSim({ seed: 5, startCheckpoint: 20, tuning: { ...QUIET, seenHazards: ['sway'] } });
+  const tilts: number[] = [];
+  for (let i = 0; i < 60 * 30; i++) { t.step(); tilts.push(t.sim.tilt); }
+  t.drainEvents();
+  const late = tilts.slice(60 * 6);
+  const hi = Math.max(...late), lo = Math.min(...late);
+  const crossings: number[] = [];
+  for (let k = 1; k < late.length; k++) if (late[k - 1] < 0 && late[k] >= 0) crossings.push(k / 60);
+  const period = crossings.length >= 2 ? (crossings[crossings.length - 1] - crossings[0]) / (crossings.length - 1) : 0;
+  t.spawnControlled({ shape: 'O' });
+  t.step(2);
+  const speed = t.sim.ctrl?.speed ?? 0;
+  t.dispose();
+  check('Tidal sway leans ±0.08 g on an 8 s swing and shapes fall 15% faster', Math.abs(hi - 0.08) < 0.002 && Math.abs(lo + 0.08) < 0.002 && Math.abs(period - 8) < 0.05 && Math.abs(speed - fallSpeedFor(DEFAULT_TUNING, 20) * 1.15) < 1e-9,
+    `tilt ${lo.toFixed(3)} to ${hi.toFixed(3)} g, period ${period.toFixed(2)} s, fall ${speed.toFixed(3)} blocks/s`);
+}
+
+// Dust devils crack the mortar of what their middle passes through.
+{
+  const t = createSim({ seed: 2, startCheckpoint: 17, tuning: { ...QUIET, seenHazards: ['dust'] } });
+  t.placePiece({ shape: 'O', x: 0, y: 1, as: 'dynamic' });
+  let cracked = 0, ended = false;
+  for (let i = 0; i < 60 * 30 && !ended; i++) {
+    t.step();
+    for (const e of t.drainEvents()) { if (e.name === 'bond_broken' && e.payload.by === 'dust') cracked++; if (e.name === 'hazard_end' && e.payload.type === 'dust') ended = true; }
+  }
+  t.dispose();
+  check('A dust devil cracks the mortar of a piece its middle passes through', ended && cracked > 0, `ended ${ended}, ${cracked} bonds cracked`);
+}
+
+// Hearts from Orbit on: a heart back every third claim (13, 16, 19, ...), never a full refill.
+{
+  const back = (cp: number, tuning: Record<string, unknown> = {}) => {
+    const t = createSim({ seed: 1, startCheckpoint: cp, tuning: { ...QUIET, infiniteHearts: false, lateHazards: false, ...tuning } });
+    t.placePiece({ shape: 'O', x: 0, y: 1, as: 'dynamic' });
+    t.step(120);
+    t.sim.hearts = 1;
+    (t.sim as any).claim(t.sim.height().committed);
+    const h = t.sim.hearts;
+    t.dispose();
+    return h;
+  };
+  const got = [9, 10, 11, 12, 13, 14, 16, 23, 25].map(n => back(n));
+  const old = [11, 12, 13].map(n => back(n, { heartsEveryFrom: 0 }));
+  check('Hearts: +1 a claim and a refill at a biome\'s end up to CP 10; from CP 11, +1 every third claim', got.join() === '2,3,1,1,2,1,2,1,2' && old.join() === '2,2,3',
+    `from 1 heart, claiming CP 9..25 leaves ${got.join(', ')}; with the old rule CP 11-13 leave ${old.join(', ')}`);
+}
+
+// Deep Cosmos: each stretch remixes two earlier hazards; gravity drifts unless sway is one of them.
+{
+  const picks = new Set<string>();
+  let ok = true;
+  for (let seed = 1; seed <= 12; seed++) {
+    const t = createSim({ seed, startCheckpoint: 23, tuning: QUIET });
+    const r = t.sim.stretch.remix;
+    picks.add(r.join('+'));
+    ok &&= r.length === 2 && r[0] !== r[1] && (t.sim.stretch.sway?.period === (r.includes('sway') ? 8 : 24));
+    t.dispose();
+  }
+  check('Deep Cosmos remixes two different earlier hazards a stretch, with the gravity drift', ok && picks.size >= 5, `${picks.size} different pairs over 12 seeds: ${[...picks].slice(0, 5).join(', ')}…`);
+}
+
+// No late hazard is warned in a hold or the claim pause, and runs with them replay exactly.
+for (const cp of [11, 17, 23]) {
+  const t = createSim({ seed: 30 + cp, startCheckpoint: cp, autoSpawn: true, tuning: { seenHazards: ['crosswind', 'junk', 'meteor', 'dust', 'sway'] } });
+  const digests: string[] = [];
+  let landed = 0, inHold = 0, warnings = 0;
+  for (let i = 0; i < 60 * 120 && t.sim.state === 'playing'; i++) {
+    const c = t.sim.ctrl;
+    if (c && c.speed > 0 && !c.hard) {
+      const f = t.sim.foundation;
+      const x = f.x - f.width / 2 + 1 + ((landed * 2) % Math.max(1, f.width - 1));
+      if (Math.abs(c.x - x) > 0.01) t.intent({ type: 'moveTo', x }); else t.intent({ type: 'hardDrop' });
+    }
+    const calm = t.sim.holdState().active || (t.sim as any).claimPauseUntil > t.sim.time + 1e-9;
+    t.step();
+    for (const e of t.drainEvents()) {
+      if (e.name === 'piece_landed') landed++;
+      if (e.name === 'hazard_warning' && e.payload.type !== 'gust') { warnings++; if (calm || t.sim.holdState().active) inHold++; }
+    }
+    if (t.stepIndex % 60 === 0) digests.push(t.digest());
+  }
+  const r = replay({ seed: 30 + cp, startCheckpoint: cp, tuning: { seenHazards: ['crosswind', 'junk', 'meteor', 'dust', 'sway'] }, inputs: t.sim.inputLog, steps: t.stepIndex });
+  const firstDiff = digests.findIndex((d, k) => d !== r.digests[k]);
+  check(`Late hazards from checkpoint ${cp}: never warned in a hold, and the run replays exactly`, inHold === 0 && warnings > 0 && firstDiff === -1,
+    `${warnings} warnings, ${inHold} in a hold, ${landed} landed, cp ${t.checkpoint.n}, ${t.sim.stats.hits} hits, first mismatch ${firstDiff === -1 ? 'none' : 'at second ' + (firstDiff + 1)}`);
+  r.sim.dispose();
+  t.dispose();
+}
+
+// Late shapes: P, U and V from the Storm Belt, Arch and Plus from the Red Planet; each one settles.
+{
+  const bagOf = (cp: number) => {
+    const t = createSim({ seed: 8, startCheckpoint: cp, tuning: QUIET });
+    const counts: Record<string, number> = {};
+    for (let i = 0; i < 40; i++) for (const k of (t.sim as any).makeBag() as string[]) counts[k] = (counts[k] ?? 0) + 1;
+    t.dispose();
+    return counts;
+  };
+  const b6 = bagOf(6), b7 = bagOf(7), b19 = bagOf(19);
+  const bagOk = !b6.P && !b6.Arch && b7.P > 0 && b7.U > 0 && b7.V > 0 && !b7.Arch && b19.Arch > 0 && b19.Plus > 0 && b19.P > b7.P;
+  let settled = 0, total = 0;
+  for (const shape of ['P', 'U', 'V', 'Arch', 'Plus']) for (let rot = 0; rot < 4; rot++) {
+    const t = createSim({ seed: 1, tuning: QUIET });
+    t.placePiece({ shape, x: 0, y: 1.6, rot, as: 'dynamic' });
+    t.step(240);
+    const p = t.pieces()[0];
+    total++;
+    if (p && p.state === 'settled' && Number.isFinite(p.y) && p.y > 0.5 && p.y < 3) settled++;
+    t.dispose();
+  }
+  check('Late shapes: P, U, V from checkpoint 7, Arch and Plus from 17, and every rotation settles', bagOk && settled === total,
+    `CP 7 bag P ${b7.P} U ${b7.U} V ${b7.V}; CP 19 P ${b19.P} Arch ${b19.Arch} Plus ${b19.Plus}; ${settled}/${total} settle`);
 }
 
 console.log(failures ? `\n${failures} failing` : '\nall passing');

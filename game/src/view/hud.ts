@@ -2,8 +2,8 @@
 // Screen space only: camera shake never moves it.
 
 import {
-  altitudeRail, bakePiece, checkpointChip, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, injectUiCss, offscreenChip, powerBarCss,
-  powerIconUrl, setOffscreenChip, setRail, type HazardType,
+  altitudeRail, bakePiece, checkpointChip, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, injectUiCss, offscreenChip, plumbBob, powerBarCss,
+  powerIconUrl, setOffscreenChip, setPlumb, setRail, setWindsock, windsock, type HazardType,
 } from '@art/index.ts';
 import type { PowerKind, SecondWindState } from '../sim/sim.ts';
 import { INK } from './palette.ts';
@@ -79,7 +79,16 @@ const CSS = `
 .st-wind.hide, .st-slot.hide { display: none; }
 .st-active { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
 .st-active .st-chip { font-size: 13px; padding: 1px 7px; }
+.st-gauges { display: flex; gap: 8px; margin-top: 6px; }
+.st-gauges:empty { display: none; }
 `;
+
+/** A hazard chip that should be showing: `dir` is the way it pushes, `left` the seconds until it starts (0 once it has). */
+export interface HazardWant { type: HazardType; dir: -1 | 1; left: number; id?: number }
+
+/** Where each chip sits down the screen edge, so two at once (a gust in a crosswind) don't stack. */
+const CHIP_Y: Record<HazardType, string> = { gust: '52%', crosswind: '40%', junk: '46%', meteor: '34%', dust: '58%', sway: '40%' };
+const WARNING = 2; // s, the sim's HAZARD_WARNING and GUST_WARNING
 
 const HEART = (fill: string) => `<svg viewBox="0 0 24 24" class="st-heart"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.5h2c.7-1.3 2.2-2.5 4.3-2.5 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z" fill="${fill}" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/></svg>`;
 
@@ -101,8 +110,10 @@ export class Hud {
   private flashEl: HTMLDivElement;
   private overlay: HTMLDivElement;
   private hint: HTMLDivElement;
-  private hazardChipEl: HTMLElement | null = null;
-  private hazardKey = '';
+  private chips = new Map<HazardType, { el: HTMLElement; key: string; go: boolean }>();
+  private gauges: HTMLDivElement;
+  private sock: HTMLElement | null = null;
+  private bob: HTMLElement | null = null;
   private rail: HTMLElement;
   private cpChip: HTMLElement;
   private cpChipKey = '';
@@ -143,6 +154,7 @@ export class Hud {
           <div class="st-row"><button class="st-btn st-iconbtn" data-id="pause" aria-label="Pause">❚❚</button><div class="st-hearts" data-id="hearts"></div></div>
           <div class="st-card" data-id="holdcard" style="width:58px;height:58px"><div class="st-cap">HOLD</div><canvas data-id="hold"></canvas></div>
           <div class="st-chip" data-id="bricks">🧱 <span>0</span></div>
+          <div class="st-gauges" data-id="gauges"></div>
         </div>
         <div class="st-col" style="align-items:flex-end">
           <div class="st-card" style="width:68px;height:68px"><div class="st-cap">NEXT</div><canvas data-id="next0"></canvas></div>
@@ -175,6 +187,7 @@ export class Hud {
     this.holdCard = q('holdcard');
     this.title = q('title');
     this.hint = q('hint');
+    this.gauges = q('gauges');
     // Art's HUD pieces (art/src/ui/rail.ts, hazard.ts): the rail, the off-screen chips, the hazard chip.
     this.rail = this.root.appendChild(altitudeRail(Math.round(Math.min(200, window.innerHeight * 0.26))));
     this.cpChip = this.root.appendChild(checkpointChip(1));
@@ -332,25 +345,48 @@ export class Hud {
   }
 
   /**
-   * The hazard chip (gameplay.md §8.3, Art's telegraph): it appears at the upwind edge when a gust
-   * is warned, its ring filling over the 2 s, pushes while the gust blows, and slides out when it
-   * ends or a hold calls it off.
+   * The hazard chips (gameplay.md §8.3, Art's telegraph), one per hazard type, at the edge the hazard
+   * pushes from. A chip appears when its hazard is warned, its ring filling over the 2 s, pushes once
+   * it starts, and slides out when it's no longer wanted (over, or called off by a hold). A new id
+   * (the next piece of junk) or a flipped side starts a fresh chip.
    */
-  setHazard(phase: 'idle' | 'warn' | 'blow', dir: number, eta = 2): void {
-    const key = `${phase}|${dir}`;
-    if (key === this.hazardKey) return;
-    const was = this.hazardKey.split('|')[0];
-    this.hazardKey = key;
-    if (phase === 'warn' || (phase === 'blow' && !this.hazardChipEl)) {
-      if (this.hazardChipEl) hazardChipEnd(this.hazardChipEl);
-      this.hazardChipEl = this.root.appendChild(hazardChip({ type: 'gust', dir: dir > 0 ? 1 : -1, eta, y: '52%', elapsed: phase === 'blow' ? eta : 0 }));
+  syncHazards(want: HazardWant[]): void {
+    const on = new Set<HazardType>();
+    for (const w of want) {
+      on.add(w.type);
+      const key = `${w.dir}|${w.id ?? ''}`;
+      let c = this.chips.get(w.type);
+      if (c && c.key !== key) { hazardChipEnd(c.el); c = undefined; }
+      if (!c) {
+        const elapsed = Math.max(0, Math.min(WARNING, WARNING - w.left));
+        c = { el: this.root.appendChild(hazardChip({ type: w.type, dir: w.dir, eta: WARNING, y: CHIP_Y[w.type], elapsed })), key, go: false };
+        this.chips.set(w.type, c);
+      }
+      if (w.left <= 0 && !c.go) { hazardChipGo(c.el); c.go = true; }
     }
-    if (phase === 'blow' && this.hazardChipEl) hazardChipGo(this.hazardChipEl);
-    if (phase === 'idle' && was !== 'idle' && this.hazardChipEl) { hazardChipEnd(this.hazardChipEl); this.hazardChipEl = null; }
+    for (const [type, c] of this.chips) if (!on.has(type)) { hazardChipEnd(c.el); this.chips.delete(type); }
   }
 
-  /** Holds the hazard chip's countdown while the game is paused. */
-  pauseHazard(paused: boolean): void { this.hazardChipEl?.classList.toggle('paused', paused); }
+  /** Holds the hazard chips' countdowns while the game is paused. */
+  pauseHazard(paused: boolean): void { for (const c of this.chips.values()) c.el.classList.toggle('paused', paused); }
+
+  /**
+   * The weather gauges under the bricks: the windsock while a crosswind blows (`wind` in g, + to the
+   * right) and the plumb bob while gravity sways (`tilt`, -1 to 1, where it's about to pull). Null hides one.
+   */
+  setGauges(wind: number | null, tilt: number | null): void {
+    if (wind === null) { this.sock?.remove(); this.sock = null; }
+    else {
+      const dir = wind < 0 ? -1 : 1, strength = Math.min(1, Math.abs(wind) / 0.1);
+      if (!this.sock) this.sock = this.gauges.appendChild(windsock({ dir, strength }));
+      else setWindsock(this.sock, dir, strength);
+    }
+    if (tilt === null) { this.bob?.remove(); this.bob = null; }
+    else {
+      if (!this.bob) this.bob = this.gauges.appendChild(plumbBob({ tilt }));
+      else setPlumb(this.bob, tilt);
+    }
+  }
 
   /** A hazard's first appearance: Art's one-line card ("Gusts ahead! Keep it wide."), about 3 s. */
   hazardCard(type: HazardType = 'gust', still = false): void {
@@ -455,9 +491,9 @@ export class Hud {
 
   reset(): void {
     this.powerKey = '';
-    this.setHazard('idle', 0);
+    this.chips.clear();
     this.root.querySelectorAll('.ui-hazard, .ui-hcard').forEach(e => e.remove());
-    this.hazardChipEl = null;
+    this.setGauges(null, null);
     this.setCheckpointChip(null);
     this.windArmedUntil = 0;
     this.windSpentAt = 0;

@@ -62,6 +62,8 @@ const GROUPS: [string, [NumKey, string, number, number, number, boolean?][]][] =
     ['rowCoverage', 'Solid Row coverage', 0.7, 1, 0.01],
     ['wind', 'Wind (g, + is right)', -0.3, 0.3, 0.01],
     ['gustScale', 'Gust strength ×', 0, 2, 0.1],
+    ['hazardStrength', 'Late hazard strength ×', 0, 2, 0.1],
+    ['heartsEveryFrom', 'Hearts every 3rd claim from CP', 0, 25, 1],
   ]],
   ['Power-ups', [
     ['bubbleGap', 'Shapes between bubbles', 2, 12, 1],
@@ -78,6 +80,7 @@ const TOGGLES: [BoolKey, string][] = [
   ['infiniteHearts', 'Infinite hearts'],
   ['powerUps', 'Power-up bubbles and grants'],
   ['gusts', 'Gusts from Treetops (checkpoint 3)'],
+  ['lateHazards', 'Late hazards from the Storm Belt (checkpoint 7)'],
 ];
 
 const VIEW_TOGGLES: [keyof ViewSettings, string][] = [
