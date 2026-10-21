@@ -42,8 +42,8 @@ export function uiCss(): string {
 .ui-btn.big { font-size: 26px; min-height: 64px; padding: 12px 30px; border-radius: 20px; }
 .ui-btn.big img { width: 30px; height: 30px; }
 .ui-btn.wide { width: 100%; }
-.ui-btn.icon { width: 48px; height: 48px; min-height: 0; padding: 0; border-radius: 14px; }
-.ui-btn.icon.sm { width: 40px; height: 40px; border-radius: 12px; }
+.ui-btn.icon { flex: none; width: 48px; height: 48px; min-height: 0; padding: 0; border-radius: 14px; }
+.ui-btn.icon.sm { width: 44px; height: 44px; border-radius: 12px; }
 .ui-btn.icon.sm img { width: 20px; height: 20px; }
 .ui-btn:disabled, .ui-btn.disabled { background: var(--paper-2); color: var(--ink-soft); border-color: var(--ink-soft); box-shadow: 0 4px 0 var(--ink-soft); cursor: default; pointer-events: none; }
 .ui-btn:disabled img, .ui-btn.disabled img { opacity: 0.6; }
@@ -223,9 +223,11 @@ export function uiCss(): string {
 .ui-toggle:checked { background: var(--mint); }
 .ui-toggle:checked::before { transform: translateX(22px); }
 .ui-toggle:focus-visible, .ui-slider:focus-visible { outline: 3px solid var(--xp); outline-offset: 3px; }
-.ui-slider { appearance: none; -webkit-appearance: none; margin: 0; flex: 1; min-width: 120px; height: 16px; border: 3px solid var(--ink); border-radius: 999px; cursor: pointer;
-  background: linear-gradient(to right, var(--xp) 0 var(--v, 50%), #fff var(--v, 50%) 100%); }
-.ui-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; border-radius: 50%; background: var(--gold); border: 3px solid var(--ink); box-shadow: 0 3px 0 var(--ink); }
+/* The input is a 44 px tall touch target; the 16 px track is drawn in its middle */
+.ui-slider { appearance: none; -webkit-appearance: none; margin: 0; flex: 1; min-width: 120px; height: 44px; background: transparent; cursor: pointer; }
+.ui-slider::-webkit-slider-runnable-track { height: 16px; box-sizing: border-box; border: 3px solid var(--ink); border-radius: 999px; background: linear-gradient(to right, var(--xp) 0 var(--v, 50%), #fff var(--v, 50%) 100%); }
+.ui-slider::-moz-range-track { height: 10px; border: 3px solid var(--ink); border-radius: 999px; background: linear-gradient(to right, var(--xp) 0 var(--v, 50%), #fff var(--v, 50%) 100%); }
+.ui-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 28px; height: 28px; margin-top: -9px; border-radius: 50%; background: var(--gold); border: 3px solid var(--ink); box-shadow: 0 3px 0 var(--ink); }
 .ui-slider::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: var(--gold); border: 3px solid var(--ink); box-shadow: 0 3px 0 var(--ink); }
 .ui-seg { display: flex; border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; box-shadow: 0 3px 0 var(--ink); }
 .ui-seg label { flex: 1; position: relative; cursor: pointer; }
@@ -234,6 +236,50 @@ export function uiCss(): string {
 .ui-seg label + label span { border-left: 3px solid var(--ink); }
 .ui-seg input:checked + span { background: var(--gold); }
 .ui-seg input:focus-visible + span { outline: 3px solid var(--xp); outline-offset: -5px; }
+
+/* Hazard telegraph chip: amber, at the edge the hazard comes from, countdown ring and push chevrons */
+.ui-hazard { position: fixed; top: var(--y, 30%); z-index: 15; pointer-events: none; display: flex; align-items: center; gap: 2px; background: var(--amber);
+  border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); padding: 4px 6px 4px 4px; animation: ui-hz-in 420ms cubic-bezier(.3,1.6,.5,1) both; }
+.ui-hazard.from-left { left: calc(env(safe-area-inset-left, 0px) + 8px); --d: 1; }
+.ui-hazard.from-right { right: calc(env(safe-area-inset-right, 0px) + 8px); --d: -1; flex-direction: row-reverse; padding: 4px 4px 4px 6px; }
+.ui-hz-dial { position: relative; width: 44px; height: 44px; flex: none; }
+.ui-hz-dial svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ui-hz-dial circle { fill: none; }
+.ui-hz-dial .trk { fill: #fff; stroke: rgba(34,24,58,0.18); stroke-width: 5; }
+.ui-hz-dial .cd { stroke: var(--ink); stroke-width: 5; stroke-linecap: round; stroke-dashoffset: 0; animation: ui-hz-count var(--eta, 2s) linear var(--el, 0s) both; }
+.ui-hazard.paused, .ui-hazard.paused * { animation-play-state: paused !important; }
+.ui-hz-dial img { position: absolute; left: 9px; top: 9px; width: 26px; height: 26px; }
+.ui-hazard.from-right .ui-hz-dial img { transform: scaleX(-1); }
+.ui-hz-arrow { display: flex; transform: scaleX(var(--d)); }
+.ui-hz-arrow svg { width: 11px; height: 20px; margin-right: -2px; animation: ui-hz-chev 800ms ease-in-out infinite; }
+.ui-hz-arrow svg + svg { animation-delay: 200ms; }
+.ui-hz-arrow path { fill: none; stroke: var(--ink); stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
+.ui-hazard.go { animation: ui-hz-push 625ms ease-in-out infinite; background: #FF8F1F; }
+.ui-hazard.go .cd { animation: none; stroke-dashoffset: 0; }
+.ui-hazard.go .ui-hz-arrow svg { animation-duration: 500ms; }
+.ui-hazard.out { animation: ui-hz-out 360ms cubic-bezier(.5,0,.8,.4) both; }
+
+/* Altitude rail (right edge, under the Next column) and off-screen chips */
+.ui-rail { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 2px); top: var(--top, 200px); z-index: 5; pointer-events: none; }
+.ui-rail canvas { display: block; }
+.ui-offchip { position: fixed; left: var(--x, 50%); z-index: 6; pointer-events: none; display: flex; align-items: center; gap: 3px; font: 700 16px/1 var(--display);
+  background: var(--gold); border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); padding: 3px 9px; font-variant-numeric: tabular-nums;
+  opacity: 0; transform: translateX(-50%) scale(0.5); transition: opacity 160ms, transform 360ms cubic-bezier(.3,1.8,.5,1); }
+.ui-offchip.up { top: calc(env(safe-area-inset-top, 0px) + var(--top, 120px)); }
+.ui-offchip.down { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bottom, 96px)); }
+.ui-offchip.danger { background: var(--danger); color: #fff; }
+.ui-offchip.danger b, .ui-offchip.danger .ui-oc-arrow { -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; }
+.ui-oc-arrow { font-size: 12px; }
+.ui-offchip.show { opacity: 1; transform: translateX(-50%); }
+.ui-offchip.up.show .ui-oc-arrow { animation: ui-oc-bob 1s ease-in-out infinite; }
+.ui-offchip.down.show .ui-oc-arrow { animation: ui-oc-drop 1s ease-in-out infinite; }
+
+/* A hazard's first-appearance card, styled like the biome title */
+.ui-hcard { position: fixed; left: 0; right: 0; top: var(--top, 18%); z-index: 16; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  animation: ui-hc 3.2s cubic-bezier(.3,1.5,.5,1) both; }
+.ui-hc-title { display: flex; align-items: center; gap: 6px; font: 700 32px/1 var(--display); color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; letter-spacing: 0.03em; white-space: nowrap; }
+.ui-hc-title img { width: 40px; height: 40px; }
+.ui-hcard .ui-chip { font-size: 16px; padding: 5px 12px; }
 
 @keyframes ui-fade { from { opacity: 0; } }
 @keyframes ui-pop { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.04); opacity: 1; } 100% { transform: scale(1); } }
@@ -248,12 +294,24 @@ export function uiCss(): string {
 @keyframes ui-peek { 0% { transform: translate(-30%, 60%) rotate(-10deg); opacity: 0; } 30% { opacity: 1; } 100% { transform: rotate(14deg); opacity: 1; } }
 @keyframes ui-wiggle { 0%, 100% { transform: rotate(0); } 10% { transform: rotate(-6deg) scale(1.06); } 20% { transform: rotate(5deg) scale(1.06); } 30% { transform: rotate(0); } }
 @keyframes ui-nebula { 50% { filter: hue-rotate(-28deg) saturate(1.2); } }
+@keyframes ui-hz-in { 0% { transform: translateX(calc(var(--d) * -140%)); } 100% { transform: none; } }
+@keyframes ui-hz-out { 0% { transform: none; opacity: 1; } 100% { transform: translateX(calc(var(--d) * -140%)); opacity: 0; } }
+@keyframes ui-hz-count { from { stroke-dashoffset: ${(2 * Math.PI * 19).toFixed(1)}; } to { stroke-dashoffset: 0; } }
+@keyframes ui-hz-chev { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@keyframes ui-hz-push { 0%, 100% { transform: none; } 50% { transform: translateX(calc(var(--d) * 4px)) rotate(calc(var(--d) * 3deg)); } }
+@keyframes ui-hc { 0% { opacity: 0; transform: translateY(-24px) scale(0.7); } 12% { opacity: 1; transform: none; } 85% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-16px); } }
+@keyframes ui-oc-bob { 0%, 100% { transform: none; } 50% { transform: translateY(-3px); } }
+@keyframes ui-oc-drop { 0%, 100% { transform: none; } 50% { transform: translateY(3px); } }
+@keyframes ui-hc-fade { 0%, 100% { opacity: 0; } 8%, 88% { opacity: 1; } }
 
-.ui-still, .ui-still * { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+/* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard card fades in and out. */
+.ui-still:not(.ui-hcard), .ui-still *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 .ui-still .ui-confetti, .ui-still .ui-rays { display: none; }
+.ui-hcard.ui-still { animation-name: ui-hc-fade; }
 @media (prefers-reduced-motion: reduce) {
-  .ui, .ui * { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .ui:not(.ui-hcard), .ui *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
   .ui .ui-confetti, .ui .ui-rays { display: none; }
+  .ui-hcard { animation-name: ui-hc-fade; }
 }
 `;
 }
