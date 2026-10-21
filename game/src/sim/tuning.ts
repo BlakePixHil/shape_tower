@@ -87,6 +87,12 @@ export interface Tuning {
   gusts: boolean;             // sideways pushes on the tower, Treetops to the Stratosphere
   gustScale: number;          // × every gust's strength (lab)
   hazardIntro: boolean;       // the run's first gust is a first-ever one: half strength, with a card
+  lateHazards: boolean;       // crosswind, space junk, meteors, dust devils, tidal sway (Storm Belt on)
+  hazardStrength: number;     // × every late hazard's strength (lab)
+  seenHazards: string[];      // late hazards this player has met; the first of any other is half strength, with a card
+  junkImpulse: number;        // kg·m/s a piece of space junk hits with
+  meteorImpulse: number;      // kg·m/s per meteor
+  heartsEveryFrom: number;    // from this checkpoint on, a heart comes back only every third claim (0: every claim, all the way up)
   // Debug
   wind: number;               // constant sideways push in g, lab only
   infiniteBudget: boolean;
@@ -167,6 +173,12 @@ export const DEFAULT_TUNING: Tuning = {
   gusts: true,
   gustScale: 1,
   hazardIntro: true,
+  lateHazards: true,
+  hazardStrength: 1,
+  seenHazards: [],
+  junkImpulse: 8,
+  meteorImpulse: 7,
+  heartsEveryFrom: 11,
   wind: 0,
   infiniteBudget: false,
   infiniteHearts: false,
@@ -185,6 +197,64 @@ export function gustFor(n: number): { strength: number; interval: number } | nul
   };
   const row = table[n];
   return row ? { strength: row[0], interval: row[1] } : null;
+}
+
+/** The hazards that come after gusts (gameplay.md §8.2), Storm Belt to Deep Cosmos. */
+export type LateHazard = 'crosswind' | 'junk' | 'meteor' | 'dust' | 'sway';
+export type HazardKind = 'gust' | LateHazard;
+
+/** Everything that pushes the tower in stretch n. Zero or null: that hazard is off. */
+export interface StretchHazards {
+  gust: { strength: number; interval: number } | null;
+  /** Steady push in g, flipping side every checkpoint. */
+  crosswind: number;
+  /** Average seconds between pieces of space junk. */
+  junk: number;
+  /** Average seconds between meteor showers (2 to 4 meteors each). */
+  meteor: number;
+  dust: { strength: number; interval: number } | null;
+  /** Gravity tilting side to side: peak sideways pull in g, and seconds per full swing. */
+  sway: { amplitude: number; period: number } | null;
+  /** × fall speed of the steered shape. */
+  fallMult: number;
+  /** Deep Cosmos: the two earlier hazards this stretch remixes. */
+  remix: HazardKind[];
+}
+
+const CROSSWIND: Record<number, number> = { 7: 0.04, 8: 0.06, 9: 0.08, 10: 0.1 };
+const JUNK: Record<number, number> = { 11: 18, 12: 15, 13: 12 };
+const METEOR: Record<number, number> = { 14: 22, 15: 18, 16: 15 };
+const DUST: Record<number, [number, number]> = { 17: [0.15, 16], 18: [0.2, 14], 19: [0.25, 12] };
+const SWAY: Record<number, number> = { 20: 0.08, 21: 0.11, 22: 0.14 };
+
+/** Deep Cosmos gets 5% harder every checkpoint, up to twice its starting intensity. */
+export function cosmosScale(n: number): number { return Math.max(1, Math.min(2, 1 + 0.05 * (n - 22))); }
+
+/** The pool Deep Cosmos remixes from, two at a time. */
+export const REMIX_POOL: HazardKind[] = ['gust', 'crosswind', 'junk', 'meteor', 'dust', 'sway'];
+
+/**
+ * The hazards of stretch n (gameplay.md §8.2). `remix` is Deep Cosmos's pick of two from REMIX_POOL
+ * (the sim draws it); there every hazard runs at its top intensity × cosmosScale(n), intervals
+ * shortened by the same factor, and gravity drifts ±6° on a slow swing unless tidal sway is in.
+ */
+export function hazardsFor(n: number, remix: HazardKind[] = []): StretchHazards {
+  const out: StretchHazards = {
+    gust: gustFor(n), crosswind: CROSSWIND[n] ?? 0, junk: JUNK[n] ?? 0, meteor: METEOR[n] ?? 0,
+    dust: DUST[n] ? { strength: DUST[n][0], interval: DUST[n][1] } : null,
+    sway: SWAY[n] ? { amplitude: SWAY[n], period: 8 } : null,
+    fallMult: n >= 20 && n <= 22 ? 1.15 : 1, remix: [],
+  };
+  if (n < 23) return out;
+  const k = cosmosScale(n), has = (h: HazardKind) => remix.includes(h);
+  out.remix = [...remix];
+  out.gust = has('gust') ? { strength: 0.15 * k, interval: Math.max(6, 12 / k) } : null;
+  out.crosswind = has('crosswind') ? 0.1 * k : 0;
+  out.junk = has('junk') ? Math.max(7, 12 / k) : 0;
+  out.meteor = has('meteor') ? Math.max(9, 15 / k) : 0;
+  out.dust = has('dust') ? { strength: 0.25 * k, interval: Math.max(7, 12 / k) } : null;
+  out.sway = has('sway') ? { amplitude: 0.14 * k, period: 8 } : { amplitude: 0.1, period: 24 };
+  return out;
 }
 
 export function gapFor(t: Tuning, n: number): number {

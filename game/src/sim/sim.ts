@@ -7,8 +7,9 @@ import { JuiceBus } from './bus.ts';
 import { makeStreams, type RngStreams } from './rng.ts';
 import { SHAPES, bottomCells, colliderBoxes, extents, geometry, rotQ, rotate, type ColliderBox, type Rot } from './shapes.ts';
 import {
-  DEFAULT_TUNING, GRADE_FACTOR, biomeFor, bondDelayFor, budgetFor, fallSpeedFor, gapFor, gradeFor, gustFor,
-  maxSlabWidthFor, mortarStrengthFor, type FoundationGrade, type Tuning,
+  DEFAULT_TUNING, GRADE_FACTOR, REMIX_POOL, biomeFor, bondDelayFor, budgetFor, fallSpeedFor, gapFor, gradeFor,
+  hazardsFor, maxSlabWidthFor, mortarStrengthFor, type FoundationGrade, type HazardKind, type LateHazard,
+  type StretchHazards, type Tuning,
 } from './tuning.ts';
 
 export const DT = 1 / 60;
@@ -23,6 +24,12 @@ export function registerEngine(name: 'box2d' | 'rapier', make: (s: WorldSettings
 export const GUST_WARNING = 2;
 /** How far under the checkpoint line a resting stack still counts as reaching it (contact slop). */
 export const LINE_SLOP = 0.05;
+/** Every hazard is warned this many seconds ahead (gameplay.md §8.3). */
+export const HAZARD_WARNING = 2;
+/** Dust devils cross the tower at this speed, blocks/s, and push within this distance of their middle. */
+const DEVIL_SPEED = 2.5;
+const DEVIL_REACH = 2.25;
+const DEVIL_CORE = 0.6;   // blocks either side of its middle where it cracks the mortar
 
 export type PieceState = 'controlled' | 'landing' | 'settling' | 'settled' | 'stone' | 'lost';
 export type Tint = 'ok' | 'amber' | 'red' | 'none';
@@ -85,6 +92,37 @@ export interface PieceView {
 
 export interface FoundationView { id: number; x: number; y: number; width: number; top: number; thickness: number; grade?: FoundationGrade }
 
+/**
+ * A piece of space junk or a meteor (gameplay.md §8.2): warned with a reticle on the spot it will
+ * hit, it flies in on a straight line, bumps that piece once and leaves. It never touches the
+ * steered shape and is never part of the tower. Positions in blocks, y up.
+ */
+export interface Shot {
+  id: number;
+  kind: 'junk' | 'meteor';
+  /** Which junk sprite (0 to 2). */
+  skin: number;
+  phase: 'warn' | 'fly' | 'out';
+  x: number;
+  y: number;
+  hitX: number;
+  hitY: number;
+  vx: number;
+  vy: number;
+  /** The side it comes from: 1 = from the right. */
+  dir: -1 | 1;
+  appearStep: number;
+  hitStep: number;
+  outStep: number;
+  target: number | null;
+  lx: number;
+  ly: number;
+  impulse: number;
+}
+
+/** A dust devil (Red Planet): a swirling column that crosses the top rows, pushing them its way. */
+export interface Devil { id: number; dir: -1 | 1; strength: number; phase: 'warn' | 'blow'; startStep: number; endStep: number; x0: number; x: number; y: number }
+
 interface Piece {
   id: number;
   shape: string;
@@ -128,6 +166,8 @@ export interface SimOptions {
   rookieOpening?: boolean;
   /** Second Wind at the start of the run (default 'earn'). Recorded with the run so replays match. */
   secondWind?: SecondWindMode;
+  /** Start at this checkpoint, with its gravity, hazards, shapes and levers (QA's balance sweeps). */
+  startCheckpoint?: number;
 }
 
 const ROOKIE_OPENING = ['O', 'I', 'L', 'O', 'J', 'T', 'I', 'O', 'L', 'J'];
@@ -159,7 +199,7 @@ export class Sim {
   hearts: number;
   score = 0;
   combo = 0;
-  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0 };
+  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0, hazards: 0, hits: 0 };
 
   // Steering
   ctrl: Controlled | null = null;
@@ -191,6 +231,28 @@ export class Sim {
   gust: { phase: 'idle' | 'warn' | 'blow'; dir: -1 | 1; strength: number; startStep: number; dur: number } = { phase: 'idle', dir: 1, strength: 0, startStep: 0, dur: 0 };
   private gustNext = -1;         // sim time the next gust may be warned (-1: not scheduled)
   private gustsSeen = 0;
+  /** This stretch's hazards (gameplay.md §8.2), planned as the stretch begins. */
+  stretch: StretchHazards;
+  /**
+   * Crosswind and tidal sway: warned 2 s into the stretch, then on until it is claimed. Strengths are
+   * this stretch's, already halved for a first-ever appearance.
+   */
+  weather = { phase: 'idle' as 'idle' | 'warn' | 'on', startStep: 0, crossDir: 1 as -1 | 1, crosswind: 0, sway: null as { amplitude: number; period: number } | null };
+  /** The sway's sideways pull this step, in g (+ pulls right). The view tilts the backdrop with it. */
+  tilt = 0;
+  /** Space junk and meteors on their way; the view draws them. */
+  shots: Shot[] = [];
+  /** The dust devil, while one is warned or blowing. */
+  devil: Devil | null = null;
+  private crossSet = false;
+  private stretchCp = 0;         // the checkpoint `stretch` was planned for
+  private junkNext = -1;
+  private meteorNext = -1;
+  private devilNext = -1;
+  private devilCracked = new Set<number>(); // pieces this devil has already cracked
+  private hazardSeq = 0;
+  /** Late hazards met this run, for `first` (Sound's heads-up) and the half-strength first ever. */
+  private met = new Set<string>();
   private lastGhost: Ghost | null = null;
   private lastGhostKey = '';
   private tensionValue = 0;
@@ -217,11 +279,16 @@ export class Sim {
 
     // The plinth: an 8-wide raised pedestal, top surface at y = 0.
     const plinth = this.addFoundation(0, FIRST_FOUNDATION_WIDTH, 0, 1.0);
-    this.lineY = plinth.top + gapFor(this.tuning, 1);
-    this.budget = budgetFor(this.tuning, 1, plinth.width);
+    this.checkpoint = Math.max(1, Math.floor(opts.startCheckpoint ?? 1));
+    const biome = biomeFor(this.checkpoint);
+    if (biome.gravity !== 1) { this.gravityScale = biome.gravity; this.engine.setGravity(0, -this.tuning.gravity * biome.gravity); }
+    this.lineY = plinth.top + gapFor(this.tuning, this.checkpoint);
+    this.budget = budgetFor(this.tuning, this.checkpoint, plinth.width);
+    this.stretch = this.planStretch();
+    this.stretchCp = this.checkpoint;
     this.refillQueue();
     this.bus.emit('run_start', { seed: this.seed });
-    this.bus.emit('biome_entered', { id: 1 });
+    this.bus.emit('biome_entered', { id: biome.id });
     if (this.secondWind === 'ready') this.bus.emit('second_wind_ready', { how: 'start' });
     if (this.tuning.startPower) this.grantPower('level_perk');
   }
@@ -400,12 +467,35 @@ export class Sim {
     const target = this.hold.active ? 0 : 1;
     const rate = this.hold.active ? DT / 0.5 : DT / 1.0;
     this.hazardScale += Math.max(-rate, Math.min(rate, target - this.hazardScale));
-    const wind = (this.tuning.wind + this.updateGust()) * this.hazardScale;
-    if (wind === 0) return;
+    // A new stretch (or a sandbox that set `checkpoint` itself) gets its hazards planned.
+    if (this.stretchCp !== this.checkpoint) { this.endWeather(); this.stretch = this.planStretch(); this.stretchCp = this.checkpoint; }
+    const wind = (this.tuning.wind + this.updateGust() + this.updateWeather()) * this.hazardScale;
+    this.updateShots();
+    this.updateDevil();
     const g = this.tuning.gravity * this.gravityScale;
-    for (const p of this.pieces.values()) {
-      if (p.state === 'stone' || p.state === 'lost') continue;
-      this.engine.applyForce(p.id, wind * g * this.engine.mass(p.id), 0);
+    if (wind !== 0) {
+      for (const p of this.pieces.values()) {
+        if (p.state === 'stone' || p.state === 'lost') continue;
+        this.engine.applyForce(p.id, wind * g * this.engine.mass(p.id), 0);
+      }
+    }
+    // The dust devil pushes the top rows within its reach, its way and a little up, strongest in its middle.
+    const d = this.devil;
+    if (d && d.phase === 'blow') {
+      const e = (this.stepIndex - d.startStep) * DT, dur = (d.endStep - d.startStep) * DT;
+      const ease = Math.max(0, Math.min(1, e / 0.3, (dur - e) / 0.3)) * this.hazardScale;
+      for (const p of this.pieces.values()) {
+        if (p.state === 'stone' || p.state === 'lost' || p.top < d.y) continue;
+        const dx = Math.abs(p.cx - d.x);
+        if (dx >= DEVIL_REACH) continue;
+        // Its middle cracks the mortar of what it passes through, once per piece (it bonds again at rest).
+        if (dx < DEVIL_CORE && p.bonds.size && !this.devilCracked.has(p.id)) {
+          this.devilCracked.add(p.id);
+          this.crack(p, 'dust');
+        }
+        const f = d.strength * (1 - dx / DEVIL_REACH) * ease * g * this.engine.mass(p.id);
+        this.engine.applyForce(p.id, d.dir * f, 0.35 * f);
+      }
     }
   }
 
@@ -416,7 +506,7 @@ export class Sim {
    */
   private updateGust(): number {
     const t = this.tuning, g = this.gust;
-    const spec = t.gusts && this.state === 'playing' ? gustFor(this.checkpoint) : null;
+    const spec = t.gusts && this.state === 'playing' ? this.stretch.gust : null;
     if (!spec) {
       if (g.phase !== 'idle') { g.phase = 'idle'; this.bus.emit('hazard_end', { type: 'gust' }); }
       this.gustNext = -1;
@@ -463,6 +553,307 @@ export class Sim {
     return g.dir * g.strength * Math.max(0, Math.min(1, e / 0.4, (g.dur - e) / 0.6));
   }
 
+  // ------------------------------------------------------------------ late hazards (gameplay.md §8.2)
+
+  /** Plans the stretch about to begin: Deep Cosmos's remix, the crosswind's side, half strengths. */
+  private planStretch(): StretchHazards {
+    const n = this.checkpoint, t = this.tuning;
+    let remix: HazardKind[] = [];
+    if (n >= 23) {
+      const a = this.rng.late.int(REMIX_POOL.length), b = (a + 1 + this.rng.late.int(REMIX_POOL.length - 1)) % REMIX_POOL.length;
+      remix = [REMIX_POOL[a], REMIX_POOL[b]];
+    }
+    const st = hazardsFor(n, remix), w = this.weather;
+    const k = (h: LateHazard) => t.hazardStrength * (this.introFor(h) ? 0.5 : 1);
+    w.crosswind = 0;
+    w.sway = null;
+    if (st.crosswind > 0) {
+      // Its side is drawn once, then it flips every checkpoint.
+      if (!this.crossSet) { w.crossDir = this.rng.late.int(2) ? 1 : -1; this.crossSet = true; } else w.crossDir = w.crossDir > 0 ? -1 : 1;
+      w.crosswind = st.crosswind * k('crosswind');
+    }
+    if (st.sway) w.sway = { amplitude: st.sway.amplitude * k('sway'), period: st.sway.period };
+    return st;
+  }
+
+  /** A late hazard's first appearance ever: half strength, with a card. */
+  private introFor(h: LateHazard): boolean { return !this.met.has(h) && !this.tuning.seenHazards.includes(h); }
+
+  private meet(h: LateHazard): { first: boolean; intro: boolean } {
+    const first = !this.met.has(h), intro = this.introFor(h);
+    this.met.add(h);
+    this.stats.hazards++;
+    return { first, intro };
+  }
+
+  private get calm(): boolean { return this.hold.active || this.time < this.claimPauseUntil; }
+
+  /**
+   * Crosswind and tidal sway, as one sideways pull in g (+ pulls right). Both are warned 2 s into
+   * the stretch and ease in over 2 s; holds ease them out with the other hazards.
+   */
+  private updateWeather(): number {
+    const w = this.weather;
+    const on = this.tuning.lateHazards && this.state === 'playing' && (w.crosswind > 0 || w.sway !== null);
+    if (!on) { this.endWeather(); return 0; }
+    if (w.phase === 'idle') {
+      if (this.calm) return 0;
+      w.phase = 'warn';
+      w.startStep = this.stepIndex + Math.round(HAZARD_WARNING / DT);
+      if (w.crosswind > 0) {
+        const intro = this.introFor('crosswind');
+        this.bus.emit('hazard_warning', { type: 'crosswind', dir: w.crossDir, eta: HAZARD_WARNING, strength: w.crosswind, first: !this.met.has('crosswind'), intro });
+      }
+      if (w.sway) {
+        const intro = this.introFor('sway');
+        this.bus.emit('hazard_warning', { type: 'sway', eta: HAZARD_WARNING, amplitude: w.sway.amplitude, period: w.sway.period, drift: this.stretch.sway?.period !== 8, first: !this.met.has('sway'), intro });
+      }
+      return 0;
+    }
+    if (w.phase === 'warn') {
+      if (this.stepIndex < w.startStep) return 0;
+      w.phase = 'on';
+      if (w.crosswind > 0) { this.meet('crosswind'); this.bus.emit('hazard_start', { type: 'crosswind', dir: w.crossDir, strength: w.crosswind }); }
+      if (w.sway) { this.meet('sway'); this.bus.emit('hazard_start', { type: 'sway', amplitude: w.sway.amplitude, period: w.sway.period }); }
+    }
+    const e = (this.stepIndex - w.startStep) * DT, ramp = Math.min(1, e / 2);
+    this.tilt = w.sway ? w.sway.amplitude * ramp * swing(e / w.sway.period) : 0;
+    return w.crossDir * w.crosswind * ramp + this.tilt;
+  }
+
+  private endWeather(): void {
+    const w = this.weather;
+    this.tilt = 0;
+    if (w.phase === 'idle') return;
+    const cancelled = w.phase === 'warn';
+    w.phase = 'idle';
+    if (w.crosswind > 0) this.bus.emit('hazard_end', { type: 'crosswind', cancelled });
+    if (w.sway) this.bus.emit('hazard_end', { type: 'sway', cancelled });
+  }
+
+  /** Where the tidal sway will pull `ahead` seconds from now, -1 (left) to 1 (right). The plumb bob leads with it. */
+  swayAhead(ahead = 1): number {
+    const w = this.weather;
+    if (!w.sway || w.phase !== 'on') return 0;
+    return swing(((this.stepIndex - w.startStep) * DT + ahead) / w.sway.period);
+  }
+
+  /** Space junk (Orbit) and meteor showers (Moon): scheduling, flight, the hit, and leaving. */
+  private updateShots(): void {
+    const st = this.stretch, t = this.tuning;
+    const on = t.lateHazards && this.state === 'playing';
+    const calm = this.calm;
+    if (on && st.junk > 0) {
+      if (this.junkNext < 0) this.junkNext = this.time + 4 + this.rng.late.int(21) / 10;
+      if (!calm && this.time >= this.junkNext) {
+        this.junkNext = this.fireJunk() ? this.time + st.junk * (85 + this.rng.late.int(31)) / 100 : this.time + 2;
+      }
+    } else this.junkNext = -1;
+    if (on && st.meteor > 0) {
+      if (this.meteorNext < 0) this.meteorNext = this.time + 4 + this.rng.late.int(21) / 10;
+      if (!calm && this.time >= this.meteorNext) {
+        this.meteorNext = this.fireShower() ? this.time + st.meteor * (85 + this.rng.late.int(31)) / 100 : this.time + 2;
+      }
+    } else this.meteorNext = -1;
+
+    for (const s of [...this.shots]) {
+      // A hold calls off what hasn't hit yet: anything already flying sails past.
+      if (s.phase !== 'out' && (calm || !on)) {
+        this.bus.emit('hazard_end', { type: s.kind, id: s.id, cancelled: true });
+        if (s.phase === 'warn') { this.shots.splice(this.shots.indexOf(s), 1); continue; }
+        s.phase = 'out'; s.target = null; s.outStep = this.stepIndex + Math.round(1.5 / DT);
+      }
+      if (s.phase === 'warn' && this.stepIndex >= s.appearStep) {
+        s.phase = 'fly';
+        this.bus.emit('hazard_start', { type: s.kind, id: s.id });
+      }
+      if (s.phase === 'fly') {
+        // It homes on the spot it was aimed at, so a piece that shifted a little still gets hit there.
+        const tp = this.shotPoint(s);
+        if (tp) { s.hitX = tp[0]; s.hitY = tp[1]; }
+        const left = (s.hitStep - this.stepIndex) * DT;
+        s.x = s.hitX - s.vx * left; s.y = s.hitY - s.vy * left;
+        if (this.stepIndex >= s.hitStep) this.shotHits(s, tp !== null);
+        continue;
+      }
+      if (s.phase === 'out') {
+        s.x += s.vx * DT; s.y += s.vy * DT;
+        if (s.kind === 'junk') s.vy -= 2 * DT;
+        if (this.stepIndex >= s.outStep) {
+          this.shots.splice(this.shots.indexOf(s), 1);
+          if (s.target !== -1) this.bus.emit('hazard_end', { type: s.kind, id: s.id });
+        }
+      }
+    }
+  }
+
+  /** Loose pieces in the top 3 blocks: what junk and meteors aim at. */
+  private targets(): Piece[] {
+    const top = this.height().provisional;
+    const out: Piece[] = [];
+    for (const p of this.pieces.values()) {
+      if (p.claimed || p.state === 'lost' || p.state === 'stone' || p.top < top - 3) continue;
+      out.push(p);
+    }
+    return out;
+  }
+
+  /** Aims at a piece: its outermost cell's face on side `dir` (junk), or its top cell's top (meteors). */
+  private aim(p: Piece, kind: 'junk' | 'meteor', dir: -1 | 1): { wx: number; wy: number; lx: number; ly: number } {
+    const tr = this.engine.transform(p.id);
+    let best: [number, number] | null = null, score = -Infinity;
+    for (const [cx, cy] of geometry(p.shape).cells) {
+      const [rx, ry] = rotate(tr, cx, cy);
+      const v = kind === 'junk' ? dir * rx + 0.01 * ry : ry;
+      if (v > score + 1e-6) { score = v; best = [tr.x + rx, tr.y + ry]; }
+    }
+    const [bx, by] = best!;
+    const wx = kind === 'junk' ? bx + 0.5 * dir : bx + (this.rng.late.int(3) - 1) * 0.2;
+    const wy = kind === 'junk' ? by : by + 0.5;
+    // In the piece's own frame, so the spot moves with it.
+    const [lx, ly] = rotate({ c: tr.c, s: -tr.s }, wx - tr.x, wy - tr.y);
+    return { wx, wy, lx, ly };
+  }
+
+  private shotPoint(s: Shot): [number, number] | null {
+    if (s.target === null || s.target < 0) return null;
+    const p = this.pieces.get(s.target);
+    if (!p || p.state === 'lost' || p.state === 'stone' || !this.engine.hasBody(p.id)) return null;
+    const tr = this.engine.transform(p.id);
+    const [rx, ry] = rotate(tr, s.lx, s.ly);
+    return [tr.x + rx, tr.y + ry];
+  }
+
+  /**
+   * Junk goes for an outer piece up top (the outermost, now and then the next one in) and shoves it
+   * outward. The 2 s warning is time to brace it with the next shape.
+   */
+  private fireJunk(): boolean {
+    const c = this.targets();
+    if (!c.length) return false;
+    const fx = this.foundation.x;
+    c.sort((a, b) => Math.abs(b.cx - fx) - Math.abs(a.cx - fx) || b.id - a.id);
+    const p = c[Math.min(c.length - 1, this.rng.late.int(3) === 0 ? 1 : 0)];
+    const dir: -1 | 1 = p.cx >= fx ? -1 : 1;
+    const a = this.aim(p, 'junk', dir);
+    const { intro, first } = this.meet('junk');
+    const k = this.tuning.hazardStrength * this.cosmos() * (intro ? 0.5 : 1);
+    const warn = Math.round(HAZARD_WARNING / DT), flight = 1.4;
+    const s: Shot = {
+      id: ++this.hazardSeq, kind: 'junk', skin: this.rng.late.int(3), phase: 'warn', x: a.wx + dir * 7, y: a.wy + 1.1, hitX: a.wx, hitY: a.wy,
+      vx: -dir * 7 / flight, vy: -1.1 / flight, dir, appearStep: this.stepIndex + warn - Math.round(flight / DT), hitStep: this.stepIndex + warn, outStep: 0,
+      target: p.id, lx: a.lx, ly: a.ly, impulse: this.tuning.junkImpulse * k,
+    };
+    this.shots.push(s);
+    this.bus.emit('hazard_warning', { type: 'junk', id: s.id, dir, eta: HAZARD_WARNING, at: { x: s.hitX, y: s.hitY }, from: { x: s.x, y: s.y }, first, intro });
+    return true;
+  }
+
+  private fireShower(): boolean {
+    const c = this.targets();
+    if (!c.length) return false;
+    const dir: -1 | 1 = this.rng.late.int(2) ? 1 : -1;
+    const n = 2 + this.rng.late.int(3);
+    const { intro, first } = this.meet('meteor');
+    const k = this.tuning.hazardStrength * this.cosmos() * (intro ? 0.5 : 1);
+    const flight = 0.8, list: Record<string, unknown>[] = [];
+    for (let i = 0; i < n; i++) {
+      const p = c[this.rng.late.int(c.length)];
+      const a = this.aim(p, 'meteor', dir);
+      const hitStep = this.stepIndex + Math.round((HAZARD_WARNING + 0.35 * i) / DT);
+      const s: Shot = {
+        id: ++this.hazardSeq, kind: 'meteor', skin: 0, phase: 'warn', x: a.wx + dir * 3.2, y: a.wy + 7.2, hitX: a.wx, hitY: a.wy,
+        vx: -dir * 3.2 / flight, vy: -7.2 / flight, dir, appearStep: hitStep - Math.round(flight / DT), hitStep, outStep: 0,
+        target: p.id, lx: a.lx, ly: a.ly, impulse: this.tuning.meteorImpulse * k,
+      };
+      this.shots.push(s);
+      list.push({ id: s.id, eta: HAZARD_WARNING + 0.35 * i, at: { x: s.hitX, y: s.hitY }, from: { x: s.x, y: s.y } });
+    }
+    this.bus.emit('hazard_warning', { type: 'meteor', dir, eta: HAZARD_WARNING, count: n, shots: list, first, intro });
+    return true;
+  }
+
+  /** The hit: one push at the spot, then junk tumbles away and a meteor bursts. A miss sails on. */
+  private shotHits(s: Shot, onTarget: boolean): void {
+    if (!onTarget || s.target === null) {
+      s.phase = 'out'; s.target = -1; s.outStep = this.stepIndex + Math.round(1.2 / DT);
+      this.bus.emit('hazard_end', { type: s.kind, id: s.id, missed: true });
+      return;
+    }
+    // Both crack the mortar round the piece they hit (it bonds again once it rests). Junk comes in
+    // level and shoves; a meteor comes down at 45° and knocks.
+    const [ux, uy] = s.kind === 'junk' ? [-s.dir, -0.15] : [-s.dir * 0.7, -0.7];
+    const hit = this.pieces.get(s.target);
+    if (hit) this.crack(hit, s.kind);
+    this.engine.applyImpulse(s.target, ux * s.impulse, uy * s.impulse, s.hitX, s.hitY);
+    this.stats.hits++;
+    this.tensionSpike = Math.max(this.tensionSpike, 0.5);
+    this.bus.emit('hazard_hit', { type: s.kind, id: s.id, x: s.hitX, y: s.hitY, pieceId: s.target, impulse: s.impulse, dir: -s.dir });
+    s.phase = 'out';
+    if (s.kind === 'junk') { s.vx = -0.35 * s.vx; s.vy = 2.5; s.outStep = this.stepIndex + Math.round(0.9 / DT); }
+    else { s.vx = 0; s.vy = 0; s.outStep = this.stepIndex; }
+  }
+
+  /** A hazard breaks every bond of piece p. It bonds again once it has rested a second. */
+  private crack(p: Piece, by: 'junk' | 'meteor' | 'dust'): void {
+    for (const [, jid] of [...p.bonds]) {
+      const w = this.welds.get(jid);
+      this.removeWeld(jid);
+      if (w) this.bus.emit('bond_broken', { pos: { x: w.x, y: w.y }, force: 0, by });
+    }
+    p.bondCheckAt = this.time + 1;
+  }
+
+  /** Dust devils (Red Planet): warned at the side they come from, then they cross the tower's top. */
+  private updateDevil(): void {
+    const spec = this.tuning.lateHazards && this.state === 'playing' ? this.stretch.dust : null;
+    let d = this.devil;
+    if (!spec) {
+      if (d) { this.bus.emit('hazard_end', { type: 'dust', id: d.id, cancelled: d.phase === 'warn' }); this.devil = null; }
+      this.devilNext = -1;
+      return;
+    }
+    const calm = this.calm;
+    if (this.devilNext < 0) this.devilNext = this.time + 4 + this.rng.late.int(21) / 10;
+    const top = this.height().provisional;
+    if (!d) {
+      if (calm || this.time < this.devilNext) return;
+      const f = this.foundation, dir: -1 | 1 = this.rng.late.int(2) ? 1 : -1, half = f.width / 2 + 3;
+      const { first, intro } = this.meet('dust');
+      this.devilCracked.clear();
+      const start = this.stepIndex + Math.round(HAZARD_WARNING / DT);
+      d = this.devil = {
+        id: ++this.hazardSeq, dir, strength: spec.strength * this.tuning.hazardStrength * (intro ? 0.5 : 1), phase: 'warn',
+        startStep: start, endStep: start + Math.round(2 * half / DEVIL_SPEED / DT), x0: f.x - dir * half, x: f.x - dir * half, y: top - 4,
+      };
+      this.bus.emit('hazard_warning', { type: 'dust', id: d.id, dir, eta: HAZARD_WARNING, strength: d.strength, x: d.x, y: top - 1, first, intro });
+      return;
+    }
+    d.y = top - 4;
+    if (d.phase === 'warn') {
+      if (calm) {
+        this.bus.emit('hazard_end', { type: 'dust', id: d.id, cancelled: true });
+        this.devil = null;
+        this.devilNext = this.time;
+      } else if (this.stepIndex >= d.startStep) {
+        d.phase = 'blow';
+        this.bus.emit('hazard_start', { type: 'dust', id: d.id, dir: d.dir, strength: d.strength, duration: (d.endStep - d.startStep) * DT });
+      }
+      return;
+    }
+    d.x = d.x0 + d.dir * DEVIL_SPEED * (this.stepIndex - d.startStep) * DT;
+    if (this.stepIndex >= d.endStep) {
+      this.bus.emit('hazard_end', { type: 'dust', id: d.id });
+      this.devil = null;
+      // The interval runs start to start, like gusts.
+      const dur = (d.endStep - d.startStep) * DT;
+      this.devilNext = Math.max(this.time, this.time - dur + spec.interval * (85 + this.rng.late.int(31)) / 100 - HAZARD_WARNING);
+    }
+  }
+
+  /** Deep Cosmos's extra punch for junk and meteors (strengths and intervals are in hazardsFor). */
+  private cosmos(): number { return this.checkpoint >= 23 ? Math.max(1, Math.min(2, 1 + 0.05 * (this.checkpoint - 22))) : 1; }
+
   // ------------------------------------------------------------------ steering
 
   private boxes(shape: string, q: number): ColliderBox[] {
@@ -502,7 +893,7 @@ export class Sim {
     }
     // Something toppled into the shape: it becomes physical right away.
     if (!this.free(c.shape, c.x, c.y, c.rot)) { this.land(c, c.y, c.speed, true); return; }
-    const fall = fallSpeedFor(t, this.checkpoint) * (this.slowLeft > 0 ? t.slowFactor : 1);
+    const fall = fallSpeedFor(t, this.checkpoint) * (t.lateHazards ? this.stretch.fallMult : 1) * (this.slowLeft > 0 ? t.slowFactor : 1);
     // While a checkpoint is being held, and while the new slab drops in, the shape in hand hovers
     // so the player can react to the claim. Soft and hard drops still bring it down.
     const hover = !c.hard && !c.soft && this.hovering;
@@ -634,6 +1025,9 @@ export class Sim {
     const weights: [string, number][] = [['O', 2], ['I', 2], ['L', 2], ['J', 2], ['T', 2]];
     if (n >= 2) { const w = n >= 5 ? 1.5 : 1; weights.push(['S', w], ['Z', w]); }
     if (n >= 5) weights.push(['Domino', 1], ['Plank', 1]);
+    // Bigger and odder shapes from the Storm Belt and the Red Planet, low at first (gameplay.md §4.1).
+    if (n >= 7) { const w = n >= 9 ? 1 : 0.5; weights.push(['P', w], ['U', w], ['V', w]); }
+    if (n >= 17) { const w = n >= 19 ? 1 : 0.5; weights.push(['Arch', w], ['Plus', w]); }
     const total = weights.reduce((a, [, w]) => a + w * 2, 0); // integer weights in halves
     const bag: string[] = [];
     const recent = this.queue.slice(-2);
@@ -1042,7 +1436,11 @@ export class Sim {
 
     const biome = biomeFor(n);
     const before = this.hearts;
-    this.hearts = n === biome.lastCp ? t.hearts : Math.min(t.hearts, this.hearts + 1);
+    const from = t.heartsEveryFrom;
+    // Up to the Stratosphere every claim gives a heart back and a biome's last one refills them.
+    // From Orbit on, a heart comes back every third claim (13, 16, 19, ...) and never all of them.
+    if (from > 0 && n >= from) { if ((n - from + 1) % 3 === 0) this.hearts = Math.min(t.hearts, this.hearts + 1); }
+    else this.hearts = n === biome.lastCp ? t.hearts : Math.min(t.hearts, this.hearts + 1);
     if (this.hearts > before) this.bus.emit('heart_restored', { left: this.hearts });
     this.bus.emit('checkpoint_claimed', { n, grade, leftover, width, coverage });
     // Second Wind is earned at checkpoint 2. A player who already has it (or has used it) gets a
@@ -1054,6 +1452,7 @@ export class Sim {
     if (grade === 'S') this.grantPower('grade');
 
     this.checkpoint = n + 1;
+    this.endWeather(); // the next stretch is planned at the start of the next step
     const nb = biomeFor(this.checkpoint);
     if (nb.id !== biome.id) {
       this.stats.biomes++;
@@ -1338,6 +1737,7 @@ export class Sim {
       sway: this.swayValue,
       difficultyTier: this.checkpoint,
       gravityScale: this.gravityScale,
+      tilt: this.tilt,
       foundationX: f.x,
       cameraX: this.camera.x,
       cameraY: this.camera.y,
@@ -1397,6 +1797,12 @@ export class Sim {
 function snap(x: number, step: number): number { return Math.round(x / step) * step; }
 function snapUp(x: number, step: number): number { return Math.ceil(x / step - 1e-9) * step; }
 function snapDown(x: number, step: number): number { return Math.floor(x / step + 1e-9) * step; }
+
+/** A sine-like swing with period 1, peaking at ±1, made of two parabolas (no trig in the sim). */
+export function swing(u: number): number {
+  const p = u - Math.floor(u), h = p < 0.5 ? p : p - 0.5, v = 16 * h * (0.5 - h);
+  return p < 0.5 ? v : -v;
+}
 
 function nearestQuarter(c: number, s: number): number {
   if (Math.abs(c) >= Math.abs(s)) return c >= 0 ? 0 : 2;

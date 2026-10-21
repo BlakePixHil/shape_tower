@@ -89,7 +89,7 @@ export class RunRecorder {
       cause: sim.cause, maxHeight: round(sim.stats.maxHeight - sim.foundations[0].top), checkpoints: sim.stats.checkpoints,
       score: Math.round(sim.score), stats: { ...sim.stats, grades: [...sim.stats.grades] },
       placedInFirstMinute: this.placedAt60 ?? sim.stats.placed,
-      frames: { count: this.frames, max: round(this.frameMax), p50: this.pct(0.5), p95: this.pct(0.95), p99: this.pct(0.99), hist: compact(this.hist) },
+      frames: { frameClock: 'raw', count: this.frames, max: round(this.frameMax), p50: this.pct(0.5), p95: this.pct(0.95), p99: this.pct(0.99), hist: compact(this.hist) },
       memoryPeakBytes: this.memPeak,
       audio: ctx ? { baseLatency: ctx.baseLatency ?? null, outputLatency: (ctx as AudioContext & { outputLatency?: number }).outputLatency ?? null, sampleRate: ctx.sampleRate, state: ctx.state } : null,
       device: device(), answers: this.answers, ...extra,

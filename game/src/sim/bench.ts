@@ -4,7 +4,8 @@
 
 import { DT, Sim } from './sim.ts';
 
-export interface BenchPhase { bodies: number; awake: number; steps: number; mean: number; p50: number; p95: number; max: number; times: number[] }
+/** `digest` is sim.digest() at the end of the phase, so QA can rerun the bench in Node and check the phone's world matches. */
+export interface BenchPhase { bodies: number; awake: number; steps: number; mean: number; p50: number; p95: number; max: number; times: number[]; digest: string }
 export interface BenchResult { engine: string; phases: BenchPhase[]; totalMs: number }
 
 const ROW = [-3, -1, 1, 3];
@@ -30,7 +31,7 @@ export function runBench(now: () => number = () => performance.now(), engine: 'b
     phases.push({
       bodies: sim.pieceViews().length, awake: sim.pieceViews().filter(v => sim.engine.isAwake(v.id)).length, steps,
       mean: round(times.reduce((s, x) => s + x, 0) / steps), p50: round(pick(0.5)), p95: round(pick(0.95)), max: round(sorted[sorted.length - 1]),
-      times: times.map(round),
+      times: times.map(round), digest: sim.digest(),
     });
   };
   const steps = Math.round(2.5 / DT);

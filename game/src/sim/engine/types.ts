@@ -48,6 +48,8 @@ export interface PhysicsEngine {
   setBullet(id: number, on: boolean): void;
   mass(id: number): number;
   applyForce(id: number, fx: number, fy: number): void;
+  /** An instant push (kg·m/s) at a world point, which also spins the body: space junk and meteors. */
+  applyImpulse(id: number, jx: number, jy: number, px: number, py: number): void;
   /** Ids of tower and stone bodies overlapping these boxes placed at (x, y, rot). */
   overlapBoxes(boxes: ColliderBox[], x: number, y: number, rot: Rot): number[];
   /** Ids of tower and stone bodies overlapping a tiny probe square centred at (x, y). */

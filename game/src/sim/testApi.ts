@@ -28,6 +28,8 @@ export interface CreateSimOptions {
   autoSpawn?: boolean;
   rookieOpening?: boolean;
   secondWind?: SecondWindMode;
+  /** Start at this checkpoint (its gravity, hazards and shapes), for late-biome tests. */
+  startCheckpoint?: number;
 }
 
 export interface TestPiece { id: number; shape: string; state: PieceState; x: number; y: number; angle: number; vx: number; vy: number; w: number; bonds: number }
@@ -89,6 +91,7 @@ export function createSim(opts: CreateSimOptions = {}): TestSim {
     autoSpawn: opts.autoSpawn ?? false,
     rookieOpening: opts.rookieOpening ?? false,
     secondWind: opts.secondWind,
+    startCheckpoint: opts.startCheckpoint,
   };
   const sim = new Sim(simOpts);
   const ops: Op[] = [];
@@ -119,14 +122,14 @@ export function createSim(opts: CreateSimOptions = {}): TestSim {
   };
 }
 
-export interface ReplayInput { engine?: 'box2d' | 'rapier'; seed: number; tuning?: Partial<Tuning>; rookieOpening?: boolean; secondWind?: SecondWindMode; inputs: LoggedInput[]; steps: number }
+export interface ReplayInput { engine?: 'box2d' | 'rapier'; seed: number; tuning?: Partial<Tuning>; rookieOpening?: boolean; secondWind?: SecondWindMode; startCheckpoint?: number; inputs: LoggedInput[]; steps: number }
 
 /**
  * Replays a recorded run (auto spawn on, as in the game) and returns the digest every 60 steps,
  * for comparing with the digests in a run record.
  */
 export function replay(rec: ReplayInput): { digests: string[]; sim: Sim } {
-  const sim = new Sim({ engine: rec.engine ?? DEFAULT_ENGINE, seed: rec.seed, tuning: rec.tuning, autoSpawn: true, rookieOpening: rec.rookieOpening ?? false, secondWind: rec.secondWind });
+  const sim = new Sim({ engine: rec.engine ?? DEFAULT_ENGINE, seed: rec.seed, tuning: rec.tuning, autoSpawn: true, rookieOpening: rec.rookieOpening ?? false, secondWind: rec.secondWind, startCheckpoint: rec.startCheckpoint });
   const digests: string[] = [];
   let k = 0;
   while (sim.stepIndex < rec.steps) {

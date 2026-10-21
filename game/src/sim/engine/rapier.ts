@@ -245,6 +245,12 @@ export class RapierEngine implements PhysicsEngine {
     if (f) { f[0] += fx; f[1] += fy; } else this.forces.set(id, [fx, fy]);
   }
 
+  applyImpulse(id: number, jx: number, jy: number, px: number, py: number): void {
+    const e = this.bodies.get(id);
+    if (!e) return;
+    e.body.applyImpulseAtPoint({ x: jx, y: jy }, { x: px, y: py }, true);
+  }
+
   // ------------------------------------------------------------------ queries
 
   /** Bodies whose tower or stone colliders overlap the box at (x, y) turned by `rot`, fresh ones included. */

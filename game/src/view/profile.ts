@@ -16,6 +16,7 @@ export interface Profile {
   sliceRuns: number;   // game-build runs started on this install (QA's Gate 1 protocol)
   player: string;      // a random id made once per install, so QA can group runs by player
   seenGusts: boolean;  // the first gust of a player's first Treetops is half strength, with a card (§8.3)
+  seenHazards: string[]; // the later hazards met so far (crosswind, junk, meteor, dust, sway): the same first-time rule
   postcards: (string | null)[]; // per biome (1 to 10), the local date it was first reached
 }
 
@@ -49,7 +50,7 @@ const KEY = 'shape-tower-profile-v1';
 
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, postcards: Array(10).fill(null) });
+const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], postcards: Array(10).fill(null) });
 
 export function loadProfile(): Profile {
   try {
@@ -58,6 +59,7 @@ export function loadProfile(): Profile {
       const p = { ...fresh(), ...(JSON.parse(raw) as Partial<Profile>) };
       p.stats = { ...freshStats(), ...p.stats };
       p.postcards = Array.from({ length: 10 }, (_, i) => p.postcards?.[i] ?? null);
+      if (!Array.isArray(p.seenHazards)) p.seenHazards = [];
       if (!p.player) { p.player = newPlayer(); saveProfile(p); }
       return p;
     }

@@ -25,6 +25,13 @@ export const SHAPES: Record<string, ShapeDef> = {
   Z: S('Z', 'Cherry Zag', 1, [[1, 0], [2, 0], [0, 1], [1, 1]], [{ x: 1, y: 0, w: 2, h: 1 }, { x: 0, y: 1, w: 2, h: 1 }], 0xff9daa, 0xff4f64, 0xcc2e48),
   Domino: S('Domino', 'Gumdrop', 2, [[0, 0], [1, 0]], [{ x: 0, y: 0, w: 2, h: 1 }], 0xf7a3ec, 0xe84fd0, 0xb52ea0),
   Plank: S('Plank', 'Plank', 2, [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0]], [{ x: 0, y: 0, w: 5, h: 1 }], 0xf2c891, 0xd9a066, 0xa8723e),
+  // Tier 3 (Storm Belt) and tier 6 (Red Planet). Wedge (tier 4) and Boulder (tier 5) need a triangle
+  // and a circle collider, which the engines don't take yet.
+  P: S('P', 'Teal P', 3, [[0, 0], [0, 1], [1, 1], [0, 2], [1, 2]], [{ x: 0, y: 1, w: 2, h: 2 }, { x: 0, y: 0, w: 1, h: 1 }], 0x8deedf, 0x22c7b2, 0x12907f),
+  U: S('U', 'Lime U', 3, [[0, 0], [1, 0], [2, 0], [0, 1], [2, 1]], [{ x: 0, y: 0, w: 3, h: 1 }, { x: 0, y: 1, w: 1, h: 1 }, { x: 2, y: 1, w: 1, h: 1 }], 0xd8f48a, 0xa9dd2f, 0x79a814),
+  V: S('V', 'Navy V', 3, [[0, 0], [1, 0], [2, 0], [0, 1], [0, 2]], [{ x: 0, y: 0, w: 3, h: 1 }, { x: 0, y: 1, w: 1, h: 2 }], 0x8e95f2, 0x3d46b8, 0x262c85),
+  Arch: S('Arch', 'Brick Arch', 6, [[0, 0], [2, 0], [0, 1], [1, 1], [2, 1]], [{ x: 0, y: 1, w: 3, h: 1 }, { x: 0, y: 0, w: 1, h: 1 }, { x: 2, y: 0, w: 1, h: 1 }], 0xf09a7c, 0xd2694a, 0xa3452c),
+  Plus: S('Plus', 'Star Plus', 6, [[1, 0], [0, 1], [1, 1], [2, 1], [1, 2]], [{ x: 1, y: 0, w: 1, h: 3 }, { x: 0, y: 1, w: 1, h: 1 }, { x: 2, y: 1, w: 1, h: 1 }], 0xffffff, 0xe9e6fa, 0xb9b2de),
 };
 
 /** Local geometry relative to the shape's pivot (centre of its bounding box). */

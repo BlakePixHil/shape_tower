@@ -35,10 +35,12 @@ const shots = {};
 const shot = async name => { if (shots[name]) return; shots[name] = true; await page.screenshot({ path: `${out}/${String(Object.keys(shots).length + 1).padStart(2, '0')}-${name}.png` }); };
 const used = [];
 const tapped = new Set();
-// Stops when the work is done (5 kinds tapped and Second Wind used), not on the clock: headless
-// frames are slow, so 100 s landed 15 to 19 pieces and Second Wind came down to luck. The cap is
-// only a backstop.
+// Stops when the work is done, not on the clock: headless frames are slow, so 100 s landed 15 to
+// 19 pieces and Second Wind came down to luck. Done is Second Wind used and a power used from the
+// HUD, then up to 60 s more for the bubbles to deal other kinds (all 5 tapped ends it at once).
+// The cap is only a backstop.
 const t0 = Date.now();
+let doneAt = 0;
 while (Date.now() - t0 < 240_000) {
   const s = await state();
   if (s.state !== 'playing') break;
@@ -72,7 +74,8 @@ while (Date.now() - t0 < 240_000) {
     await page.waitForTimeout(260);
     await shot('wind-used');
   }
-  if (tapped.size >= 5 && shots['wind-used']) break;
+  if (shots['wind-used'] && used.some(u => u.emptied)) doneAt ||= Date.now();
+  if (doneAt && (tapped.size >= 5 || Date.now() - doneAt > 60_000)) break;
   await page.waitForTimeout(150);
 }
 const end = await state();
