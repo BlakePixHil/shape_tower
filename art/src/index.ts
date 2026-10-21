@@ -19,6 +19,7 @@ export { STAR_LAYERS, bakeStarTile, type StarLayer } from './stars.ts';
 export { VFX, VFX_NAMES, bakeVfx, type VfxName } from './vfx.ts';
 export { POWER, POWER_COLORS, POWER_ICON_NAMES, POWER_KINDS, bakeBubble, bakeBubbleGloss, bakePowerIcon, drawPowerIcon, powerBarCss, powerIconUrl, type PowerIcon, type PowerKind } from './powers.ts';
 export { BUNTING_KEYS, CHECKPOINT, bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from './checkpoint.ts';
+export { WIND, WIND_VARIANTS, bakeWind, windDrifters, type WindKind, type WindTex } from './wind.ts';
 export { hexNum, labToHex, oklab } from './util.ts';
 export { BIOME_BAKERS, type BiomeBaker } from './backdrops.ts';
 
@@ -28,6 +29,7 @@ export { UI_ICONS, bakeUiIcon, drawUiIcon, uiIconUrl, type UiIcon } from './ui/i
 export { BADGE_TIERS, TITLES, badgeTier, badgeUrl, bakeBadge, drawBadge, newTitleAt, titleFor, type BadgeTier } from './ui/badge.ts';
 export { LOGO_ROWS, bakeLogo, logoElement, logoPeekerUrl, logoTileUrl } from './ui/logo.ts';
 export { bakePostcard, postcardElement, postcardUrl, type PostcardOptions } from './ui/postcard.ts';
+export { HAZARDS, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, type HazardChipOptions, type HazardType } from './ui/hazard.ts';
 export {
   MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarUrl, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel, readSettings,
   rewardAt, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, xpBar,
@@ -42,4 +44,5 @@ export { GuideView, type GuideShow } from './phaser/guide.ts';
 export { Backdrop, type BackdropOptions } from './phaser/backdrop.ts';
 export { CheckpointLine, PbMarker, type CheckpointLayout } from './phaser/checkpoint.ts';
 export { PowerBubble } from './phaser/power.ts';
+export { WindView, type Drifters, type WindDir, type WindOptions } from './phaser/wind.ts';
 export type { SceneLike } from './phaser/types.ts';

@@ -11,6 +11,7 @@ import { POWER, POWER_ICON_NAMES, POWER_KINDS, type PowerIcon, type PowerKind, b
 import { type Grade, bakeGradeStamp, bakePedestal, bakeSlab } from '../slab.ts';
 import { ctx2d, makeCanvas } from '../util.ts';
 import { VFX_NAMES, type VfxName, bakeVfx } from '../vfx.ts';
+import { WIND, WIND_VARIANTS, type WindKind, type WindTex, bakeWind } from '../wind.ts';
 import type { CanvasTextureLike, SceneLike } from './types.ts';
 
 /** A texture key, the frame inside it, and the pivot as fractions of the frame. */
@@ -74,7 +75,7 @@ export class ArtTextures {
   }
 
   /** Bake ahead of time (e.g. on a loading screen) so nothing bakes mid-run. */
-  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean; powers?: boolean } = {}): void {
+  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean; powers?: boolean; wind?: boolean } = {}): void {
     for (const key of keys) for (let q = 0; q < 4; q++) {
       for (const f of o.finishes ?? [null]) this.piece(key, q, { finish: f });
       if (o.stone ?? true) this.piece(key, q, { stone: true });
@@ -82,9 +83,10 @@ export class ArtTextures {
       this.silhouette(key, q);
       this.ghostEdge(key, q);
     }
-    for (const ex of ['idle', 'falling', 'impact', 'proud', 'worried', 'panic', 'blink'] as Expression[]) { this.face(`eyes_${ex}`); this.face(`mouth_${ex}`); }
+    for (const ex of ['idle', 'falling', 'impact', 'proud', 'worried', 'panic', 'blink', 'squint'] as Expression[]) { this.face(`eyes_${ex}`); this.face(`mouth_${ex}`); }
     for (const p of ['pupil', 'spiral', 'sweat'] as FacePart[]) this.face(p);
     if (o.vfx ?? true) for (const v of VFX_NAMES) this.vfx(v);
+    if (o.wind ?? true) for (const k of Object.keys(WIND) as WindKind[]) for (let i = 0; i < WIND_VARIANTS[k]; i++) this.wind(`${k}${i}` as WindTex);
     if (o.powers ?? true) {
       for (const k of POWER_ICON_NAMES) this.powerIcon(k);
       for (const k of POWER_KINDS) this.bubble(k);
@@ -169,6 +171,9 @@ export class ArtTextures {
 
   /** An effect texture for particles (see VFX for natural sizes in blocks). Origin: centre. */
   vfx(name: VfxName): TexRef { return this.packed(this.name('vfx', name), () => bakeVfx(name, this.s)); }
+
+  /** A gust texture (curl, streak, leaf or wisp plus a variant number; see WIND for sizes). Origin: centre. */
+  wind(name: WindTex): TexRef { return this.packed(this.name('wind', name), () => bakeWind(name, this.s)); }
 
   // ---- power-ups ----
 

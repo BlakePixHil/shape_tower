@@ -13,6 +13,9 @@
 // &powers=1 shows the power bubbles (spawn, bob, collect or fade), the power effects and a DOM power
 // bar with every icon and Second Wind state. &pw=idle holds the bubbles; &fx=sweep|glue|slowmo|gust holds one effect.
 // &pstrip=1 shows frozen frames of a bubble's spawn, idle, collect and fade, and the power effect textures.
+// &wind=1 loops a gust over the Treetops (with &sp=2.3, Cloudlands' wisps): calm, the 2 s telegraph with the edge chip
+// (and the first-gust card once), the gust with squinting top faces, the tail. &wdir=-1 holds the direction (else it alternates).
+// &wt=<s> starts the loop that many seconds in (fast-forwarded, for screenshots: 2.3 = late telegraph, 4 = mid-gust).
 // &ui=menu|pause|summary|levelup|profile|settings|icons|badges|logo opens a UI kit screen or sheet (see ui.ts).
 // Options also work after a # (e.g. #gallery), for hosts that drop the query string.
 
@@ -20,7 +23,7 @@ import * as Phaser from 'phaser';
 import {
   ART_SHAPES, ArtTextures, BIOMES, INK, LANDMARKS, POWER, POWER_COLORS, POWER_KINDS, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
   PowerBubble, SkyClock, bakeLandmark, pedestalHeight, pose, powerBarCss, powerIconUrl, rimAmount, skyColors,
-  loadUiFonts, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
+  WindView, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, loadUiFonts, windDrifters, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
 } from '../src/index.ts';
 import { initUiPreview, screensBar } from './ui.ts';
 
@@ -46,6 +49,10 @@ class Preview extends Phaser.Scene {
   private pb!: PbMarker;
   private lastBiome = 0;
   private palSet = false;
+  private wind: WindView | null = null;
+  private windStage = '';
+  private windClock = -1;
+  private chip: HTMLElement | null = null;
 
   constructor() { super('preview'); }
 
@@ -62,7 +69,8 @@ class Preview extends Phaser.Scene {
     this.cameras.main.setZoom(num('zoom', 1));
     this.backdrop = new Backdrop(scene, { width: W, height: H });
     this.sky.set(num('sp', 0.15));
-    if (!qs.has('sp') && !qs.has('tour') && !qs.has('powers') && !qs.has('ui')) { this.biomePicker(); screensBar(); }
+    if (!qs.has('sp') && !qs.has('tour') && !qs.has('powers') && !qs.has('ui') && !qs.has('wind')) { this.biomePicker(); screensBar(); }
+    if (qs.has('wind')) this.wind = new WindView(this.tex, { width: W, height: H, drifters: windDrifters(Math.floor(num('sp', 1.35))) });
 
     this.groundY = H * 0.8;
     const pedW = 6;
@@ -308,6 +316,39 @@ class Preview extends Phaser.Scene {
     this.sparks = this.sparks.filter(p => p.age < p.life);
   }
 
+  /** The wind loop: 0.8 s calm, 2 s telegraph, 3 s gust, then the tail. Returns true while the gust blows. */
+  private windUpdate(dt: number): boolean {
+    if (!this.wind) return false;
+    // Runs on its own clock (frame time), so slow headless frames still show the real timing.
+    if (this.windClock < 0) {
+      this.windClock = 0;
+      for (const end = num('wt', 0); this.windClock < end - 1e-6;) this.windUpdate(1 / 60);
+      const c = this.windClock % 7.5;
+      if (this.chip && c > 0.8 && c < 2.8) this.chip.style.setProperty('--el', `${-(c - 0.8)}s`);
+    }
+    this.windClock += dt;
+    const t = this.windClock, len = 7.5, n = Math.floor(t / len), c = t - n * len;
+    const dir = qs.has('wdir') ? (num('wdir', 1) < 0 ? -1 : 1) : n % 2 ? -1 : 1;
+    const stage = c < 0.8 ? 'calm' : c < 2.8 ? 'warn' : c < 5.8 ? 'gust' : 'tail';
+    if (stage !== this.windStage) {
+      if (stage === 'warn') {
+        this.wind.warn(dir, 2);
+        this.chip = document.body.appendChild(hazardChip({ type: 'gust', dir, eta: 2 }));
+        if (n === 0) document.body.appendChild(hazardCard('gust'));
+      } else if (stage === 'gust') {
+        this.wind.start(0.1, dir);
+        if (this.chip) hazardChipGo(this.chip);
+      } else if (stage === 'tail') {
+        this.wind.end();
+        if (this.chip) hazardChipEnd(this.chip);
+        this.chip = null;
+      }
+      this.windStage = stage;
+    }
+    this.wind.update(dt);
+    return stage === 'gust';
+  }
+
   update(time: number, deltaMs: number): void {
     if (qs.has('gallery') || qs.has('pstrip') || qs.has('landmarks')) return;
     if (qs.has('vfx')) { this.vfxUpdate((time - this.time0) / 1000, Math.min(0.05, deltaMs / 1000)); return; }
@@ -317,7 +358,7 @@ class Preview extends Phaser.Scene {
     cam.scrollY = -(tour ? Math.max(0, t - 1) * 2.2 : num('climb', 0)) * cell;
 
     const clock = this.sky.update(dt, 0, 0.2);
-    const sp = tour ? Math.min(qs.has('from') ? 9.7 : 2.6, from + Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : this.pick ? this.pick.biome + 0.3 : clock;
+    const sp = tour ? Math.min(qs.has('from') ? 9.7 : 2.6, from + Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : qs.has('wind') ? 1.35 : this.pick ? this.pick.biome + 0.3 : clock;
     // From scrollY, not worldView, which only catches up after the first frame renders.
     const ground = (this.groundY - (cam.scrollY + cam.height * (1 - 1 / cam.zoom) / 2)) * cam.zoom;
     if (qs.has('at')) {
@@ -340,7 +381,8 @@ class Preview extends Phaser.Scene {
     const rim = rimAmount(sp);
 
     const tension = qs.has('tension') ? num('tension', 0) : 0.5 + 0.5 * Math.sin(t * 0.5);
-    const topEx: Expression = tension >= 0.85 ? 'panic' : tension >= 0.3 ? 'worried' : 'idle';
+    const gusting = this.windUpdate(dt);
+    const topEx: Expression = gusting ? 'squint' : tension >= 0.85 ? 'panic' : tension >= 0.3 ? 'worried' : 'idle';
     for (const p of this.tower) {
       const P = pose(p.key, p.q);
       const x = this.left + (p.c + P.w / 2) * cell, y = this.top - (p.r + P.h / 2) * cell;

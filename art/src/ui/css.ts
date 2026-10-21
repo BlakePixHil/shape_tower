@@ -235,6 +235,35 @@ export function uiCss(): string {
 .ui-seg input:checked + span { background: var(--gold); }
 .ui-seg input:focus-visible + span { outline: 3px solid var(--xp); outline-offset: -5px; }
 
+/* Hazard telegraph chip: amber, at the edge the hazard comes from, countdown ring and push chevrons */
+.ui-hazard { position: fixed; top: var(--y, 30%); z-index: 15; pointer-events: none; display: flex; align-items: center; gap: 2px; background: var(--amber);
+  border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); padding: 4px 6px 4px 4px; animation: ui-hz-in 420ms cubic-bezier(.3,1.6,.5,1) both; }
+.ui-hazard.from-left { left: calc(env(safe-area-inset-left, 0px) + 8px); --d: 1; }
+.ui-hazard.from-right { right: calc(env(safe-area-inset-right, 0px) + 8px); --d: -1; flex-direction: row-reverse; padding: 4px 4px 4px 6px; }
+.ui-hz-dial { position: relative; width: 44px; height: 44px; flex: none; }
+.ui-hz-dial svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ui-hz-dial circle { fill: none; }
+.ui-hz-dial .trk { fill: #fff; stroke: rgba(34,24,58,0.18); stroke-width: 5; }
+.ui-hz-dial .cd { stroke: var(--ink); stroke-width: 5; stroke-linecap: round; stroke-dashoffset: 0; animation: ui-hz-count var(--eta, 2s) linear var(--el, 0s) both; }
+.ui-hazard.paused, .ui-hazard.paused * { animation-play-state: paused !important; }
+.ui-hz-dial img { position: absolute; left: 9px; top: 9px; width: 26px; height: 26px; }
+.ui-hazard.from-right .ui-hz-dial img { transform: scaleX(-1); }
+.ui-hz-arrow { display: flex; transform: scaleX(var(--d)); }
+.ui-hz-arrow svg { width: 11px; height: 20px; margin-right: -2px; animation: ui-hz-chev 800ms ease-in-out infinite; }
+.ui-hz-arrow svg + svg { animation-delay: 200ms; }
+.ui-hz-arrow path { fill: none; stroke: var(--ink); stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
+.ui-hazard.go { animation: ui-hz-push 625ms ease-in-out infinite; background: #FF8F1F; }
+.ui-hazard.go .cd { animation: none; stroke-dashoffset: 0; }
+.ui-hazard.go .ui-hz-arrow svg { animation-duration: 500ms; }
+.ui-hazard.out { animation: ui-hz-out 360ms cubic-bezier(.5,0,.8,.4) both; }
+
+/* A hazard's first-appearance card, styled like the biome title */
+.ui-hcard { position: fixed; left: 0; right: 0; top: var(--top, 18%); z-index: 16; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  animation: ui-hc 3.2s cubic-bezier(.3,1.5,.5,1) both; }
+.ui-hc-title { display: flex; align-items: center; gap: 6px; font: 700 32px/1 var(--display); color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; letter-spacing: 0.03em; white-space: nowrap; }
+.ui-hc-title img { width: 40px; height: 40px; }
+.ui-hcard .ui-chip { font-size: 16px; padding: 5px 12px; }
+
 @keyframes ui-fade { from { opacity: 0; } }
 @keyframes ui-pop { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.04); opacity: 1; } 100% { transform: scale(1); } }
 @keyframes ui-rise { 0% { transform: translateY(40px); opacity: 0; } 100% { transform: none; opacity: 1; } }
@@ -248,12 +277,22 @@ export function uiCss(): string {
 @keyframes ui-peek { 0% { transform: translate(-30%, 60%) rotate(-10deg); opacity: 0; } 30% { opacity: 1; } 100% { transform: rotate(14deg); opacity: 1; } }
 @keyframes ui-wiggle { 0%, 100% { transform: rotate(0); } 10% { transform: rotate(-6deg) scale(1.06); } 20% { transform: rotate(5deg) scale(1.06); } 30% { transform: rotate(0); } }
 @keyframes ui-nebula { 50% { filter: hue-rotate(-28deg) saturate(1.2); } }
+@keyframes ui-hz-in { 0% { transform: translateX(calc(var(--d) * -140%)); } 100% { transform: none; } }
+@keyframes ui-hz-out { 0% { transform: none; opacity: 1; } 100% { transform: translateX(calc(var(--d) * -140%)); opacity: 0; } }
+@keyframes ui-hz-count { from { stroke-dashoffset: ${(2 * Math.PI * 19).toFixed(1)}; } to { stroke-dashoffset: 0; } }
+@keyframes ui-hz-chev { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@keyframes ui-hz-push { 0%, 100% { transform: none; } 50% { transform: translateX(calc(var(--d) * 4px)) rotate(calc(var(--d) * 3deg)); } }
+@keyframes ui-hc { 0% { opacity: 0; transform: translateY(-24px) scale(0.7); } 12% { opacity: 1; transform: none; } 85% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-16px); } }
+@keyframes ui-hc-fade { 0%, 100% { opacity: 0; } 8%, 88% { opacity: 1; } }
 
-.ui-still, .ui-still * { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+/* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard card fades in and out. */
+.ui-still:not(.ui-hcard), .ui-still *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 .ui-still .ui-confetti, .ui-still .ui-rays { display: none; }
+.ui-hcard.ui-still { animation-name: ui-hc-fade; }
 @media (prefers-reduced-motion: reduce) {
-  .ui, .ui * { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .ui:not(.ui-hcard), .ui *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
   .ui .ui-confetti, .ui .ui-rays { display: none; }
+  .ui-hcard { animation-name: ui-hc-fade; }
 }
 `;
 }
