@@ -2,7 +2,7 @@
 // Screen space only: camera shake never moves it.
 
 import {
-  altitudeRail, bakePiece, checkpointChip, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, injectUiCss, offscreenChip, powerBarCss,
+  altitudeRail, bakePiece, biomeCard, checkpointChip, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, injectUiCss, offscreenChip, powerBarCss,
   powerIconUrl, setOffscreenChip, setRail, type HazardType,
 } from '@art/index.ts';
 import type { PowerKind, SecondWindState } from '../sim/sim.ts';
@@ -44,8 +44,6 @@ const CSS = `
 .st-pill { background: #FFC23D; border: 3px solid ${INK}; border-radius: 999px; box-shadow: 0 3px 0 ${INK}; font: 700 13px 'Fredoka', sans-serif; padding: 1px 10px; white-space: nowrap; position: relative; overflow: hidden; }
 .st-pill .st-fill { position: absolute; inset: 0; background: #3EE6A8; transform-origin: left; transform: scaleX(0); }
 .st-pill span { position: relative; }
-.st-title { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -40px); opacity: 0; font: 700 34px 'Fredoka', sans-serif; color: #fff; -webkit-text-stroke: 4px ${INK}; paint-order: stroke fill; letter-spacing: 0.05em; transition: transform 500ms cubic-bezier(.2,1.6,.4,1), opacity 300ms; white-space: nowrap; }
-.st-title.show { transform: translate(-50%, 0); opacity: 1; }
 .st-hud .ui-rail { top: calc(env(safe-area-inset-top, 0px) + 148px); right: 23px; } /* centred under the Next column */
 .st-hud .ui-offchip.up { --top: 84px; } /* under the checkpoint pill */
 .st-vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px 30px rgba(255,77,109,0.85); opacity: 0; z-index: 4; }
@@ -96,7 +94,6 @@ export class Hud {
   private next: HTMLCanvasElement[];
   private holdCanvas: HTMLCanvasElement;
   private holdCard: HTMLDivElement;
-  private title: HTMLDivElement;
   private vignette: HTMLDivElement;
   private flashEl: HTMLDivElement;
   private overlay: HTMLDivElement;
@@ -153,7 +150,6 @@ export class Hud {
         <div class="st-height" data-id="height">0<small> m</small></div>
         <div class="st-pill" data-id="pill"><div class="st-fill"></div><span>CP 1</span></div>
       </div>
-      <div class="st-title" data-id="title"></div>
       <div class="st-hint" data-id="hint"><span>drag ↔ move</span><span>tap ⟳ rotate</span><span>drag ↓ faster</span><span>flick ↓ drop</span><span>flick ↑ hold</span></div>
       <div class="st-powers">
         <button class="st-btn st-slot empty" data-id="slot0" aria-label="Power-up 1"></button>
@@ -173,7 +169,6 @@ export class Hud {
     this.next = [q('next0'), q('next1')];
     this.holdCanvas = q('hold');
     this.holdCard = q('holdcard');
-    this.title = q('title');
     this.hint = q('hint');
     // Art's HUD pieces (art/src/ui/rail.ts, hazard.ts): the rail, the off-screen chips, the hazard chip.
     this.rail = this.root.appendChild(altitudeRail(Math.round(Math.min(200, window.innerHeight * 0.26))));
@@ -325,10 +320,10 @@ export class Hud {
     this.cpChip.classList.toggle('show', n !== null);
   }
 
-  titleCard(text: string): void {
-    this.title.textContent = text;
-    this.title.classList.add('show');
-    setTimeout(() => this.title.classList.remove('show'), 1800);
+  /** Art's "Now entering" card for biome `biome` (0 = Meadow); it plays about 2.3 s and removes itself. */
+  biomeTitle(biome: number, o: { newPostcard: boolean; still: boolean }): void {
+    this.root.querySelectorAll('.ui-btitle').forEach(e => e.remove());
+    this.root.appendChild(biomeCard(biome, o));
   }
 
   /**
@@ -456,7 +451,7 @@ export class Hud {
   reset(): void {
     this.powerKey = '';
     this.setHazard('idle', 0);
-    this.root.querySelectorAll('.ui-hazard, .ui-hcard').forEach(e => e.remove());
+    this.root.querySelectorAll('.ui-hazard, .ui-hcard, .ui-btitle').forEach(e => e.remove());
     this.hazardChipEl = null;
     this.setCheckpointChip(null);
     this.windArmedUntil = 0;
