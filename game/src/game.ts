@@ -219,6 +219,7 @@ async function boot(): Promise<void> {
     document.addEventListener('pointerdown', skipTap);
     scene.panorama(() => {
       stopSkip();
+      hud.clearAlerts(); // the "OUT OF SHAPES!" stamp, if a tap skipped the glide
       sc.summary({
         stats: {
           cause: sim.cause ?? '', height, newBest: a.lines.some(l => l[0] === 'New best'), biome: biome - 1,

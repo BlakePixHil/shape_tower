@@ -493,7 +493,8 @@ export class PlayScene extends Phaser.Scene {
         this.shaker.add(0.2);
         break;
       }
-      case 'budget_low': this.hooks.hud.pulseBricks(); break;
+      case 'budget_low': this.hooks.hud.shapesAlert(Number(p.left), this.view.reducedMotion || !this.juice); break;
+      case 'hold_swap': this.hooks.hud.swapBag(); break;
       // Gusts and crosswind are WindView's; junk, meteors and dust devils draw from the sim each frame (drawHazards).
       case 'hazard_warning':
         if (p.type === 'gust') {
@@ -554,6 +555,8 @@ export class PlayScene extends Phaser.Scene {
         break;
       case 'run_over': {
         this.slowmo(now, 0.4, 900);
+        // Say why it ended, over the 1.3 s before the panorama (Blake: "I don't know why until I see I ran out of shapes").
+        this.hooks.hud.runEndAlert(String(p.cause ?? ''), this.view.reducedMotion || !this.juice);
         this.overAt = now + 1300;
         this.overPayload = p;
         const h = Number(p.height) - this.sim.foundations[0].top;
@@ -691,7 +694,7 @@ export class PlayScene extends Phaser.Scene {
     }
     this.toast(`CHECKPOINT ${p.n}!`, f.x, lineY + 2.2, GOLD, 26);
     const leftover = p.leftover as number;
-    if (leftover > 0) this.time.delayedCall(400, () => this.pop(`+${leftover} bricks left`, f.x, lineY + 1.2, '#FFFFFF', 16));
+    if (leftover > 0) this.time.delayedCall(400, () => this.pop(`+${leftover} shapes left`, f.x, lineY + 1.2, '#FFFFFF', 16));
     this.shaker.add(0.3);
   }
 

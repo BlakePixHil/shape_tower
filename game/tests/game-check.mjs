@@ -139,13 +139,13 @@ step('Home goes back to the menu at the new level', home.menu && home.level === 
 await page.click('[data-action="play"]');
 await page.waitForTimeout(600);
 const again = await sim(() => ({ hold: window.__wobble.scene.sim.tuning.holdUnlocked, locked: document.querySelector('[data-id="holdcard"]').classList.contains('locked'), juice: window.__wobble.scene.view.juice }));
-step('level 2 opens Hold', again.hold === true && again.locked === false, JSON.stringify(again));
+step('level 2 opens the bag', again.hold === true && again.locked === false, JSON.stringify(again));
 step('the second run is the first of a block: juice off', again.juice === false, JSON.stringify(again));
 await page.waitForFunction(() => window.__wobble.scene.sim.ctrl !== null, null, { timeout: 5000 });
 await page.click('[data-id="holdcard"]');
 await page.waitForTimeout(200);
 const held = await sim(() => window.__wobble.scene.sim.held);
-step('tapping the Hold card holds the shape', !!held, String(held));
+step('tapping the bag swaps the shape into it', !!held, String(held));
 const exits = await sim(() => window.__dbWrites.filter(w => w.op === 'update' && w.data.exit).map(w => w.data.exit));
 step('leaving the card records exit', exits[0] === 'menu', JSON.stringify(exits));
 

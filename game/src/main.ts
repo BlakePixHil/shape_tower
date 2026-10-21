@@ -42,7 +42,7 @@ async function boot(): Promise<void> {
   // Start card.
   hud.card(
     `<h1>Shape Tower</h1><p><b>Wobble Lab</b> · Level ${profile.level}</p>
-     <p>Stack shapes up to each gold line. Hold it steady to claim the checkpoint and earn more bricks.</p>
+     <p>Stack shapes up to each gold line. Hold it steady to claim the checkpoint and earn more shapes.</p>
      <p>Steer through bubbles for power-ups. 🌬️ Second Wind clears a messy tower once per run.</p>`,
     [['Play', () => { shell.unlockAudio(); shell.audio?.ui('start'); hud.closeCard(); scene.start(); }, true]],
   );

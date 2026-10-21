@@ -84,7 +84,7 @@ const GROUPS: [string, [NumKey, string, number, number, number, boolean?][]][] =
 const TOGGLES: [BoolKey, string][] = [
   ['mortar', 'Mortar (bonds between resting shapes)'],
   ['squareUp', 'Square-up assist on landing'],
-  ['infiniteBudget', 'Infinite bricks'],
+  ['infiniteBudget', 'Infinite shapes'],
   ['infiniteHearts', 'Infinite hearts'],
   ['powerUps', 'Power-up bubbles and grants'],
   ['gusts', 'Gusts from Treetops (checkpoint 3)'],
