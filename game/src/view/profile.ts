@@ -1,6 +1,7 @@
 // The player profile: level and XP across runs (gameplay.md §10). Saved per device.
 
 import type { AvatarSpec } from '@art/index.ts';
+import { freshCounts, type AchievementCounts, type AchievementState } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
 
 export interface Profile {
@@ -20,6 +21,8 @@ export interface Profile {
   seenHazards: string[]; // the later hazards met so far (crosswind, junk, meteor, dust, sway): the same first-time rule
   postcards: (string | null)[]; // per biome (1 to 10), the local date it was first reached
   avatar: AvatarSpec;   // the player's Blockling on the menu and profile: shape, face and hat
+  achievements: Record<string, AchievementState>; // earned achievements by id: the local date, and whether its XP is paid (§18)
+  achCounts: AchievementCounts; // the counts achievements need that the stats don't keep: bubbles, powers used
 }
 
 export interface ProfileStats {
@@ -55,7 +58,7 @@ export const DEFAULT_AVATAR: AvatarSpec = { shape: 'O', face: 'idle', hat: 'part
 
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR } });
+const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, achievements: {}, achCounts: freshCounts() });
 
 export function loadProfile(): Profile {
   try {
@@ -66,6 +69,9 @@ export function loadProfile(): Profile {
       p.postcards = Array.from({ length: 10 }, (_, i) => p.postcards?.[i] ?? null);
       if (!Array.isArray(p.seenHazards)) p.seenHazards = [];
       if (!p.avatar || typeof p.avatar !== 'object') p.avatar = { ...DEFAULT_AVATAR };
+      if (!p.achievements || typeof p.achievements !== 'object') p.achievements = {};
+      p.achCounts = { ...freshCounts(), ...p.achCounts };
+      if (!Array.isArray(p.achCounts.powers)) p.achCounts.powers = [];
       if (!p.player) { p.player = newPlayer(); saveProfile(p); }
       return p;
     }
@@ -90,15 +96,23 @@ export function spendDailyWind(p: Profile, now = new Date()): void {
   saveProfile(p);
 }
 
+/** Counts today in the play streak (consecutive local days). Safe to call more than once a day. */
+export function updateStreak(p: Profile, now = new Date()): void {
+  const today = day(now);
+  const yesterday = day(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  if (p.lastDay !== today) p.streak = p.lastDay === yesterday ? p.streak + 1 : 1;
+  p.lastDay = today;
+}
+
 /**
  * Adds a run's XP. `base` is the sim's XP (quit halving and floor already applied).
  * New best +50 (halved on a quit), Daily Boost ×2 on the first run of the day that wasn't quit,
- * streak +5% per consecutive day after the first, up to +25%. The first run always reaches level 2.
+ * streak +5% per consecutive day after the first, up to +25%. `extra` (achievements, §18) is added
+ * flat after the boosts. The first run always reaches level 2.
  */
-export function award(p: Profile, base: number, opts: { newBest: boolean; quit: boolean; now?: Date }): Award {
+export function award(p: Profile, base: number, opts: { newBest: boolean; quit: boolean; now?: Date; extra?: { lines: [string, string][]; xp: number } }): Award {
   const now = opts.now ?? new Date();
   const today = day(now);
-  const yesterday = day(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
   const before = { level: p.level, xp: p.xp };
   const lines: [string, string][] = [['Run', `+${base}`]];
   let xp = base;
@@ -107,8 +121,7 @@ export function award(p: Profile, base: number, opts: { newBest: boolean; quit: 
     xp += b;
     lines.push(['New best', `+${b}`]);
   }
-  if (p.lastDay !== today) p.streak = p.lastDay === yesterday ? p.streak + 1 : 1;
-  p.lastDay = today;
+  updateStreak(p, now);
   if (!opts.quit && p.boostDay !== today) {
     p.boostDay = today;
     lines.push(['Daily Boost', '×2']);
@@ -120,6 +133,10 @@ export function award(p: Profile, base: number, opts: { newBest: boolean; quit: 
     xp *= 1 + streakPct / 100;
   }
   xp = Math.round(xp);
+  if (opts.extra && opts.extra.xp > 0) {
+    lines.push(...opts.extra.lines);
+    xp += opts.extra.xp;
+  }
   if (p.runs === 0 && p.total + xp < levelStep(1)) {
     lines.push(['First run bonus', `+${levelStep(1) - p.total - xp}`]);
     xp = levelStep(1) - p.total;
