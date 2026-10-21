@@ -14,6 +14,7 @@ export const UI_ICONS = [
   'profile', 'trophy', 'crown', 'flag', 'star', 'lock', 'heart', 'brick', 'hold', 'daily', 'zen', 'xp', 'gift',
   'stats', 'tower', 'biome', 'streak', 'perfect', 'row', 'clutch', 'score',
   'wind', 'junk', 'meteor', 'swirl', 'plumb',
+  'combo', 'avalanche', 'toolbox', 'undo', 'needle', 'purist',
 ] as const;
 export type UiIcon = (typeof UI_ICONS)[number];
 
@@ -292,6 +293,49 @@ const DRAW: Record<UiIcon, (c: Ctx) => void> = {
     const s = new Path2D(); s.moveTo(0, -0.42); s.lineTo(0, -0.12); line(c, s, 0.05);
     const b = new Path2D(); b.moveTo(0, 0.42); b.bezierCurveTo(-0.08, 0.3, -0.24, 0.1, -0.2, -0.02); b.quadraticCurveTo(-0.16, -0.14, 0, -0.14); b.quadraticCurveTo(0.16, -0.14, 0.2, -0.02); b.bezierCurveTo(0.24, 0.1, 0.08, 0.3, 0, 0.42); b.closePath();
     fill(c, b, GOLD, 0.05);
+  },
+
+  // Achievement glyphs (gameplay.md §18): Perfects in a row, a tumble, all five powers, Undo, a thin tower, no help.
+  combo: c => {
+    fill(c, poly([[0.04, -0.42], [0.24, -0.42], [0.1, -0.1], [0.28, -0.1], [-0.14, 0.42], [-0.04, 0.02], [-0.22, 0.02]]), GOLD, 0.05);
+    fill(c, twinkle(-0.27, -0.2, 0.11), GOLD, 0.02);
+    fill(c, twinkle(0.29, 0.24, 0.08), GOLD, 0.015);
+  },
+  avalanche: c => {
+    const m = new Path2D(); m.moveTo(-0.42, -0.36); m.lineTo(-0.3, -0.24); m.moveTo(-0.42, -0.14); m.lineTo(-0.34, -0.06); m.moveTo(-0.2, -0.44); m.lineTo(-0.12, -0.36);
+    line(c, m, 0.045);
+    ([['Z', -0.14, -0.16, -18], ['L', 0.17, 0.0, 24], ['O', -0.12, 0.25, -34]] as [string, number, number, number][]).forEach(([k, x, y, a]) => {
+      c.save(); c.translate(x, y); c.rotate((a * Math.PI) / 180); cell(c, k, -0.12, -0.12, 0.24); c.restore();
+    });
+    for (const [x, y, r] of [[0.32, 0.3, 0.035], [0.22, 0.38, 0.025], [0.38, 0.18, 0.02]]) { const p = circlePath(x, y, r); c.fillStyle = STONE[0]; c.fill(p); ink(c, p, O * 0.6); }
+  },
+  toolbox: c => {
+    const h = new Path2D(); h.moveTo(-0.14, -0.14); h.lineTo(-0.14, -0.27); h.quadraticCurveTo(-0.14, -0.34, -0.07, -0.34); h.lineTo(0.07, -0.34); h.quadraticCurveTo(0.14, -0.34, 0.14, -0.27); h.lineTo(0.14, -0.14);
+    tube(c, h, 0.07, STONE[0]);
+    fill(c, rrPath(-0.4, -0.16, 0.8, 0.52, 0.08), RED);
+    const seam = new Path2D(); seam.moveTo(-0.38, 0.0); seam.lineTo(0.38, 0.0); line(c, seam, 0.04);
+    fill(c, rrPath(-0.08, -0.06, 0.16, 0.13, 0.03), GOLD, 0.02);
+    // The five power-ups' colors along the front.
+    ['#4A72FF', SIGNAL.mint, '#FFC23D', '#FF9BE0', SIGNAL.xp].forEach((col, i) => { const p = circlePath(-0.24 + i * 0.12, 0.2, 0.04); c.fillStyle = col; c.fill(p); ink(c, p, O * 0.6); });
+  },
+  undo: c => { c.translate(0, 0.05); c.scale(-1, 1); curlArrow(c, 0.25, Math.PI * 0.8, Math.PI * 2); },
+  needle: c => {
+    // A needle, eye up and to the right. The eye is a real hole, so the thread behind it shows through.
+    const A = 35, at = (x: number, y: number) => new DOMMatrix().rotateSelf(A).transformPoint({ x, y });
+    const f = at(0.15, -0.31), bk = at(-0.13, -0.31);
+    const back = new Path2D(); back.moveTo(f.x, f.y); back.lineTo(bk.x, bk.y); back.quadraticCurveTo(bk.x - 0.12, bk.y - 0.02, bk.x - 0.14, bk.y + 0.14); tube(c, back, 0.05, '#CC2E48');
+    const n = new Path2D();
+    n.moveTo(-0.11, -0.34); n.arc(0, -0.34, 0.11, Math.PI, 0); n.lineTo(0.1, 0.18); n.quadraticCurveTo(0.07, 0.33, 0, 0.47); n.quadraticCurveTo(-0.07, 0.33, -0.1, 0.18); n.closePath();
+    n.moveTo(0.045, -0.4); n.arc(0, -0.4, 0.045, 0, Math.PI, true); n.lineTo(-0.045, -0.22); n.arc(0, -0.22, 0.045, Math.PI, 0, true); n.closePath();
+    fill(c, turn(n, A, 0, 0), ['#C9D1DE', '#F4F7FB', '#8E98AB'], 0.035);
+    const front = new Path2D(); front.moveTo(f.x, f.y); front.bezierCurveTo(f.x + 0.14, f.y + 0.06, f.x + 0.12, f.y + 0.3, f.x - 0.04, f.y + 0.42); tube(c, front, 0.05, SIGNAL.danger);
+  },
+  purist: c => {
+    const b = circlePath(0, 0, 0.27);
+    fill(c, b, ['#7FD8FF', '#CFF3FF', '#3AA9C9'], 0.05);
+    c.fillStyle = 'rgba(255,255,255,0.85)'; c.beginPath(); c.ellipse(-0.1, -0.12, 0.08, 0.045, -0.6, 0, TAU); c.fill();
+    const ring = circlePath(0, 0, 0.36); tube(c, ring, 0.07, SIGNAL.danger);
+    const s = new Path2D(); s.moveTo(-0.25, 0.25); s.lineTo(0.25, -0.25); tube(c, s, 0.07, SIGNAL.danger);
   },
 };
 

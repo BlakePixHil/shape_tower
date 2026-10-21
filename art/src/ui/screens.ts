@@ -11,6 +11,7 @@ import { BIOMES } from '../biomes.ts';
 import { type Expression, drawFace } from '../face.ts';
 import { faceAnchor } from '../geometry.ts';
 import { ctx2d, hash, makeCanvas } from '../util.ts';
+import { achievementsRow } from './achievements.ts';
 import { badgeTier, badgeUrl, newTitleAt, titleFor } from './badge.ts';
 import { type UiIcon, uiIconUrl } from './icons.ts';
 import { logoElement } from './logo.ts';
@@ -371,9 +372,14 @@ export interface ProfileData extends XpState {
   stats: ProfileStats;
   /** One entry per biome: the postmark date when first reached ('' for no date), or null if not reached yet. */
   postcards: (string | null)[];
+  /** Earned and total: shows the Achievements row under the stats (action achievements). */
+  achievements?: { got: number; total: number };
 }
 
-/** The profile panel: avatar, name, badge and title, the XP bar, stats and the biome postcards. Actions: close, avatar (tapping the avatar: open avatarPanel). */
+/**
+ * The profile panel: avatar, name, badge and title, the XP bar, stats, the Achievements row and the biome postcards.
+ * Actions: close, avatar (tapping the avatar: open avatarPanel), achievements (the row: open achievementsPanel).
+ */
 export function profilePanel(d: ProfileData): HTMLElement {
   const s = d.stats;
   const stat = (ic: UiIcon, v: string, label: string): string => `<div class="ui-stat">${icon(ic, 26)}<div><b${v.length > 9 ? ' class="sm"' : ''}>${v}</b><span>${label}</span></div></div>`;
@@ -391,10 +397,13 @@ export function profilePanel(d: ProfileData): HTMLElement {
       ${stat('row', num(s.rows), 'Solid Rows')}${stat('flag', num(s.checkpoints), 'Checkpoints')}
       ${stat('stats', num(s.runs), 'Runs')}${stat('streak', `${num(s.streak)} ${s.streak === 1 ? 'day' : 'days'}`, 'Streak')}
     </div>
+    <div class="ui-prof-ach"></div>
     <h2 class="ui-h2">Postcards</h2>
     <div class="ui-cards"></div>
   </div></div>`);
   root.querySelector('.ui-prof-xp')!.replaceWith(xpBar(d, { badge: false }));
+  const ach = root.querySelector('.ui-prof-ach')!;
+  if (d.achievements) ach.replaceWith(achievementsRow(d.achievements)); else ach.remove();
   const cards = root.querySelector('.ui-cards')!;
   BIOMES.forEach((_, i) => {
     const date = d.postcards[i];

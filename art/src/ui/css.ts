@@ -333,6 +333,62 @@ export function uiCss(): string {
 .ui-bt-name { font: 700 clamp(22px, 7.4vw, 30px)/1.05 var(--display); text-transform: uppercase; letter-spacing: 0.03em; color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; white-space: nowrap; }
 .ui-bt-new { animation: ui-pop 320ms cubic-bezier(.3,1.8,.5,1) 800ms both; }
 
+/* Achievements: the in-run toast, the run summary's strip, the profile row and the panel */
+.ui-achtoast { position: fixed; left: 0; right: 0; top: var(--top, calc(env(safe-area-inset-top, 0px) + 84px)); z-index: 16; pointer-events: none; display: flex; justify-content: center;
+  animation: ui-at 2.2s both; }
+.ui-at-card { position: relative; display: flex; align-items: center; gap: 12px; max-width: calc(100% - 24px); padding: 5px 18px 5px 8px;
+  background: linear-gradient(rgba(255,255,255,0.35), rgba(255,255,255,0) 60%), var(--tc); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink); }
+.ui-at-shine { position: absolute; inset: 0; border-radius: 13px; overflow: hidden; }
+.ui-at-shine::after { content: ''; position: absolute; top: -20%; bottom: -20%; left: 0; width: 34px; background: rgba(255,255,255,0.55); transform: translateX(-60px) skewX(-18deg);
+  animation: ui-bt-glint 700ms ease-in-out 520ms both; }
+.ui-at-badge { position: relative; flex: none; width: 56px; height: 56px; animation: ui-at-stamp 340ms cubic-bezier(.2,.9,.4,1.2) 220ms both; }
+.ui-at-badge > img { display: block; width: 56px; height: 56px; }
+.ui-at-badge i { position: absolute; right: -10px; top: -8px; width: 26px; height: 26px; animation: ui-at-spark 700ms ease-out 480ms both; }
+.ui-at-badge i img { width: 26px; height: 26px; }
+.ui-at-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ui-at-kick { font: 700 11px/1 var(--display); letter-spacing: 0.16em; text-transform: uppercase; color: #fff; -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; }
+.ui-at-name { font: 700 clamp(19px, 6vw, 24px)/1.05 var(--display); color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-at-more { align-self: flex-start; font: 700 12px/1 var(--display); background: var(--paper); border: 2px solid var(--ink); border-radius: 8px; padding: 2px 6px; }
+.ui-achtoast.stay { animation-name: ui-btc-in; animation-duration: 420ms; }
+.ui-achtoast.platinum .ui-at-card { background: linear-gradient(rgba(255,255,255,0.35), rgba(255,255,255,0) 60%), linear-gradient(100deg, #FFD3F1, #E3DEFF 50%, #BFEFFF); }
+.ui-achtoast.plain .ui-at-shine, .ui-achtoast.plain .ui-at-badge i { display: none; }
+.ui-achtoast.plain .ui-at-badge { animation: none; }
+.ui-achstrip { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.ui-achstrip > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.ui-achstrip img { width: 44px; height: 44px; animation: ui-pop 320ms cubic-bezier(.3,1.8,.5,1) calc(300ms + var(--i) * 120ms) both; }
+.ui-achrow { appearance: none; margin: 12px 0 0; width: 100%; display: flex; align-items: center; gap: 10px; font: inherit; color: var(--ink); text-align: left; cursor: pointer;
+  background: #fff; border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); padding: 7px 10px; transition: transform 160ms cubic-bezier(.3,1.8,.5,1); }
+.ui-achrow:active { transform: translateY(3px); box-shadow: 0 0 0 var(--ink); transition-duration: 50ms; }
+.ui-achrow > img { width: 30px; height: 30px; flex: none; }
+.ui-achrow > b { font: 700 16px/1 var(--display); white-space: nowrap; }
+.ui-achrow .ui-ach-go { width: 14px; height: 14px; opacity: 0.6; }
+.ui-ach-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.ui-ach-mid b { font: 700 16px/1 var(--display); }
+.ui-ach-bar { position: relative; display: block; height: 12px; background: var(--paper-2); border: 2.5px solid var(--ink); border-radius: 999px; overflow: hidden; }
+.ui-ach-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(rgba(255,255,255,0.45), rgba(255,255,255,0) 60%), var(--gold); border-right: 2.5px solid var(--ink); }
+.ui-ach-bar em { position: absolute; inset: 0; display: grid; place-items: center; font: 700 10px/1 var(--display); font-style: normal; color: #fff; -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; }
+.ui-achs { width: min(380px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 16px; scrollbar-width: none; text-align: left; }
+.ui-achs .ui-h1 { text-align: center; }
+.ui-achs .ui-h2 { display: flex; justify-content: space-between; align-items: baseline; }
+.ui-achs .ui-h2 span { font-size: 14px; color: var(--ink-soft); }
+.ui-ach-total { display: flex; align-items: center; gap: 8px; }
+.ui-ach-total img { width: 34px; height: 34px; flex: none; }
+.ui-ach-total .ui-ach-bar { flex: 1; height: 22px; border-width: 3px; }
+.ui-ach-total .ui-ach-bar em { font-size: 12px; }
+.ui-ach-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ui-ach { position: relative; display: flex; align-items: center; gap: 9px; background: #fff; border: 3px solid var(--ink); border-radius: 12px; padding: 5px 8px 5px 5px; min-width: 0; }
+.ui-ach > img { width: 52px; height: 52px; flex: none; }
+.ui-ach > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ui-ach b { font: 700 16px/1.1 var(--display); }
+.ui-ach span { font: 700 12px/1.25 var(--body); color: var(--ink-soft); }
+.ui-ach .ui-ach-bar { margin-top: 3px; height: 16px; }
+.ui-ach .ui-ach-date { font: 800 10px/1 var(--body); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-soft); margin-top: 2px; }
+.ui-ach.locked { background: var(--paper-2); border-color: var(--ink-soft); }
+.ui-ach.locked b { color: var(--ink-soft); }
+.ui-ach-tier { position: absolute; top: -8px; right: 8px; font: 700 10px/1 var(--display); font-style: normal; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 6px; border: 2px solid var(--ink); border-radius: 7px; }
+.ui-ach-tier.bronze { background: #F2B98A; } .ui-ach-tier.silver { background: #E6EBF3; } .ui-ach-tier.gold { background: var(--gold); }
+.ui-ach-tier.platinum { background: linear-gradient(90deg, #FFD3F1, #D2F8FF); }
+
 @keyframes ui-fade { from { opacity: 0; } }
 @keyframes ui-pop { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.04); opacity: 1; } 100% { transform: scale(1); } }
 @keyframes ui-rise { 0% { transform: translateY(40px); opacity: 0; } 100% { transform: none; opacity: 1; } }
@@ -364,19 +420,30 @@ export function uiCss(): string {
 @keyframes ui-bt-stamp { 0% { transform: rotate(-16deg) scale(2.3); opacity: 0; } 60% { transform: rotate(-16deg) scale(0.9); opacity: 1; } 100% { transform: rotate(-16deg); opacity: 1; } }
 @keyframes ui-bt-thunk { 0%, 100% { transform: none; } 35% { transform: translateY(2px) scale(1.02, 0.95); } }
 @keyframes ui-bt-glint { from { transform: translateX(-60px) skewX(-18deg); } to { transform: translateX(420px) skewX(-18deg); } }
+@keyframes ui-at { 0% { transform: translateY(-140%); opacity: 0; animation-timing-function: cubic-bezier(.3,1.5,.5,1); } 15% { transform: none; opacity: 1; }
+  86% { transform: none; opacity: 1; animation-timing-function: cubic-bezier(.5,0,.8,.4); } 100% { transform: translateY(-140%); opacity: 0; } }
+@keyframes ui-at-fade { 0%, 100% { opacity: 0; } 10%, 86% { opacity: 1; } }
+@keyframes ui-at-stamp { 0% { transform: scale(1.8) rotate(-14deg); opacity: 0; } 60% { transform: scale(0.9) rotate(3deg); opacity: 1; } 100% { transform: none; opacity: 1; } }
+@keyframes ui-at-spark { 0% { transform: scale(0) rotate(-30deg); opacity: 0; } 35% { transform: scale(1.2) rotate(10deg); opacity: 1; } 100% { transform: scale(0.2) rotate(40deg); opacity: 0; } }
 
-/* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard and biome cards fade in and out. */
-.ui-still:not(.ui-hcard):not(.ui-btitle), .ui-still *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+/* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard, biome and achievement cards fade in and out. */
+.ui-still:not(.ui-hcard):not(.ui-btitle):not(.ui-achtoast), .ui-still *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 .ui-still .ui-confetti, .ui-still .ui-rays { display: none; }
 .ui-hcard.ui-still { animation-name: ui-hc-fade; }
 .ui-btitle.ui-still { animation-name: ui-btc-fade; }
 .ui-btitle.ui-still.stay { animation-name: ui-fade; animation-duration: 300ms; }
+.ui-achtoast.ui-still { animation-name: ui-at-fade; }
+.ui-achtoast.ui-still.stay { animation-name: ui-fade; animation-duration: 300ms; }
+.ui-still .ui-at-badge i { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .ui:not(.ui-hcard):not(.ui-btitle), .ui *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .ui:not(.ui-hcard):not(.ui-btitle):not(.ui-achtoast), .ui *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
   .ui .ui-confetti, .ui .ui-rays { display: none; }
   .ui-hcard { animation-name: ui-hc-fade; }
   .ui-btitle { animation-name: ui-btc-fade; }
   .ui-btitle.stay { animation-name: ui-fade; animation-duration: 300ms; }
+  .ui-achtoast { animation-name: ui-at-fade; }
+  .ui-achtoast.stay { animation-name: ui-fade; animation-duration: 300ms; }
+  .ui .ui-at-badge i { display: none; }
 }
 `;
 }
