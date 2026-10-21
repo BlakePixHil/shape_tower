@@ -43,13 +43,27 @@ const CSS = `
 .st-pill span { position: relative; }
 .st-title { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -40px); opacity: 0; font: 700 34px 'Fredoka', sans-serif; color: #fff; -webkit-text-stroke: 4px ${INK}; paint-order: stroke fill; letter-spacing: 0.05em; transition: transform 500ms cubic-bezier(.2,1.6,.4,1), opacity 300ms; white-space: nowrap; }
 .st-title.show { transform: translate(-50%, 0); opacity: 1; }
-.st-hazard { position: absolute; top: 42%; display: flex; align-items: center; gap: 4px; background: #FFF7E8; border: 3px solid ${INK}; border-radius: 12px; box-shadow: 0 3px 0 ${INK}; font: 700 15px 'Fredoka', sans-serif; padding: 3px 9px; opacity: 0; transition: opacity 200ms; }
+.st-hazard { position: absolute; top: 52%; display: flex; align-items: center; gap: 4px; background: #FFF7E8; border: 3px solid ${INK}; border-radius: 12px; box-shadow: 0 3px 0 ${INK}; font: 700 15px 'Fredoka', sans-serif; padding: 3px 9px; opacity: 0; transition: opacity 200ms; }
 .st-hazard.left { left: 8px; }
 .st-hazard.right { right: 8px; }
 .st-hazard.warn { opacity: 1; animation: st-pulse 500ms infinite; background: #FFAA2B; }
 .st-hazard.blow { opacity: 1; }
 .st-hcard { position: absolute; left: 50%; top: 30%; transform: translate(-50%, -20px) scale(0.9); opacity: 0; background: #FFF7E8; border: 3px solid ${INK}; border-radius: 14px; box-shadow: 0 4px 0 ${INK}; font: 700 18px 'Fredoka', sans-serif; padding: 8px 14px; white-space: nowrap; transition: transform 400ms cubic-bezier(.2,1.6,.4,1), opacity 250ms; }
 .st-hcard.show { transform: translate(-50%, 0) scale(1); opacity: 1; }
+.st-rail { position: absolute; right: 41px; top: calc(env(safe-area-inset-top, 0px) + 148px); width: 10px; height: min(200px, 26vh); border: 2px solid ${INK}; border-radius: 6px; background: #FFF7E8; box-shadow: 0 2px 0 ${INK}; overflow: visible; }
+.st-rail .st-band { position: absolute; left: 0; right: 0; transition: bottom 600ms, height 600ms; }
+.st-rail .st-band:first-child { border-radius: 0 0 4px 4px; }
+.st-rail .st-band:nth-child(even) { opacity: 0.6; }
+.st-rail .st-tick { position: absolute; left: -5px; right: -5px; height: 3px; margin-bottom: -1.5px; background: ${INK}; border-radius: 2px; transition: bottom 600ms; }
+.st-rail .st-tick.next { background: #FFC23D; box-shadow: 0 0 0 1.5px ${INK}; }
+.st-rail .st-pb { position: absolute; right: 12px; margin-bottom: -7px; font: 700 9px 'Fredoka', sans-serif; background: #FFC23D; border: 2px solid ${INK}; border-radius: 5px; padding: 0 3px; line-height: 10px; transition: bottom 600ms; }
+.st-rail .st-pb::after { content: ''; position: absolute; right: -6px; top: 2px; border: 3px solid transparent; border-left-color: ${INK}; }
+.st-rail .st-me { position: absolute; left: 50%; width: 16px; height: 14px; margin: 0 0 -7px -8px; background: #FFAA2B; border: 2px solid ${INK}; border-radius: 5px; }
+.st-rail .st-me::before, .st-rail .st-me::after { content: ''; position: absolute; top: 3px; width: 3px; height: 4px; background: ${INK}; border-radius: 2px; }
+.st-rail .st-me::before { left: 3px; } .st-rail .st-me::after { right: 3px; }
+.st-cpchip { position: absolute; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 84px); transform: translate(-50%, -8px); opacity: 0; background: #FFC23D; border: 3px solid ${INK}; border-radius: 12px; box-shadow: 0 3px 0 ${INK}; font: 700 16px 'Fredoka', sans-serif; padding: 1px 10px; transition: opacity 200ms, transform 200ms; }
+.st-cpchip.show { opacity: 1; transform: translate(-50%, 0); animation: st-bob 900ms ease-in-out infinite alternate; }
+@keyframes st-bob { to { transform: translate(-50%, -4px); } }
 .st-vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px 30px rgba(255,77,109,0.85); opacity: 0; z-index: 4; }
 .st-flash { position: fixed; inset: 0; pointer-events: none; background: #fff; opacity: 0; z-index: 4; transition: opacity 60ms; }
 .st-overlay { position: fixed; inset: 0; display: none; place-items: center; background: rgba(34,24,58,0.55); pointer-events: auto; z-index: 8; padding: 16px; }
@@ -108,6 +122,10 @@ export class Hud {
   private hazardEl: HTMLDivElement;
   private hcard: HTMLDivElement;
   private hazardKey = '';
+  private rail: HTMLDivElement;
+  private railKey = '';
+  private cpChip: HTMLDivElement;
+  private cpChipKey = '';
   readonly pauseBtn: HTMLButtonElement;
   readonly labBtn: HTMLButtonElement;
   private slotBtns: HTMLButtonElement[];
@@ -150,6 +168,8 @@ export class Hud {
         <div class="st-height" data-id="height">0<small> m</small></div>
         <div class="st-pill" data-id="pill"><div class="st-fill"></div><span>CP 1</span></div>
       </div>
+      <div class="st-rail" data-id="rail"><div data-id="bands"></div><div class="st-pb" data-id="pb">PB</div><div class="st-me" data-id="me"></div></div>
+      <div class="st-cpchip" data-id="cpchip">▲ 2</div>
       <div class="st-title" data-id="title"></div>
       <div class="st-hazard left" data-id="hazard"></div>
       <div class="st-hcard" data-id="hcard"></div>
@@ -178,6 +198,8 @@ export class Hud {
     this.arrow = q('arrow');
     this.hazardEl = q('hazard');
     this.hcard = q('hcard');
+    this.rail = q('rail');
+    this.cpChip = q('cpchip');
     this.pauseBtn = q('pause');
     this.labBtn = q('lab');
     this.slotBtns = [q('slot0'), q('slot1')];
@@ -302,6 +324,36 @@ export class Hud {
     const text = hold !== null ? 'Hold steady!' : `CP ${n} · ${Math.max(0, Math.ceil(toGo * 2) / 2)} to go`;
     if (this.pillText.textContent !== text) this.pillText.textContent = text;
     this.pillFill.style.transform = `scaleX(${hold ?? 0})`;
+  }
+
+  /**
+   * The altitude rail (art-direction.md §8.2): the whole run from the ground up, a band per
+   * checkpoint stretch in its biome's colour, a tick at each checkpoint (gold for the one being
+   * climbed to), the best height and a Blockling head at the tower top. Heights are in blocks.
+   */
+  setRail(r: { stretches: { from: number; to: number; color: string }[]; ticks: number[]; best: number; top: number }): void {
+    const max = Math.max(1, ...r.ticks, r.best, r.top) * 1.08;
+    const pct = (h: number) => `${(Math.max(0, Math.min(1, h / max)) * 100).toFixed(2)}%`;
+    const key = `${r.stretches.length}|${r.ticks.length}|${max.toFixed(1)}`;
+    if (key !== this.railKey) {
+      this.railKey = key;
+      const bands = this.rail.querySelector<HTMLDivElement>('[data-id="bands"]')!;
+      bands.innerHTML = r.stretches.map(b => `<div class="st-band" style="bottom:${pct(b.from)};height:${pct(b.to - b.from)};background:${b.color}"></div>`).join('')
+        + r.ticks.map((t, i) => `<div class="st-tick${i === r.ticks.length - 1 ? ' next' : ''}" style="bottom:${pct(t)}"></div>`).join('');
+    }
+    const pb = this.rail.querySelector<HTMLDivElement>('[data-id="pb"]')!;
+    pb.style.display = r.best > 1 ? '' : 'none';
+    pb.style.bottom = pct(r.best);
+    this.rail.querySelector<HTMLDivElement>('[data-id="me"]')!.style.bottom = pct(r.top);
+  }
+
+  /** The gold chip at the top edge while the checkpoint line is off-screen above ("▲ 4"). */
+  setCheckpointChip(n: number | null): void {
+    const key = String(n);
+    if (key === this.cpChipKey) return;
+    this.cpChipKey = key;
+    if (n !== null) this.cpChip.textContent = `▲ ${n}`;
+    this.cpChip.classList.toggle('show', n !== null);
   }
 
   titleCard(text: string): void {
@@ -432,6 +484,8 @@ export class Hud {
     this.powerKey = '';
     this.setHazard('idle', 0);
     this.hcard.classList.remove('show');
+    this.setCheckpointChip(null);
+    this.railKey = '';
     this.windArmedUntil = 0;
     this.windSpentAt = 0;
     this.lastWind = 'earn';

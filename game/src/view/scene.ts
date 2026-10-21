@@ -1088,6 +1088,17 @@ export class PlayScene extends Phaser.Scene {
     hud.setHeight(committed - sim.foundations[0].top);
     const hold = sim.holdState();
     hud.setCheckpoint(sim.checkpoint, sim.lineY - committed, hold.active ? hold.progress : null);
+    // The altitude rail: a band per checkpoint stretch, from the ground to the line being climbed to.
+    const f = sim.foundations, base = f[0].top;
+    const tops = [...f.slice(1).map(x => x.top - base), sim.lineY - base];
+    hud.setRail({
+      stretches: tops.map((to, i) => ({ from: i ? tops[i - 1] : 0, to, color: ART_BIOMES[biomeForCheckpoint(i + 1)].sky[0] })),
+      ticks: tops, best: this.bestHeight, top: Math.max(0, committed - base),
+    });
+    // The gold "▲ 4" chip while the line is above the screen, or hidden behind the top of the HUD.
+    const ppbScreen = this.W / this.cam.across;
+    const lineCss = (this.cam.y + this.H / ppbScreen / 2 - sim.lineY) * ppbScreen / this.dpr;
+    hud.setCheckpointChip(!this.demoing && sim.state === 'playing' && lineCss < 96 ? sim.checkpoint : null);
     hud.setNext(sim.queue.slice(0, 2));
     hud.setHold(sim.held, sim.holdUsed);
     hud.setTension(this.view.reducedMotion ? 0 : sim.tension());
