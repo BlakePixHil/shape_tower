@@ -2,7 +2,7 @@
 // Units: blocks, y up, seconds. Rotation of the steered shape is in quarter turns (CCW positive).
 
 import { Box2DEngine } from './engine/box2d.ts';
-import type { PhysicsEngine } from './engine/types.ts';
+import type { PhysicsEngine, WorldSettings } from './engine/types.ts';
 import { JuiceBus } from './bus.ts';
 import { makeStreams, type RngStreams } from './rng.ts';
 import { SHAPES, bottomCells, colliderBoxes, extents, geometry, rotQ, rotate, type ColliderBox, type Rot } from './shapes.ts';
@@ -12,6 +12,13 @@ import {
 } from './tuning.ts';
 
 export const DT = 1 / 60;
+/**
+ * Physics engines by name. Box2D is built in; the Rapier adapter (engine/rapier.ts) registers
+ * itself where it's wanted, so its WebAssembly stays out of builds that don't use it.
+ */
+const ENGINES: Partial<Record<'box2d' | 'rapier', (s: WorldSettings) => PhysicsEngine>> = { box2d: s => new Box2DEngine(s) };
+export function registerEngine(name: 'box2d' | 'rapier', make: (s: WorldSettings) => PhysicsEngine): void { ENGINES[name] = make; }
+
 /** Seconds between a gust's warning and its push (gameplay.md §8.3: at least 2 s). */
 export const GUST_WARNING = 2;
 /** How far under the checkpoint line a resting stack still counts as reaching it (contact slop). */
@@ -204,8 +211,9 @@ export class Sim {
     this.hearts = this.tuning.hearts;
     this.secondWind = opts.secondWind === 'ready' ? 'ready' : opts.secondWind === 'off' ? 'off' : 'earn';
     this.bubbleIn = this.bubbleGap();
-    if (opts.engine === 'rapier') throw new Error('Rapier adapter is not built yet; use engine: "box2d"');
-    this.engine = new Box2DEngine({ gravity: this.tuning.gravity, pushoutVelocity: this.tuning.pushoutVelocity, hitThreshold: 0.3 });
+    const make = ENGINES[opts.engine ?? 'box2d'];
+    if (!make) throw new Error(`physics engine "${opts.engine}" is not registered (Rapier: registerEngine('rapier', ...) after initRapier())`);
+    this.engine = make({ gravity: this.tuning.gravity, pushoutVelocity: this.tuning.pushoutVelocity, hitThreshold: 0.3 });
 
     // The plinth: an 8-wide raised pedestal, top surface at y = 0.
     const plinth = this.addFoundation(0, FIRST_FOUNDATION_WIDTH, 0, 1.0);
