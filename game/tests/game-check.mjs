@@ -65,8 +65,10 @@ while (Date.now() - t0 < 12000) {
   await page.waitForTimeout(200);
 }
 await shot('04-play');
-const rail = await page.evaluate(() => ({ bands: document.querySelectorAll('.st-rail .st-band').length, ticks: document.querySelectorAll('.st-rail .st-tick.next').length, me: parseFloat(document.querySelector('.st-rail .st-me').style.bottom), rail: getComputedStyle(document.querySelector('.st-rail')).display }));
-step('the altitude rail shows the stretch, the next checkpoint and the tower top', rail.rail !== 'none' && rail.bands >= 1 && rail.ticks === 1 && rail.me > 0, JSON.stringify(rail));
+const rail = await page.evaluate(() => { const c = document.querySelector('.ui-rail canvas'); return { key: c?.dataset.key ?? null, shown: !!c && getComputedStyle(c.parentElement).display !== 'none' }; });
+// Art's rail keys its drawing on top | checkpoints known | claimed | best.
+const [railTop, railCps, railClaimed] = (rail.key ?? '').split('|').map(Number);
+step('the altitude rail shows the stretch, the next checkpoint and the tower top', rail.shown && railCps === 1 && railClaimed === 0 && railTop > 0, JSON.stringify(rail));
 await page.click('[data-id="pause"]');
 await page.waitForTimeout(400);
 await shot('05-pause');

@@ -7,6 +7,7 @@
 import * as Phaser from 'phaser';
 import {
   ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, CheckpointLine, GuideView, PbMarker, POWER_COLORS, PowerBubble, SkyClock, VFX,
+  WindView, windDrifters,
   biomeForCheckpoint, rimAmount, type Expression, type Finish, type GuideState, type TexRef, type VfxName,
 } from '@art/index.ts';
 import { DT, Sim, type Bubble, type PieceView, type PowerKind, type SecondWindMode, type Tint } from '../sim/sim.ts';
@@ -114,8 +115,7 @@ export class PlayScene extends Phaser.Scene {
   private bubbleView: { id: number; view: PowerBubble } | null = null;
   private poppedBubbles: PowerBubble[] = []; // still playing their collect or fade
   private taughtBubble = false;
-  private weather!: Particles; // hazard telegraphs: information, so they stay with juice off
-  private gustAcc = 0;
+  private wind!: WindView; // Art's gust telegraph and streaks: information, so they stay with juice off
   private demoing = false;
   private demoIdx = 0;
   private demoAt = 0;
@@ -148,7 +148,7 @@ export class PlayScene extends Phaser.Scene {
     this.guide = new GuideView(this.art, D.guide);
     this.pb = new PbMarker(this.art, D.line - 0.1);
     this.particles = new Particles(this, D.fx);
-    this.weather = new Particles(this, D.fx, 80);
+    this.wind = new WindView(this.art, { width: this.W, height: this.H, drifters: 'leaves' });
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
       ctrlX: () => (this.started && !this.paused && this.sim?.ctrl ? this.sim.ctrl.xTarget : null),
@@ -167,6 +167,7 @@ export class PlayScene extends Phaser.Scene {
       this.W = size.width; this.H = size.height;
       this.cameras.main.setSize(this.W, this.H);
       this.backdrop.resize(this.W, this.H);
+      this.wind.resize(this.W, this.H);
     });
     this.events.once('shutdown', () => this.gestures.destroy());
     try { this.bestHeight = Number(localStorage.getItem('shape-tower-best') ?? 0) || 0; } catch { /* none */ }
@@ -191,7 +192,7 @@ export class PlayScene extends Phaser.Scene {
     for (const s of this.slabs.values()) s.img.destroy();
     this.slabs.clear();
     this.particles?.clear();
-    this.weather?.clear();
+    this.wind?.clear();
     this.guide.hide();
     for (const l of this.lines) l.destroy();
     this.lines = [];
@@ -290,6 +291,7 @@ export class PlayScene extends Phaser.Scene {
     this.particles.enabled = juice;
     this.guide.reduceMotion = v.reducedMotion;
     this.backdrop.reduceMotion = v.reducedMotion;
+    this.wind.reduceMotion = v.reducedMotion;
     for (const l of this.lines) l.reduceMotion = v.reducedMotion;
     this.pb.reduceMotion = v.reducedMotion;
     this.guide.opacity = v.guideOpacity ?? 1;
@@ -431,8 +433,12 @@ export class PlayScene extends Phaser.Scene {
       }
       case 'budget_low': this.hooks.hud.pulseBricks(); break;
       case 'hazard_warning':
-        if (p.intro) this.hooks.hud.hazardCard('Gusts ahead! Keep it wide.');
+        this.wind.drifters = windDrifters(this.biomeIndex());
+        this.wind.warn(p.dir, p.eta);
+        if (p.intro) this.hooks.hud.hazardCard('gust', this.view.reducedMotion);
         break;
+      case 'hazard_start': this.wind.start(p.strength, p.dir); break;
+      case 'hazard_end': this.wind.end(); break;
       case 'checkpoint_cancelled': this.pop('Wobbly!', this.sim.foundation.x, this.sim.lineY + 0.6, AMBER, 18); break;
       case 'checkpoint_claimed':
         this.onClaim(p, now);
@@ -581,21 +587,11 @@ export class PlayScene extends Phaser.Scene {
     this.poppedBubbles = this.poppedBubbles.filter(p => { if (p.done) p.destroy(); return !p.done; });
   }
 
-  /** Wind streaks from the upwind edge: sparse while a gust is warned, denser while it blows. */
-  private drawGust(dt: number): void {
+  /** The HUD's gust chip follows the sim; Art's WindView draws the streaks from the hazard events. */
+  private drawGust(): void {
     const g = this.sim.gust;
-    this.hooks.hud.setHazard(this.started ? g.phase : 'idle', g.dir);
-    if (g.phase === 'idle' || !this.started || this.paused) { this.gustAcc = 0; return; }
-    const rate = (g.phase === 'warn' ? 5 : 8 + 100 * g.strength) * (this.view.reducedMotion ? 0.3 : 1);
-    this.gustAcc += dt * rate;
-    const u = this.ppb, visH = this.H / (this.ppb * this.zoom), half = this.cam.across / 2;
-    while (this.gustAcc >= 1) {
-      this.gustAcc--;
-      const x = this.cam.x - g.dir * (half + 1 + Math.random() * 2);
-      const y = this.cam.y + (Math.random() - 0.5) * visH * 0.8;
-      const v = u * (14 + Math.random() * 6) * (this.view.reducedMotion ? 0.5 : 1);
-      this.weather.spawn(x * u, -y * u, g.dir * v, 0, this.fx('gust', 2, 2, { tint: 0xffffff, life: (half * 2 + 3) * u / v, alpha: g.phase === 'warn' ? 0.45 : 0.75, angle: g.dir > 0 ? 0 : Math.PI }));
-    }
+    this.hooks.hud.setHazard(this.started && !this.demoing ? g.phase : 'idle', g.dir);
+    this.hooks.hud.pauseHazard(this.paused);
   }
 
   /** The bubble bursts and its icon flies to the slot it fills (collected), or drifts away. */
@@ -797,9 +793,9 @@ export class PlayScene extends Phaser.Scene {
     this.drawCtrl(dt, alpha, now, sp);
     this.drawGuide(now);
     this.drawBubble(dt);
-    this.drawGust(dt);
+    this.drawGust();
     this.particles.update(dt);
-    this.weather.update(dt);
+    this.wind.update(dt);
     this.updateHud(committed);
   }
 
@@ -924,6 +920,7 @@ export class PlayScene extends Phaser.Scene {
     const u = this.ppb;
     const top = this.sim.height().provisional;
     const tension = this.sim.tension();
+    const gusting = this.sim.gust.phase === 'blow';
     const rim = rimAmount(sp);
     const seen = new Set<number>();
     for (const v of this.views) {
@@ -975,7 +972,8 @@ export class PlayScene extends Phaser.Scene {
       // Faces: only the top ~10 blocks animate; tension drives the mood (§4.3).
       const lively = v.top > top - 10;
       if (!s.lost && this.sim.state === 'playing') {
-        const mood: Expression = tension >= 0.85 && v.top > top - 6 ? 'panic' : tension >= 0.3 && v.top > top - 4 ? 'worried' : 'idle';
+        // The top rows squint into a gust (art-direction.md, hazards), unless they're already panicking.
+        const mood: Expression = tension >= 0.85 && v.top > top - 6 ? 'panic' : gusting && v.top > top - 3 ? 'squint' : tension >= 0.3 && v.top > top - 4 ? 'worried' : 'idle';
         s.view.setExpression(mood).setSweat(tension >= 0.6);
       }
       s.view.setLively(lively).setStone(s.stone).setRim(rim).setAlpha(alphaV);
@@ -1092,10 +1090,7 @@ export class PlayScene extends Phaser.Scene {
     // The altitude rail: a band per checkpoint stretch, from the ground to the line being climbed to.
     const f = sim.foundations, base = f[0].top;
     const tops = [...f.slice(1).map(x => x.top - base), sim.lineY - base];
-    hud.setRail({
-      stretches: tops.map((to, i) => ({ from: i ? tops[i - 1] : 0, to, color: ART_BIOMES[biomeForCheckpoint(i + 1)].sky[0] })),
-      ticks: tops, best: this.bestHeight, top: Math.max(0, committed - base),
-    });
+    hud.setRail({ ticks: tops, best: this.bestHeight, top: Math.max(0, committed - base) });
     // The gold "▲ 4" chip while the line is above the screen, or hidden behind the top of the HUD.
     const ppbScreen = this.W / this.cam.across;
     const lineCss = (this.cam.y + this.H / ppbScreen / 2 - sim.lineY) * ppbScreen / this.dpr;
