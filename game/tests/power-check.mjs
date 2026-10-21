@@ -35,8 +35,11 @@ const shots = {};
 const shot = async name => { if (shots[name]) return; shots[name] = true; await page.screenshot({ path: `${out}/${String(Object.keys(shots).length + 1).padStart(2, '0')}-${name}.png` }); };
 const used = [];
 const tapped = new Set();
+// Stops when the work is done (5 kinds tapped and Second Wind used), not on the clock: headless
+// frames are slow, so 100 s landed 15 to 19 pieces and Second Wind came down to luck. The cap is
+// only a backstop.
 const t0 = Date.now();
-while (Date.now() - t0 < 100_000) {
+while (Date.now() - t0 < 240_000) {
   const s = await state();
   if (s.state !== 'playing') break;
   if (s.bubble && !shots.bubble) await shot('bubble');
@@ -61,7 +64,7 @@ while (Date.now() - t0 < 100_000) {
     used.push({ kind, emptied: after.slots[k] === null, glue: after.glue, slow: after.slow });
     break;
   }
-  if (s.placed >= 18 && s.wind === 'ready' && !shots['wind-armed']) {
+  if (s.placed >= 10 && s.wind === 'ready' && !shots['wind-armed']) {
     await page.click('[data-id="wind"]', { force: true }); // it pulses when ready too
     await page.waitForTimeout(120);
     await shot('wind-armed');
