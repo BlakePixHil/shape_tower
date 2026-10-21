@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { Box2DEngine } from '../src/sim/engine/box2d.ts';
 import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
+import { runBench } from '../src/sim/bench.ts';
 import { createSim, replay, restore, useRapier } from '../src/sim/testApi.ts';
 import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor } from '../src/sim/tuning.ts';
 
@@ -952,6 +953,15 @@ for (const cp of [11, 17, 23]) {
   }
   check('Late shapes: P, U, V from checkpoint 7, Arch and Plus from 17, and every rotation settles', bagOk && settled === total,
     `CP 7 bag P ${b7.P} U ${b7.U} V ${b7.V}; CP 19 P ${b19.P} Arch ${b19.Arch} Plus ${b19.Plus}; ${settled}/${total} settle`);
+}
+
+// The phone bench ends each phase with the world's digest, the same on every run, so a phone's
+// bench (both engines) can be checked against Node without the game running on that engine.
+{
+  const engine = process.env.SIM_ENGINE === 'rapier' ? 'rapier' : 'box2d';
+  const a = runBench(undefined, engine), b = runBench(undefined, engine);
+  const da = a.phases.map(p => p.digest), db = b.phases.map(p => p.digest);
+  check(`Bench phases carry a world digest that repeats run to run (${engine})`, da.length === 2 && da.every(d => /^[0-9a-f]{8}$/.test(d)) && da.join() === db.join() && da[0] !== da[1], da.join(', '));
 }
 
 console.log(failures ? `\n${failures} failing` : '\nall passing');
