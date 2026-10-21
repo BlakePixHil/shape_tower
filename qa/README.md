@@ -45,7 +45,9 @@ The merge gate is `qa/scripts/gate.sh [checkout]`: every module's own checks (ga
 | `tests/bots.test.ts` | F3.11: bots play whole runs, Mortar on and off, and the sim never throws |
 | `tests/powers.test.ts` | F18: each power-up and its refusal, bubbles, picks, grants, Second Wind, physics under powers, rule checks over bot runs, replays with powers |
 | `tests/gusts.test.ts` | F7: the gust schedule per checkpoint, the intro, what a gust pushes, a wall that stands through gusts, no gust in a hold or a claim, replays with gusts, the shape bag unchanged by gusts |
+| `tests/late.test.ts` | Late challenge (#27): each stretch's hazards against the table, Deep Cosmos remixes, warnings 2 s ahead, half-strength first hits, nothing in a hold or claim pause, no hits on stone or the steered shape, hearts every third claim from Orbit, replays from CP 11, 17 and 23 |
 | `tests/harness.test.ts` | Proves the harness catches a lying guide, a falling tower and a nondeterministic sim |
+| `scripts/late-balance.ts` | Report only: QA's bot plays from CP 11 under three rule sets (before the late challenge, late hazards only, as built) and reports checkpoints claimed, hearts lost per claim and what ended each run |
 | `scripts/run-story.ts` | Replays a run record from a phone, checks its digests against Node, and prints each landing with the ghost the player saw, losses, hearts, bond breaks, power-ups and Second Wind |
 | `scripts/cross-build.ts` | Records bot runs on one build and replays them on another, to check that a change leaves earlier runs step for step the same (`--tuning` replays them with tuning changed, such as gusts on) |
 | `scripts/replay-child.ts` | Replays run records in a fresh process (F18.13) |
