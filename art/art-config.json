@@ -748,5 +748,27 @@
       "twinkle": 0.5,
       "hz": 0.73
     }
-  ]
+  ],
+  "powers": {
+    "bubbleR": 0.6,
+    "bubbleIcon": 0.8,
+    "slotPx": 54,
+    "windPx": 62,
+    "iconFill": 0.74,
+    "spawn": 0.34,
+    "bob": 0.08,
+    "bobRate": 3,
+    "sway": 0.08,
+    "swayRate": 1.7,
+    "collect": 0.6,
+    "fade": 0.45,
+    "colors": {
+      "clean": "#3EE6A8",
+      "quickset": "#B9B1A6",
+      "undo": "#B18CFF",
+      "glue": "#FFAA2B",
+      "slowmo": "#7FD8FF",
+      "wind": "#7FD8FF"
+    }
+  }
 }

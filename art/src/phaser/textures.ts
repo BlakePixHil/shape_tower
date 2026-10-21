@@ -7,6 +7,7 @@ import { bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash,
 import { type Expression, FACE, drawEyes, drawMouth, drawPupil, drawSpiral, drawSweat } from '../face.ts';
 import { type GlyphState, bakeBeamFill, bakeChevron, bakeContactDot, bakeContactRing, bakeGhostEdge, bakeGlyph } from '../guide.ts';
 import { type Baked, type Finish, bakePiece, bakeRim, bakeSilhouette } from '../piece.ts';
+import { POWER, POWER_ICON_NAMES, POWER_KINDS, type PowerIcon, type PowerKind, bakeBubble, bakeBubbleGloss, bakePowerIcon } from '../powers.ts';
 import { type Grade, bakeGradeStamp, bakePedestal, bakeSlab } from '../slab.ts';
 import { ctx2d, makeCanvas } from '../util.ts';
 import { VFX_NAMES, type VfxName, bakeVfx } from '../vfx.ts';
@@ -73,7 +74,7 @@ export class ArtTextures {
   }
 
   /** Bake ahead of time (e.g. on a loading screen) so nothing bakes mid-run. */
-  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean } = {}): void {
+  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean; powers?: boolean } = {}): void {
     for (const key of keys) for (let q = 0; q < 4; q++) {
       for (const f of o.finishes ?? [null]) this.piece(key, q, { finish: f });
       if (o.stone ?? true) this.piece(key, q, { stone: true });
@@ -84,6 +85,11 @@ export class ArtTextures {
     for (const ex of ['idle', 'falling', 'impact', 'proud', 'worried', 'panic', 'blink'] as Expression[]) { this.face(`eyes_${ex}`); this.face(`mouth_${ex}`); }
     for (const p of ['pupil', 'spiral', 'sweat'] as FacePart[]) this.face(p);
     if (o.vfx ?? true) for (const v of VFX_NAMES) this.vfx(v);
+    if (o.powers ?? true) {
+      for (const k of POWER_ICON_NAMES) this.powerIcon(k);
+      for (const k of POWER_KINDS) this.bubble(k);
+      this.bubbleGloss();
+    }
     this.flush();
   }
 
@@ -163,6 +169,15 @@ export class ArtTextures {
 
   /** An effect texture for particles (see VFX for natural sizes in blocks). Origin: centre. */
   vfx(name: VfxName): TexRef { return this.packed(this.name('vfx', name), () => bakeVfx(name, this.s)); }
+
+  // ---- power-ups ----
+
+  /** A power icon, POWER.bubbleIcon blocks across (for bubbles and anything in the world). Origin: centre. */
+  powerIcon(kind: PowerIcon): TexRef { return this.packed(this.name('picon', kind), () => bakePowerIcon(kind, Math.round(POWER.bubbleIcon * this.s))); }
+  /** The power bubble's body in its power's color. Origin: centre. */
+  bubble(kind: PowerKind): TexRef { return this.packed(this.name('bubble', kind), () => bakeBubble(kind, this.s)); }
+  /** The bubble's highlights, to draw over its icon. Origin: centre. */
+  bubbleGloss(): TexRef { return this.packed(this.name('bubblegloss'), () => bakeBubbleGloss(this.s)); }
 
   // ---- internals ----
 

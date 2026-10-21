@@ -18,8 +18,9 @@ The Shape Tower art kit. Everything is drawn in code with Canvas 2D (no image fi
 | Foundations | `src/slab.ts` | The Meadow's wooden pedestal, a graded slab for each biome, grade stamps. |
 | Checkpoint line | `src/checkpoint.ts` | Rope, bunting in the shape colors, numbered plaque, hold-steady ring and label, the claimed line's flag, and the best-height marker. |
 | Backdrops | `src/meadow.ts`, `src/treetops.ts`, `src/cloudlands.ts`, `src/stars.ts` | Parallax layers for the Meadow (sun, clouds, hills, windmill farmhouse, trees, fence, cow, grass), Treetops (mountains, canopies, balloons, kites, birds) and Cloudlands (cloud banks, castle, rainbow, blimp, plane), plus a three-depth star field. Biomes 4 to 10 show their sky and stars until their props land. |
-| Effects | `src/vfx.ts` | Particle textures: dust and cloud puffs, stardust, sparkle, impact ring, shockwave, flash, speed line, whoosh, wobble lines, crack, stone chip, confetti and mini-shape confetti, XP orb, rays. |
-| Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `Backdrop`. |
+| Effects | `src/vfx.ts` | Particle textures: dust and cloud puffs, stardust, sparkle, impact ring, shockwave, flash, speed line, whoosh, wobble lines, crack, stone chip, confetti and mini-shape confetti, XP orb, rays, and the power-up effects (broom sweep, honey drop, bond spark, ripple, gust, bubble shard). |
+| Power-ups | `src/powers.ts` | Icons for Clean Slate, Quick-Set, Undo, Glue, Slow-Mo and Second Wind, the power bubble, and the CSS for the DOM power bar and Second Wind's states. |
+| Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `PowerBubble`, `Backdrop`. |
 
 ## Using it from game/
 
@@ -77,6 +78,39 @@ pb.set(y, x0, x1).update(dt);   // pb.pop() on pb_crossed
 
 `tex.vfx(name)` returns an atlas frame, so a particle needs the texture key and the frame: `img.setTexture(r.key, r.frame)`. `VFX[name]` is each effect's natural size in blocks, so `scale = wantedBlocks / VFX[name] * tex.scale`. White effects are meant to be tinted: dust with `BIOMES[biome].dust`, rings and sparkles with the signal colors. Confetti `mini_I` through `mini_Z` come in their shape colors. `prewarm()` bakes every effect unless you pass `vfx: false`. The preview's `vfx=1` shows them all with a looping claim burst.
 
+### Power-ups
+
+The bubble owns its sprites, like the checkpoint line:
+
+```ts
+const bubble = new PowerBubble(tex, kind, depth);   // on bubble_spawned: it pops in with a ring and sparkles
+bubble.set(x, y).update(dt);                        // every frame: world px of the sim's bubble; the bob is added on top
+bubble.ending(shapesLeft === 1);                    // flickers on its last shape
+bubble.collect(slotWorldXY);                        // on power_collected: it bursts and the icon flies to the slot (omit the target to pop it in place)
+bubble.fade();                                      // on bubble_expired: it drifts up and fades
+if (bubble.done) bubble.destroy();                  // after 0.6 s (collect) or 0.45 s (fade)
+```
+
+`tex.powerIcon(kind)` is any icon as an atlas frame, `POWER.bubbleIcon` (0.8) blocks across. Kinds are the sim's (`clean`, `quickset`, `undo`, `glue`, `slowmo`) plus `wind` for Second Wind. `POWER_COLORS` has each power's color.
+
+The power bar is DOM, so the kit gives it images and CSS:
+
+- `powerIconUrl(kind, cssPx)` is a cached PNG data URL at the device's resolution. Put `<img class="st-icon" src=...>` in a slot (54 px slot: `powerIconUrl(kind, 40)`; 62 px Second Wind: `powerIconUrl('wind', 46)`; a 16 px one fits the Glue and Slow-Mo chips).
+- `powerBarCss()` is CSS to add after the HUD's own. It washes each slot in its power's color (set `data-kind="glue"` on the button) and draws Second Wind's states as classes on `.st-wind`: `earn` (greyed and dashed, tag "CP 2"), no class (ready, the icon breathes), `armed` (gold, pulsing, tag "TAP AGAIN"), `glow` (ready while the run is in trouble: a pulsing sky halo and a nudge), and `spent` (it blows away up and to the right over 450 ms; hide it after). Under `prefers-reduced-motion` the button keeps its colors and drops the motion.
+
+Effects, as particle textures (`tex.vfx(name)`):
+
+| Power | Effect |
+|---|---|
+| Clean Slate | `sweep` tinted `POWER_COLORS.clean` with additive blend, moved left to right across the stretch in about 0.32 s; then `puff` (biome dust) and a mint `sparkle` per removed piece. |
+| Quick-Set | The claim's stone wave, top down; `chip` tinted stone for dust. |
+| Undo | `puff` and a violet `sparkle` where the piece was. |
+| Glue | `honey` drops (already amber, no tint) falling from the falling shape; on each glued bond, a few `spark`s tinted `SIGNAL.gold`, rotated to their velocity. |
+| Slow-Mo | A `ripple` tinted `POWER_COLORS.slowmo` when it starts, then `stardust` in the same color drifting up off the falling shape. |
+| Second Wind | A `ripple` tinted `POWER_COLORS.wind`, then 12 to 16 `gust` streaks (white) crossing the screen left to right at about 20 blocks per second. |
+
+The preview's `powers=1` shows all of it live, with a DOM power bar in every state; `pstrip=1` shows frozen frames of the bubble's spawn, collect and fade.
+
 ### Backdrop
 
 The backdrop bakes each biome's props when the climb is about halfway through the biome before it, and frees them two biomes later, so only two or three biomes are in memory. Props above the Meadow are placed relative to the screen at the moment their biome arrives, then sink at their scroll factor as the tower climbs. On `biome_entered`, call `backdrop.arrival(biomeIndex)` to play the arrival moment: a bird flock for Treetops, the cloud punch-through for Cloudlands. The punch-through passes in front of the tower at `frontDepth` (default 950); keep that under the guide.
@@ -121,6 +155,7 @@ Add these to the preview URL:
 - `state=stable|perfect|risky|tip|miss` holds one guide state (otherwise they cycle).
 - `cp=near|hold|claim` holds one checkpoint-line phase (otherwise it cycles).
 - `vfx=1` shows every effect texture over a day and a night sky, with a looping claim burst.
+- `powers=1` shows the bubbles spawning, bobbing, flying to their slots or fading, each power's effect in turn, and a DOM power bar with every icon and Second Wind state. `pw=idle` holds the bubbles; `fx=sweep|glue|slowmo|gust` holds one effect. `pstrip=1` shows frozen frames of the bubble's life.
 - `tour=1` climbs from the Meadow through Treetops into Cloudlands and plays each arrival. `arrive=1` replays the current biome's arrival every 4 s.
 - Options also work after a `#` (for example `#tour`), for hosts that drop the query string.
 - `gallery=1` shows every shape in every rotation, with worried, stone and space-rim looks.

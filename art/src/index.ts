@@ -14,6 +14,7 @@ export { bakeTreetops } from './treetops.ts';
 export { bakeCloudlands, bakePunchThrough } from './cloudlands.ts';
 export { STAR_LAYERS, bakeStarTile, type StarLayer } from './stars.ts';
 export { VFX, VFX_NAMES, bakeVfx, type VfxName } from './vfx.ts';
+export { POWER, POWER_COLORS, POWER_ICON_NAMES, POWER_KINDS, bakeBubble, bakeBubbleGloss, bakePowerIcon, drawPowerIcon, powerBarCss, powerIconUrl, type PowerIcon, type PowerKind } from './powers.ts';
 export { BUNTING_KEYS, CHECKPOINT, bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from './checkpoint.ts';
 export { hexNum, labToHex, oklab } from './util.ts';
 
@@ -22,4 +23,5 @@ export { BlocklingView, type BlocklingOptions } from './phaser/blockling.ts';
 export { GuideView, type GuideShow } from './phaser/guide.ts';
 export { Backdrop, type BackdropOptions } from './phaser/backdrop.ts';
 export { CheckpointLine, PbMarker, type CheckpointLayout } from './phaser/checkpoint.ts';
+export { PowerBubble } from './phaser/power.ts';
 export type { SceneLike } from './phaser/types.ts';
