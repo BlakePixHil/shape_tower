@@ -120,6 +120,14 @@ export class PlayScene extends Phaser.Scene {
   private pbCrossed = false;
   private overAt = -1;
   private slowOn = false;
+  // The countdown's mood (Blake, 2026-10-21: "the screen should slightly fade grayscale … and pause on
+  // shape interactions briefly to build suspension"): the screen fades part-way to grey as a hold
+  // fills, and a knock during it freezes the frame for a beat (gameplay.md §7.2).
+  private holdFilter: Phaser.Filters.ColorMatrix | null = null;
+  private grey = 0;
+  private greyFast = false;
+  private greyWarm = 3; // frames the filter runs at no strength on boot, so its shader compiles behind the menu, not at the first hold
+  private holdKnockAt = 0;
   private overPayload: Record<string, unknown> | null = null;
   private bubbleView: { id: number; view: PowerBubble } | null = null;
   private poppedBubbles: PowerBubble[] = []; // still playing their collect or fade
@@ -172,6 +180,13 @@ export class PlayScene extends Phaser.Scene {
     this.party = new Celebration(this.art, { width: this.W, height: this.H });
     this.cracks = this.add.graphics().setDepth(D.piece + 2);
     this.ctrlCracks = this.add.graphics().setDepth(D.ctrl + 1);
+    // Off (no extra pass) outside a hold. The HUD is DOM, so the hold pill keeps its colour.
+    const filters = this.cameras.main.filters;
+    if (filters) {
+      this.holdFilter = filters.internal.addColorMatrix();
+      this.holdFilter.colorMatrix.desaturate();
+      this.holdFilter.colorMatrix.alpha = 0;
+    }
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
       ctrlX: () => (this.started && !this.paused && this.sim?.ctrl ? this.sim.ctrl.xTarget : null),
@@ -223,6 +238,9 @@ export class PlayScene extends Phaser.Scene {
     this.hzShots.clear();
     this.hzDevil = null;
     this.dustPuffAt = 0;
+    this.grey = 0;
+    this.greyFast = false;
+    this.holdKnockAt = 0;
     this.backdrop?.setTilt(0);
     this.guide.hide();
     for (const l of this.lines) l.destroy();
@@ -513,6 +531,7 @@ export class PlayScene extends Phaser.Scene {
         break;
       case 'hazard_hit': this.onHazardHit(p); break;
       case 'checkpoint_cancelled': this.pop('Wobbly!', this.sim.foundation.x, this.sim.lineY + 0.6, AMBER, 18); break;
+      case 'contact_hit': this.onHoldKnock(Number(p.approachSpeed), now); break;
       case 'checkpoint_claimed':
         this.onClaim(p, now);
         this.skyMarks.push({ y: this.sim.foundation.top, sp: this.skyClock.sp });
@@ -670,7 +689,34 @@ export class PlayScene extends Phaser.Scene {
     }
   }
 
+  /** A knock while a hold is filling freezes the frame for a beat, then eases out in slow motion. */
+  private onHoldKnock(speed: number, now: number): void {
+    const ms = this.sim.tuning.holdHitstop;
+    // Knocks Sound plays as more than a tap (1 block/s), no closer than half a second apart.
+    if (!(ms > 0) || this.demoing || !this.sim.holdState().active || !(speed >= 1) || now < this.holdKnockAt) return;
+    const stop = Math.min(ms * 1.5, ms * (0.75 + speed / 12));
+    this.holdKnockAt = now + stop + 450;
+    this.hitstop(now, stop);
+    this.time.delayedCall(stop, () => this.slowmo(performance.now(), 0.5, 220));
+  }
+
+  /** The screen's fade toward grey: deeper as the hold fills, back to full colour when it ends. */
+  private updateHoldMood(dt: number): void {
+    const f = this.holdFilter;
+    if (!f) return;
+    const sim = this.sim, hold = sim.holdState();
+    const on = this.started && !this.demoing && !this.pano && this.juice && hold.active && sim.state === 'playing';
+    const target = on ? sim.tuning.holdGrey * (0.35 + 0.65 * Math.min(1, hold.progress)) : 0;
+    // In over about a quarter second; colour floods back fast on a claim, gently when the hold slips.
+    const tau = target > this.grey ? 0.25 : this.greyFast ? 0.08 : 0.3;
+    this.grey += (target - this.grey) * (1 - Math.exp(-dt / tau));
+    if (target === 0 && this.grey < 0.01) { this.grey = 0; this.greyFast = false; }
+    f.colorMatrix.alpha = this.grey;
+    f.setActive(this.grey > 0 || this.greyWarm-- > 0);
+  }
+
   private onClaim(p: Record<string, any>, now: number): void {
+    this.greyFast = true;
     this.hitstop(now, 90);
     this.time.delayedCall(90, () => this.slowmo(performance.now(), 0.5, 300));
     const f = this.sim.foundation; // the new slab
@@ -999,6 +1045,7 @@ export class PlayScene extends Phaser.Scene {
     cam.setZoom(this.zoom);
     cam.centerOn(this.cam.x * this.ppb + shake.x / this.zoom, -this.cam.y * this.ppb + shake.y / this.zoom);
     sim.setCamera(this.cam.x, this.cam.y, timeScale);
+    this.updateHoldMood(dt);
 
     // Sky position follows checkpoint progress through the biome (art-direction.md §3.4).
     const bi = this.biomeIndex();
