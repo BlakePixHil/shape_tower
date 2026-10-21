@@ -53,6 +53,7 @@ async function boot(): Promise<void> {
       return dailyWind ? 'ready' : 'earn';
     },
     newPostcard: b => profile.postcards[b] === null,
+    brittleIntro: () => !profile.seenBrittle,
     onEvent(e, sim) {
       if (e.name === 'biome_entered') toasts.holdFor(2400); // its title card sits where the toast goes
       if (e.name === 'run_start' && trackNext) {
@@ -66,6 +67,10 @@ async function boot(): Promise<void> {
         const type = String(e.payload.type ?? 'gust');
         if (type === 'gust' && !profile.seenGusts) { profile.seenGusts = true; saveProfile(profile); }
         else if (type !== 'gust' && !profile.seenHazards.includes(type)) { profile.seenHazards.push(type); saveProfile(profile); }
+      }
+      if (e.name === 'piece_spawned' && !profile.seenBrittle && (e.payload.brittle || (e.payload.nextBrittle as boolean[] | undefined)?.some(Boolean))) {
+        profile.seenBrittle = true;
+        saveProfile(profile);
       }
     },
     onRunOver: (sim, p) => runOver(sim, p),

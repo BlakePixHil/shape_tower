@@ -75,6 +75,11 @@ export interface Tuning {
   // Rows and grades
   rowCoverage: number;
   setStreak: number;          // Clean or Perfect placements in a row before full rows turn to stone, from CP 7 (one fewer from CP 3; 0: at once)
+  // Brittle shapes (gameplay.md §4.3)
+  brittleEvery: number;       // about one shape in this many is brittle (0: none)
+  brittleFrom: number;        // the first checkpoint stretch that deals them
+  brittleLoad: number;        // cells resting on a brittle shape that break it
+  brittleFuse: number;        // s it creaks under that load before it breaks
   // Power-ups (gameplay.md §13)
   powerUps: boolean;
   bubbleGap: number;          // shapes between power bubbles, on average
@@ -164,6 +169,10 @@ export const DEFAULT_TUNING: Tuning = {
   cascadeCap: 6,
   rowCoverage: 0.9,
   setStreak: 4,
+  brittleEvery: 12,
+  brittleFrom: 5,
+  brittleLoad: 12,
+  brittleFuse: 1.2,
   powerUps: true,
   bubbleGap: 6,
   bubbleLife: 3,

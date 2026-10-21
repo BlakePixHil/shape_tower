@@ -1,5 +1,5 @@
 // Seeded integer RNG (mulberry32). Integer maths only, so it is identical on every JS engine.
-// The sim uses independent streams (gameplay.md §15): bag, hazards, cosmetic, powers, late.
+// The sim uses independent streams (gameplay.md §15): bag, hazards, cosmetic, powers, late, brittle.
 
 export class Rng {
   private s: number;
@@ -23,11 +23,15 @@ export class Rng {
   set state(v: number) { this.s = v >>> 0; }
 }
 
-export interface RngStreams { bag: Rng; hazards: Rng; cosmetic: Rng; powers: Rng; late: Rng }
+export interface RngStreams { bag: Rng; hazards: Rng; cosmetic: Rng; powers: Rng; late: Rng; brittle: Rng }
 
 export function makeStreams(seed: number): RngStreams {
   const root = new Rng(seed);
   // New streams go on the end, so the earlier ones keep their values for a given seed.
   // late: the hazards after gusts (Storm Belt on), so gust timings stay as they were.
-  return { bag: new Rng(root.nextU32()), hazards: new Rng(root.nextU32()), cosmetic: new Rng(root.nextU32()), powers: new Rng(root.nextU32()), late: new Rng(root.nextU32()) };
+  // brittle: which shapes are dealt brittle (§4.3), so the bag itself is unchanged.
+  return {
+    bag: new Rng(root.nextU32()), hazards: new Rng(root.nextU32()), cosmetic: new Rng(root.nextU32()), powers: new Rng(root.nextU32()), late: new Rng(root.nextU32()),
+    brittle: new Rng(root.nextU32()),
+  };
 }

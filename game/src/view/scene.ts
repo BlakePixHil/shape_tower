@@ -13,6 +13,7 @@ import {
 import { DT, Sim, type Bubble, type PieceView, type PowerKind, type SecondWindMode, type Shot, type Tint } from '../sim/sim.ts';
 import { SHAPES, extents } from '../sim/shapes.ts';
 import { biomeFor, type Tuning } from '../sim/tuning.ts';
+import { crackPaths } from './cracks.ts';
 import { Particles, Shaker, TimeControl, easeElasticOut, type ParticleOpts } from './fx.ts';
 import { Hud, POWER_NAMES, type HazardWant } from './hud.ts';
 import { Gestures } from './input.ts';
@@ -41,6 +42,8 @@ export interface SceneHooks {
   secondWind?(): SecondWindMode;
   /** Whether reaching biome `biome` (0 = Meadow) earns its postcard for the first time. */
   newPostcard?(biome: number): boolean;
+  /** Whether this player has yet to see a brittle shape (its card shows once). */
+  brittleIntro?(): boolean;
 }
 
 interface PieceSprite {
@@ -128,6 +131,9 @@ export class PlayScene extends Phaser.Scene {
   private hzShots = new Map<number, Shot['phase']>(); // what's drawn for each shot
   private hzDevil: { id: number; phase: 'warn' | 'blow' } | null = null;
   private dustPuffAt = 0; // sim s
+  private cracks!: Phaser.GameObjects.Graphics;     // on brittle pieces in the tower
+  private ctrlCracks!: Phaser.GameObjects.Graphics; // on the shape in hand
+  private brittleShown = false;
   private demoing = false;
   private demoIdx = 0;
   private demoAt = 0;
@@ -164,6 +170,8 @@ export class PlayScene extends Phaser.Scene {
     this.wind = new WindView(this.art, { width: this.W, height: this.H, drifters: 'leaves' });
     this.hz = new HazardFx(this.art, { depth: D.fx });
     this.party = new Celebration(this.art, { width: this.W, height: this.H });
+    this.cracks = this.add.graphics().setDepth(D.piece + 2);
+    this.ctrlCracks = this.add.graphics().setDepth(D.ctrl + 1);
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
       ctrlX: () => (this.started && !this.paused && this.sim?.ctrl ? this.sim.ctrl.xTarget : null),
@@ -399,7 +407,16 @@ export class PlayScene extends Phaser.Scene {
     const now = performance.now();
     const p = e.payload as Record<string, any>;
     switch (e.name) {
-      case 'piece_spawned': this.spawnCtrlSprite(now); break;
+      case 'piece_spawned': {
+        this.spawnCtrlSprite(now);
+        // The first brittle shape a player sees, in hand or in the preview, gets its card (§4.3).
+        const next = (p.nextBrittle ?? []) as boolean[];
+        if (!this.brittleShown && !this.demoing && (p.brittle || next.some(Boolean)) && (this.hooks.brittleIntro?.() ?? true)) {
+          this.brittleShown = true;
+          this.hooks.hud.brittleCard(p.brittle ? p.shape : (p.next as string[])[next.indexOf(true)], this.view.reducedMotion);
+        }
+        break;
+      }
       case 'piece_rotated': if (p.blocked) this.ctrl.nopeAt = now; break;
       case 'piece_landed': this.onLanded(p, now); break;
       case 'piece_settled': {
@@ -451,7 +468,20 @@ export class PlayScene extends Phaser.Scene {
       }
       case 'row_solid': this.onRows(p, now); break;
       case 'row_ready': this.onRowsReady(p); break;
+      case 'brittle_strain': this.onStrain(p); break;
+      case 'brittle_broke': this.onCrumble(p, now); break;
+      case 'brittle_mended': {
+        const s = this.sprites.get(p.id);
+        if (s) { this.glint(s, GOLD); this.popNear(s, `MENDED +${Math.round(p.points)}`, GOLD, 18); }
+        break;
+      }
+      case 'brittle_tossed': {
+        const pose = this.cur.get(p.id);
+        if (pose) this.pop('FREE TOSS', Math.max(this.cam.x - this.cam.across / 2 + 2, Math.min(this.cam.x + this.cam.across / 2 - 2, pose.x)), this.sim.foundation.top + 1.5, MINT, 16);
+        break;
+      }
       case 'piece_lost': {
+        if (p.brittle) { const s = this.sprites.get(p.id); if (s) s.lost = true; break; } // free: no fuss
         this.slowmo(now, 0.35, 500);
         const s = this.sprites.get(p.id);
         if (s) {
@@ -581,6 +611,53 @@ export class PlayScene extends Phaser.Scene {
   }
 
   /** Full rows waiting for the set streak: a faint outline across each, and the meter pulses. Information, so it shows with juice off too. */
+  /** A brittle shape cracks further: chips fly, and at the last stage it creaks before it breaks. */
+  private onStrain(p: Record<string, any>): void {
+    const pose = this.cur.get(p.id);
+    if (!pose || p.stage === 0) return;
+    const u = this.ppb;
+    for (let i = 0; i < 3 + 2 * p.stage; i++) {
+      const a = Math.random() * TAU, v = u * (1.5 + Math.random() * 2);
+      this.particles.spawn((pose.x + (Math.random() - 0.5)) * u, -pose.y * u, Math.cos(a) * v, Math.sin(a) * v - u * 2, this.fx('chip', 0.2, 0.1, { tint: STONE_CHIP, life: 0.5, gravity: u * 20, spin: 8 }));
+    }
+    this.shaker.add(0.06 * p.stage);
+    if (p.stage === 3) this.pop('CREAK!', pose.x, pose.y + 1, AMBER, 18);
+  }
+
+  /** A brittle shape gives way: a burst of dust and chips from each of its cells. */
+  private onCrumble(p: Record<string, any>, now: number): void {
+    const u = this.ppb;
+    for (const c of p.cells as { x: number; y: number }[]) {
+      this.poof(c.x, c.y, AMBER, 4);
+      for (let i = 0; i < 4; i++) {
+        const a = Math.random() * TAU, v = u * (2 + Math.random() * 3);
+        this.particles.spawn(c.x * u, -c.y * u, Math.cos(a) * v, Math.sin(a) * v - u * 3, this.fx('chip', 0.3, 0.14, { tint: STONE_CHIP, life: 0.7, gravity: u * 20, spin: 8 }));
+      }
+    }
+    this.shaker.add(0.4);
+    this.slowmo(now, 0.4, 450);
+    this.pop('CRUMBLE!', p.x, p.y + 1.2, AMBER, 22);
+  }
+
+  /** Crack lines over a brittle shape at pose (x, y, a), in blocks (y up). */
+  private drawCracks(g: Phaser.GameObjects.Graphics, shape: string, stage: number, x: number, y: number, a: number): void {
+    const u = this.ppb, c = Math.cos(a), s = Math.sin(a);
+    const pt = (lx: number, ly: number): [number, number] => [(x + lx * c - ly * s) * u, -(y + lx * s + ly * c) * u];
+    const paths = crackPaths(shape, stage);
+    // A light edge under a dark line reads as a crack on any colour. From stage 2 the edge widens,
+    // and at stage 3 it flickers while the shape creaks.
+    const edge = stage < 2 ? 0.5 : stage === 2 ? 0.7 : 0.55 + 0.4 * Math.abs(Math.sin(performance.now() / 60));
+    const layers: [number, number, number][] = [[stage < 2 ? 0.13 : 0.2, 0xffffff, edge], [stage < 2 ? 0.075 : 0.095, num(INK), 0.85]];
+    for (const [w, col, al] of layers) {
+      g.lineStyle(Math.max(1.5, u * w), col, al);
+      for (const path of paths) {
+        g.beginPath();
+        path.forEach(([lx, ly], i) => { const [px, py] = pt(lx, ly); if (i) g.lineTo(px, py); else g.moveTo(px, py); });
+        g.strokePath();
+      }
+    }
+  }
+
   private onRowsReady(p: Record<string, any>): void {
     this.hooks.hud.pulseSet();
     const w = p.width as number, x = p.x as number;
@@ -1093,6 +1170,7 @@ export class PlayScene extends Phaser.Scene {
     const gusting = this.sim.gust.phase === 'blow';
     const rim = rimAmount(sp);
     const seen = new Set<number>();
+    this.cracks.clear();
     for (const v of this.views) {
       seen.add(v.id);
       let s = this.sprites.get(v.id);
@@ -1104,7 +1182,10 @@ export class PlayScene extends Phaser.Scene {
       const b = this.cur.get(v.id)!;
       let da = b.a - a.a;
       if (da > Math.PI) da -= TAU; else if (da < -Math.PI) da += TAU;
-      const x = a.x + (b.x - a.x) * alpha, y = a.y + (b.y - a.y) * alpha, ang = a.a + da * alpha;
+      // A brittle shape about to break trembles.
+      const shake = v.brittle && v.strain === 3 && this.sim.state === 'playing' ? (Math.random() - 0.5) * 0.06 : 0;
+      const x = a.x + (b.x - a.x) * alpha + shake, y = a.y + (b.y - a.y) * alpha, ang = a.a + da * alpha;
+      if (v.brittle) this.drawCracks(this.cracks, v.shape, v.strain, x, y, ang);
 
       // Stone arrives as a wave: down the segment on a claim, across the row on a Solid Row.
       if (v.state === 'stone' && s.stone < 1) {
@@ -1159,6 +1240,7 @@ export class PlayScene extends Phaser.Scene {
 
   private drawCtrl(dt: number, alpha: number, now: number, sp: number): void {
     const c = this.sim.ctrl;
+    this.ctrlCracks.clear();
     if (!c) {
       if (this.ctrlSprite) { this.ctrlSprite.view.destroy(); this.ctrlSprite = null; }
       return;
@@ -1195,6 +1277,7 @@ export class PlayScene extends Phaser.Scene {
     const nope = this.ctrl.nopeAt > 0 && now - this.ctrl.nopeAt < 140 ? Math.sin(((now - this.ctrl.nopeAt) / 140) * Math.PI * 3) * 3 * this.dpr : 0;
     s.view.setRim(rimAmount(sp)).setPose(this.ctrl.x * u + nope, -y * u, this.ctrl.ang - this.ctrl.lean).setSquash(sx, sy);
     s.view.update(dt);
+    if (c.brittle) this.drawCracks(this.ctrlCracks, c.shape, 0, this.ctrl.x + nope / u, y, this.ctrl.ang - this.ctrl.lean);
     // Glue drips honey; Slow-Mo leaves a drift of sparkles.
     if (this.sim.glueLeft > 0 && Math.random() < 0.12) {
       const e = extents(c.shape, c.rot);
@@ -1266,8 +1349,8 @@ export class PlayScene extends Phaser.Scene {
     const ppbScreen = this.W / this.cam.across;
     const lineCss = (this.cam.y + this.H / ppbScreen / 2 - sim.lineY) * ppbScreen / this.dpr;
     hud.setCheckpointChip(!this.demoing && sim.state === 'playing' && lineCss < 96 ? sim.checkpoint : null);
-    hud.setNext(sim.queue.slice(0, 2));
-    hud.setHold(sim.held, sim.holdUsed);
+    hud.setNext(sim.queue.slice(0, 2), sim.nextBrittle());
+    hud.setHold(sim.held, sim.holdUsed, sim.heldBrittle);
     hud.setTension(this.view.reducedMotion ? 0 : sim.tension());
     const left = sim.budget - sim.used;
     const trouble = (!t.infiniteHearts && sim.hearts <= 1) || (!t.infiniteBudget && left <= 3);

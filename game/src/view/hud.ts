@@ -6,6 +6,8 @@ import {
   powerIconUrl, setOffscreenChip, setPlumb, setRail, setWindsock, windsock, type HazardType,
 } from '@art/index.ts';
 import type { PowerKind, SecondWindState } from '../sim/sim.ts';
+import { geometry } from '../sim/shapes.ts';
+import { crackCanvas } from './cracks.ts';
 import { INK } from './palette.ts';
 
 /** The short label under each power's slot. */
@@ -229,38 +231,45 @@ export class Hud {
     c.style.width = c.style.height = `${css}px`;
   }
 
-  private preview(shape: string): HTMLCanvasElement {
-    let c = this.previewCache.get(shape);
-    if (!c) { c = bakePiece(shape, 0, 48, { finish: 'wood' }).canvas; this.previewCache.set(shape, c); }
+  /** A shape's preview picture; a brittle one (gameplay.md §4.3) shows its cracks. */
+  private preview(shape: string, brittle = false): HTMLCanvasElement {
+    const key = brittle ? `${shape}!` : shape;
+    let c = this.previewCache.get(key);
+    if (!c) {
+      const b = bakePiece(shape, 0, 48, { finish: 'wood' });
+      c = b.canvas;
+      if (brittle) c = crackCanvas(c, shape, b.s, b.originX * c.width - geometry(shape).width * b.s / 2, INK);
+      this.previewCache.set(key, c);
+    }
     return c;
   }
 
-  private draw(c: HTMLCanvasElement, shape: string | null, dim = false): void {
+  private draw(c: HTMLCanvasElement, shape: string | null, dim = false, brittle = false): void {
     const ctx = c.getContext('2d')!;
     ctx.clearRect(0, 0, c.width, c.height);
     if (!shape) return;
-    const p = this.preview(shape);
+    const p = this.preview(shape, brittle);
     const k = Math.min(c.width * 0.86 / p.width, c.height * 0.86 / p.height);
     ctx.globalAlpha = dim ? 0.8 : 1;
     ctx.drawImage(p, (c.width - p.width * k) / 2, (c.height - p.height * k) / 2, p.width * k, p.height * k);
   }
 
-  setNext(shapes: string[]): void {
-    const key = shapes.join(',');
+  setNext(shapes: string[], brittle: boolean[] = []): void {
+    const key = shapes.map((k, i) => (brittle[i] ? `${k}!` : k)).join(',');
     if (key === this.nextKey) return;
     this.nextKey = key;
-    this.draw(this.next[0], shapes[0] ?? null);
-    this.draw(this.next[1], shapes[1] ?? null, true);
+    this.draw(this.next[0], shapes[0] ?? null, false, !!brittle[0]);
+    this.draw(this.next[1], shapes[1] ?? null, true, !!brittle[1]);
   }
 
   /** The Hold card shows a padlock until level 2 (gameplay.md §10.3). */
   lockHold(locked: boolean): void { this.holdCard.classList.toggle('locked', locked); }
 
-  setHold(shape: string | null, used: boolean): void {
-    const key = `${shape}|${used}`;
+  setHold(shape: string | null, used: boolean, brittle = false): void {
+    const key = `${shape}|${used}|${brittle}`;
     if (key === this.holdKey) return;
     this.holdKey = key;
-    this.draw(this.holdCanvas, shape);
+    this.draw(this.holdCanvas, shape, false, brittle);
     this.holdCard.style.opacity = used ? '0.55' : '1';
   }
 
@@ -421,6 +430,19 @@ export class Hud {
   /** A hazard's first appearance: Art's one-line card ("Gusts ahead! Keep it wide."), about 3 s. */
   hazardCard(type: HazardType = 'gust', still = false): void {
     this.root.appendChild(hazardCard(type, { still }));
+  }
+
+  /** The first brittle shape a player sees gets a card like a hazard's (gameplay.md §4.3). */
+  brittleCard(shape: string, still = false): void {
+    const el = document.createElement('div');
+    el.className = `ui ui-hcard${still ? ' ui-still' : ''}`;
+    el.setAttribute('role', 'status');
+    const icon = this.preview(shape, true).toDataURL();
+    el.innerHTML = `<div class="ui-hc-title"><img alt="" src="${icon}" style="object-fit:contain"><span>Brittle shape!</span></div>`
+      + '<span class="ui-chip amber">Breaks under 3 shapes</span><span class="ui-chip amber">Set it in stone, or toss it free</span>';
+    el.addEventListener('animationend', e => { if (e.animationName.startsWith('ui-hc')) el.remove(); });
+    setTimeout(() => el.remove(), 5000);
+    this.root.appendChild(el);
   }
 
   flash(alpha = 0.2): void {

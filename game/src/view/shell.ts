@@ -22,6 +22,8 @@ export interface ShellOptions {
   secondWind(): SecondWindMode;
   /** Whether reaching biome `biome` (0 = Meadow) earns its postcard for the first time (the lab has none). */
   newPostcard?(biome: number): boolean;
+  /** Whether this player has yet to see a brittle shape (the lab shows its card every session). */
+  brittleIntro?(): boolean;
   onEvent?(e: BusEvent, sim: Sim): void;
   onRunOver(sim: Sim, payload: Record<string, unknown>): void;
   /** Sound's Audio Director is ready (it needs the browser's audio context first). */
@@ -68,6 +70,7 @@ export async function startShell(o: ShellOptions): Promise<Shell> {
     lab: o.lab,
     secondWind: () => o.secondWind(),
     newPostcard: b => o.newPostcard?.(b) ?? false,
+    brittleIntro: () => o.brittleIntro?.() ?? true,
     onEvent: (e, sim) => o.onEvent?.(e, sim),
     onRunStart(sim, info) {
       bestBefore = scene.bestHeight;

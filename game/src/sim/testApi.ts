@@ -41,8 +41,8 @@ export interface TestSim {
   readonly budget: { total: number; used: number; left: number };
   readonly checkpoint: { n: number; lineY: number; hold: { active: boolean; progress: number } };
   step(n?: number): void;
-  placePiece(p: { shape: string; x: number; y: number; rot?: number; as?: 'dynamic' | 'stone' }): number;
-  spawnControlled(p?: { shape?: string; x?: number; rot?: number }): void;
+  placePiece(p: { shape: string; x: number; y: number; rot?: number; as?: 'dynamic' | 'stone'; brittle?: boolean }): number;
+  spawnControlled(p?: { shape?: string; x?: number; rot?: number; brittle?: boolean }): void;
   intent(i: Intent): void;
   ghost(): Ghost | null;
   pieces(): TestPiece[];
