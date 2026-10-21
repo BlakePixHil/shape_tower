@@ -310,17 +310,22 @@ describe.runIf(game?.gusts)(`gusts on ${sut.kind} (${sut.engine})`, () => {
       const sim = own(new api.Sim({ seed: 2, tuning: { gusts, mortar: false }, autoSpawn: true, rookieOpening: false })) as BotSim & Record<string, any>;
       const bot = new Bot({ seed: 2 }, shapes.extents);
       const seen: string[] = [];
+      const at: number[] = [];
       let last: unknown = null;
       while (sim.stepIndex < 60 * 300 && sim.state === 'playing' && seen.length < 200) {
         bot.tick(sim);
         sim.step();
-        if (sim.ctrl && sim.ctrl !== last) { last = sim.ctrl; seen.push(sim.ctrl.shape); }
+        if (sim.ctrl && sim.ctrl !== last) { last = sim.ctrl; seen.push(sim.ctrl.shape); at.push(sim.checkpoint); }
       }
-      return { seq: seen.join(''), cps: sim.stats.checkpoints };
+      return { seq: seen.join(''), at, cps: sim.stats.checkpoints };
     };
     const on = bag(true), off = bag(false);
-    const n = Math.min(on.seq.length, off.seq.length);
+    // Shape weights change with the checkpoint (late shapes ramp in over their biome), so compare
+    // only while both runs are in the same stretch: gusts may change when a run claims, never the draws.
+    let n = Math.min(on.seq.length, off.seq.length);
+    for (let i = 0; i < n; i++) if (on.at[i] !== off.at[i]) { n = i; break; }
     if (on.seq.slice(0, n) !== off.seq.slice(0, n)) problems.push('gusts change the shape bag');
+    if (n < 40) problems.push(`setup: only ${n} shapes were dealt in the same stretch, too few to compare`);
     if (on.cps < 3) problems.push(`setup: the bag run only reached checkpoint ${on.cps + 1}, before any gusts`);
     lines.push(`the first ${n} shapes are the same with gusts on and off (the run with gusts reached checkpoint ${on.cps + 1})`);
     writeReport({ suite: 'gust-replays', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', [...lines, ...problems.map((p) => `FAIL ${p}`)], {});
