@@ -5,8 +5,9 @@
 import { INK } from './config.ts';
 import { type Ctx, TAU } from './util.ts';
 
-export type Expression = 'idle' | 'falling' | 'impact' | 'proud' | 'worried' | 'panic' | 'dizzy' | 'carved' | 'blink';
-export const EXPRESSIONS: Expression[] = ['idle', 'falling', 'impact', 'proud', 'worried', 'panic', 'dizzy', 'carved', 'blink'];
+/** `squint` is for faces on the tower's top during a gust (§6.3): eyes screwed shut against the wind. */
+export type Expression = 'idle' | 'falling' | 'impact' | 'proud' | 'worried' | 'panic' | 'dizzy' | 'carved' | 'blink' | 'squint';
+export const EXPRESSIONS: Expression[] = ['idle', 'falling', 'impact', 'proud', 'worried', 'panic', 'dizzy', 'carved', 'blink', 'squint'];
 
 /** Face layout in blocks. */
 export const FACE = {
@@ -29,6 +30,7 @@ export const PUPILS: Record<Expression, { show: boolean; eye: number; pupil: num
   dizzy: { show: false, eye: 1, pupil: 1 },
   carved: { show: false, eye: 1, pupil: 1 },
   blink: { show: false, eye: 1, pupil: 1 },
+  squint: { show: false, eye: 1, pupil: 1 },
 };
 
 /** How far (in blocks) a pupil can travel from its eye centre for an expression. */
@@ -65,6 +67,12 @@ export function drawEyes(c: Ctx, s: number, ex: Expression): void {
   } else if (ex === 'impact') {
     for (const [ox, d] of [[L, 1], [R, -1]]) {
       c.beginPath(); c.moveTo(ox - d * er * 0.7, ey - er * 0.6); c.lineTo(ox + d * er * 0.5, ey); c.lineTo(ox - d * er * 0.7, ey + er * 0.6); c.stroke();
+    }
+  } else if (ex === 'squint') {
+    // Two tight wavy lids, the outer ends pulled down, and brows pushed in.
+    for (const [ox, d] of [[L, 1], [R, -1]]) {
+      c.beginPath(); c.moveTo(ox - d * er * 0.85, ey + er * 0.25); c.quadraticCurveTo(ox - d * er * 0.2, ey - er * 0.35, ox + d * er * 0.75, ey - er * 0.05); c.stroke();
+      c.beginPath(); c.moveTo(ox - d * er * 0.8, ey - er * 0.95); c.lineTo(ox + d * er * 0.55, ey - er * 0.65); c.stroke();
     }
   } else if (ex === 'proud') {
     for (const ox of [L, R]) { c.beginPath(); c.arc(ox, ey + er * 0.35, er * 0.7, 1.1 * Math.PI, 1.9 * Math.PI); c.stroke(); }
@@ -121,6 +129,12 @@ export function drawMouth(c: Ctx, s: number, ex: Expression, detail = true, wobb
       cheeks(); c.beginPath(); c.moveTo(-er * 0.85, my - er * 0.4); c.quadraticCurveTo(0, my + er * 1.0, er * 0.85, my - er * 0.4); c.closePath(); c.fill(); break;
     case 'worried': case 'dizzy':
       wavy(); break;
+    case 'squint':
+      // Gritted: a flat little mouth with teeth lines.
+      c.beginPath(); c.moveTo(-er * 0.6, my - er * 0.05); c.lineTo(er * 0.6, my - er * 0.05); c.lineTo(er * 0.5, my + er * 0.3); c.lineTo(-er * 0.5, my + er * 0.3); c.closePath();
+      c.fillStyle = '#FFFFFF'; c.fill(); c.stroke();
+      c.lineWidth = lw(s) * 0.6; c.beginPath(); for (const x of [-0.2, 0.2]) { c.moveTo(x * er, my - er * 0.05); c.lineTo(x * er, my + er * 0.3); } c.stroke();
+      break;
     case 'panic':
       c.beginPath(); c.ellipse(0, my + er * 0.15, er * 0.45, er * 0.62, 0, 0, TAU); c.fill(); break;
     case 'carved':

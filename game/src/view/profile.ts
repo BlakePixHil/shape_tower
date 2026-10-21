@@ -16,6 +16,7 @@ export interface Profile {
   sliceRuns: number;   // game-build runs started on this install (QA's Gate 1 protocol)
   player: string;      // a random id made once per install, so QA can group runs by player
   seenGusts: boolean;  // the first gust of a player's first Treetops is half strength, with a card (§8.3)
+  postcards: (string | null)[]; // per biome (1 to 10), the local date it was first reached
 }
 
 export interface ProfileStats {
@@ -48,7 +49,7 @@ const KEY = 'shape-tower-profile-v1';
 
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false });
+const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, postcards: Array(10).fill(null) });
 
 export function loadProfile(): Profile {
   try {
@@ -56,6 +57,7 @@ export function loadProfile(): Profile {
     if (raw) {
       const p = { ...fresh(), ...(JSON.parse(raw) as Partial<Profile>) };
       p.stats = { ...freshStats(), ...p.stats };
+      p.postcards = Array.from({ length: 10 }, (_, i) => p.postcards?.[i] ?? null);
       if (!p.player) { p.player = newPlayer(); saveProfile(p); }
       return p;
     }
@@ -124,8 +126,9 @@ export function award(p: Profile, base: number, opts: { newBest: boolean; quit: 
 }
 
 /** Adds a finished run to the lifetime stats (saved with the next award). */
-export function addRunStats(p: Profile, r: { height: number; biome: number; bricks: number; perfects: number; rows: number; checkpoints: number; clutches: number }): void {
+export function addRunStats(p: Profile, r: { height: number; biome: number; bricks: number; perfects: number; rows: number; checkpoints: number; clutches: number }, now = new Date()): void {
   const s = p.stats;
+  for (let i = 0; i < Math.min(10, r.biome); i++) p.postcards[i] ??= day(now);
   s.bestHeight = Math.max(s.bestHeight, r.height);
   s.bestBiome = Math.max(s.bestBiome, r.biome);
   s.bricks += r.bricks;

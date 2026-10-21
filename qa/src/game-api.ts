@@ -11,6 +11,8 @@ export interface GameApi {
   shapes: Record<string, any>;
   /** Whether this build has power-ups and Second Wind (gameplay.md §13, from 81540e9). */
   powers: boolean;
+  /** Whether this build has gusts (gameplay.md §8.2, §8.3, from game/slice). */
+  gusts: boolean;
 }
 
 export async function loadGameApi(sut: SimUnderTest): Promise<GameApi | null> {
@@ -20,6 +22,7 @@ export async function loadGameApi(sut: SimUnderTest): Promise<GameApi | null> {
   const shapes = await import(pathToFileURL(resolve(dirname(path), 'shapes.ts')).href);
   const probe = new api.Sim({ seed: 1, autoSpawn: false });
   const powers = Array.isArray(probe.slots);
+  const gusts = typeof probe.gust === 'object' && probe.gust !== null;
   probe.dispose();
-  return { api, shapes, powers };
+  return { api, shapes, powers, gusts };
 }

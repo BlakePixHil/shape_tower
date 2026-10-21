@@ -916,6 +916,10 @@ export class AudioDirector {
           this.stopPlaying(loop, when, 0.6);
           this.hazardLoops.delete(type);
         }
+        // a hold cut the warning short and no gust comes: the rising whoosh stops building
+        const warn = this.hazardLoops.get(`${type}.warn`);
+        if (warn && bool(p, 'cancelled')) this.stopPlaying(warn, when, 0.25);
+        this.hazardLoops.delete(`${type}.warn`);
         break;
       }
 
@@ -1364,15 +1368,18 @@ export class AudioDirector {
           if (l) this.hazardLoops.set('tidal', l);
         }
         break;
-      default:
+      default: {
         // gusts and crosswind: a rising whoosh timed to end as the push arrives
-        this.play('gust.warn', { when, offset: Math.max(0, 2.0 - eta), gainDb: -10, pan, category: 'misc', priority: 2 });
+        const w = this.play('gust.warn', { when, offset: Math.max(0, 2.0 - eta), gainDb: -10, pan, category: 'misc', priority: 2 });
+        if (w) this.hazardLoops.set(`${type}.warn`, w);
+      }
     }
     this.haptic('hazardWarn');
   }
 
   private onHazardStart(p: Payload, when: number): void {
     const type = hazardType(str(p, 'type'));
+    this.hazardLoops.delete(`${type}.warn`); // the whoosh has done its job, so let it finish
     const strength = clamp(num(p, 'strength', 0.1) / 0.15, 0, 1);
     if (type === 'gust') this.play('gust.push', { when, gainDb: -14 + 6 * strength, pan: dirPan(p?.dir) * 0.4, category: 'misc', priority: 2 });
     else if (type === 'crosswind' && !this.hazardLoops.has(type)) {

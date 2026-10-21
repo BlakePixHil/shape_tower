@@ -59,6 +59,7 @@ async function boot(): Promise<void> {
   hud.pauseBtn.onclick = pause;
   hud.onPower = slot => scene.usePower(slot);
   hud.onSecondWind = () => scene.useSecondWind();
+  hud.onHold = () => scene.hold();
   hud.labBtn.onclick = () => panel.toggle();
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   window.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p') pause(); });

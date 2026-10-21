@@ -571,6 +571,21 @@ const scenarios = {
       TUNING.wheeChance = saved;
     }
   },
+
+  /** A gust's warning whoosh builds to its push; a warning a hold cancels stops building. */
+  async gusts() {
+    const { ctx, d } = await makeDirector(9);
+    d.handle('run_start', {}, 0.1);
+    d.mixer.setVolume('ambience', 0, 0.2);
+    d.mixer.setVolume('music', 0, 0.2);
+    d.handle('hazard_warning', { type: 'gust', dir: -1, eta: 2 }, 0.5);
+    d.handle('hazard_end', { type: 'gust', cancelled: true }, 1.2);
+    d.handle('hazard_warning', { type: 'gust', dir: 1, eta: 2 }, 4.5);
+    d.handle('hazard_start', { type: 'gust', strength: 0.08, dir: 1 }, 6.5);
+    d.handle('hazard_end', { type: 'gust' }, 7.5);
+    const buf = await ctx.startRendering();
+    return { cancelledDb: db(analyse(buf, 1.8, 2.5).rms), builtDb: db(analyse(buf, 5.8, 6.5).rms), nonFinite: analyse(buf).nonFinite };
+  },
 };
 
 /** Records the name of every sound the director plays. */

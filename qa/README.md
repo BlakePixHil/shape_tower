@@ -44,12 +44,14 @@ The merge gate is `qa/scripts/gate.sh [checkout]`: every module's own checks (ga
 | `tests/physics.test.ts` | F3.1 to F3.8: towers, creep, tunnelling, explosions, sleeping, determinism, stone |
 | `tests/bots.test.ts` | F3.11: bots play whole runs, Mortar on and off, and the sim never throws |
 | `tests/powers.test.ts` | F18: each power-up and its refusal, bubbles, picks, grants, Second Wind, physics under powers, rule checks over bot runs, replays with powers |
+| `tests/gusts.test.ts` | F7: the gust schedule per checkpoint, the intro, what a gust pushes, a wall that stands through gusts, no gust in a hold or a claim, replays with gusts, the shape bag unchanged by gusts |
 | `tests/harness.test.ts` | Proves the harness catches a lying guide, a falling tower and a nondeterministic sim |
 | `scripts/run-story.ts` | Replays a run record from a phone, checks its digests against Node, and prints each landing with the ghost the player saw, losses, hearts, bond breaks, power-ups and Second Wind |
-| `scripts/cross-build.ts` | Records bot runs on one build and replays them on another, to check that a change leaves earlier runs step for step the same |
+| `scripts/cross-build.ts` | Records bot runs on one build and replays them on another, to check that a change leaves earlier runs step for step the same (`--tuning` replays them with tuning changed, such as gusts on) |
 | `scripts/replay-child.ts` | Replays run records in a fresh process (F18.13) |
 | `scripts/gate.sh` | The merge gate: every module's checks plus the fast set on one checkout |
 | `scripts/ui-second-wind.mjs` | Drives a built game in headless Chromium and checks Second Wind in the HUD: two-tap arming, the glow, no pop-up at pause or game over, the greyed state, the day's free one |
+| `scripts/ui-screens.mjs` | Opens each UI kit screen of the built art preview at three phone and tablet sizes, saves screenshots, and checks for sideways scroll, controls off screen or under 44 px, cut-off text and page errors |
 
 ## Conventions
 
