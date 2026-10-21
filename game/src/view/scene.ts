@@ -62,7 +62,7 @@ const D = { slab: 5, line: 8, piece: 10, fx: 30, front: 35, guide: 40, bubble: 4
 
 // The main menu's demo tower: [shape, x, rot], dropped one at a time onto the plinth.
 const DEMO: [string, number, number][] = [['O', -2, 0], ['O', 2, 0], ['I', 0, 0], ['T', -1.5, 2], ['L', 1.5, 0], ['O', 0, 0], ['I', 0, 1]];
-const DEMO_TUNING: Partial<Tuning> = { firstGap: 60, gapCap: 60, infiniteBudget: true, infiniteHearts: true, powerUps: false };
+const DEMO_TUNING: Partial<Tuning> = { firstGap: 60, gapCap: 60, infiniteBudget: true, infiniteHearts: true, powerUps: false, gusts: false };
 const ORBIT = ART_BIOMES.findIndex(b => b.id === 'orbit'); // landings throw stardust from here up
 const STONE_CHIP = 0xb9b1a6;
 const WIND_BLUE = POWER_COLORS.wind;
@@ -114,6 +114,8 @@ export class PlayScene extends Phaser.Scene {
   private bubbleView: { id: number; view: PowerBubble } | null = null;
   private poppedBubbles: PowerBubble[] = []; // still playing their collect or fade
   private taughtBubble = false;
+  private weather!: Particles; // hazard telegraphs: information, so they stay with juice off
+  private gustAcc = 0;
   private demoing = false;
   private demoIdx = 0;
   private demoAt = 0;
@@ -146,6 +148,7 @@ export class PlayScene extends Phaser.Scene {
     this.guide = new GuideView(this.art, D.guide);
     this.pb = new PbMarker(this.art, D.line - 0.1);
     this.particles = new Particles(this, D.fx);
+    this.weather = new Particles(this, D.fx, 80);
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
       ctrlX: () => (this.started && !this.paused && this.sim?.ctrl ? this.sim.ctrl.xTarget : null),
@@ -188,6 +191,7 @@ export class PlayScene extends Phaser.Scene {
     for (const s of this.slabs.values()) s.img.destroy();
     this.slabs.clear();
     this.particles?.clear();
+    this.weather?.clear();
     this.guide.hide();
     for (const l of this.lines) l.destroy();
     this.lines = [];
@@ -425,8 +429,15 @@ export class PlayScene extends Phaser.Scene {
         break;
       }
       case 'budget_low': this.hooks.hud.pulseBricks(); break;
+      case 'hazard_warning':
+        if (p.first) this.hooks.hud.hazardCard('Gusts ahead! Keep it wide.');
+        break;
       case 'checkpoint_cancelled': this.pop('Wobbly!', this.sim.foundation.x, this.sim.lineY + 0.6, AMBER, 18); break;
-      case 'checkpoint_claimed': this.onClaim(p, now); this.skyMarks.push({ y: this.sim.foundation.top, sp: this.skyClock.sp }); break;
+      case 'checkpoint_claimed':
+        this.onClaim(p, now);
+        this.skyMarks.push({ y: this.sim.foundation.top, sp: this.skyClock.sp });
+        this.backdrop.setCosmos(this.sim.checkpoint); // Deep Cosmos changes palette every 6 checkpoints
+        break;
       case 'biome_entered':
         this.hooks.hud.titleCard(BIOME_TITLES[Number(p.id) - 1] ?? '');
         if (this.juice) this.backdrop.arrival(Number(p.id) - 1); // birds for Treetops, the cloud punch-through for Cloudlands
@@ -567,6 +578,23 @@ export class PlayScene extends Phaser.Scene {
     if (v && b && v.id === b.id) v.view.set(b.x * this.ppb, -b.y * this.ppb).ending(b.shapesLeft === 1).update(dt);
     for (const p of this.poppedBubbles) p.update(dt);
     this.poppedBubbles = this.poppedBubbles.filter(p => { if (p.done) p.destroy(); return !p.done; });
+  }
+
+  /** Wind streaks from the upwind edge: sparse while a gust is warned, denser while it blows. */
+  private drawGust(dt: number): void {
+    const g = this.sim.gust;
+    this.hooks.hud.setHazard(this.started ? g.phase : 'idle', g.dir);
+    if (g.phase === 'idle' || !this.started || this.paused) { this.gustAcc = 0; return; }
+    const rate = (g.phase === 'warn' ? 5 : 8 + 100 * g.strength) * (this.view.reducedMotion ? 0.3 : 1);
+    this.gustAcc += dt * rate;
+    const u = this.ppb, visH = this.H / (this.ppb * this.zoom), half = this.cam.across / 2;
+    while (this.gustAcc >= 1) {
+      this.gustAcc--;
+      const x = this.cam.x - g.dir * (half + 1 + Math.random() * 2);
+      const y = this.cam.y + (Math.random() - 0.5) * visH * 0.8;
+      const v = u * (14 + Math.random() * 6) * (this.view.reducedMotion ? 0.5 : 1);
+      this.weather.spawn(x * u, -y * u, g.dir * v, 0, this.fx('gust', 2, 2, { tint: 0xffffff, life: (half * 2 + 3) * u / v, alpha: g.phase === 'warn' ? 0.45 : 0.75, angle: g.dir > 0 ? 0 : Math.PI }));
+    }
   }
 
   /** The bubble bursts and its icon flies to the slot it fills (collected), or drifts away. */
@@ -768,7 +796,9 @@ export class PlayScene extends Phaser.Scene {
     this.drawCtrl(dt, alpha, now, sp);
     this.drawGuide(now);
     this.drawBubble(dt);
+    this.drawGust(dt);
     this.particles.update(dt);
+    this.weather.update(dt);
     this.updateHud(committed);
   }
 

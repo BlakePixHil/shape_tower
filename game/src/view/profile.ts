@@ -15,6 +15,7 @@ export interface Profile {
   stats: ProfileStats; // lifetime stats for the Profile screen (gameplay.md §10.3)
   sliceRuns: number;   // game-build runs started on this install (QA's Gate 1 protocol)
   player: string;      // a random id made once per install, so QA can group runs by player
+  seenGusts: boolean;  // the first gust of a player's first Treetops is half strength, with a card (§8.3)
 }
 
 export interface ProfileStats {
@@ -47,7 +48,7 @@ const KEY = 'shape-tower-profile-v1';
 
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer() });
+const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false });
 
 export function loadProfile(): Profile {
   try {

@@ -83,6 +83,10 @@ export interface Tuning {
   glueStrength: number;       // × break thresholds for glued bonds
   slowShapes: number;
   slowFactor: number;         // × fall speed
+  // Hazards (gameplay.md §8.2, §8.3)
+  gusts: boolean;             // sideways pushes on the tower, Treetops to the Stratosphere
+  gustScale: number;          // × every gust's strength (lab)
+  hazardIntro: boolean;       // the run's first gust is a first-ever one: half strength, with a card
   // Debug
   wind: number;               // constant sideways push in g, lab only
   infiniteBudget: boolean;
@@ -160,12 +164,28 @@ export const DEFAULT_TUNING: Tuning = {
   glueStrength: 2,
   slowShapes: 3,
   slowFactor: 0.5,
+  gusts: true,
+  gustScale: 1,
+  hazardIntro: true,
   wind: 0,
   infiniteBudget: false,
   infiniteHearts: false,
 };
 
 // ---- Difficulty per checkpoint number n (the stretch leading to checkpoint n), §8.1 ----
+
+/**
+ * Gusts at checkpoint n (gameplay.md §8.2): strength in g and the average gap between gusts in
+ * seconds. Introduced in Treetops (3-4), ramping in Cloudlands (5-6), steady through the Storm
+ * Belt and up to 0.15 g in the Stratosphere. None from Orbit on (no wind in space).
+ */
+export function gustFor(n: number): { strength: number; interval: number } | null {
+  const table: Record<number, [number, number]> = {
+    3: [0.05, 18], 4: [0.08, 15], 5: [0.09, 14], 6: [0.12, 12], 7: [0.12, 12], 8: [0.12, 12], 9: [0.135, 12], 10: [0.15, 12],
+  };
+  const row = table[n];
+  return row ? { strength: row[0], interval: row[1] } : null;
+}
 
 export function gapFor(t: Tuning, n: number): number {
   return Math.min(t.firstGap + t.gapGrowth * (n - 1), t.gapCap);

@@ -624,5 +624,68 @@ function twoClaims(t: ReturnType<typeof createSim>): Record<string, any>[] {
   t.dispose();
 }
 
+// Gusts (gameplay.md §8.2, §8.3): none before Treetops; each warned exactly 2 s ahead; never
+// starting during a hold or the claim pause; the run's first at half strength; Treetops strengths
+// and gaps; and a run with gusts replays exactly.
+{
+  const tuning = { firstGap: 4, gapGrowth: 0, infiniteBudget: true, infiniteHearts: true, powerUps: false };
+  const t = createSim({ autoSpawn: true, seed: 21, tuning });
+  const digests: string[] = [];
+  const warns: { step: number; cp: number; strength: number; first: boolean }[] = [];
+  const starts: { step: number; cp: number; hold: boolean; dur: number; strength: number }[] = [];
+  const ends: { step: number; cancelled: boolean }[] = [];
+  let landed = 0, early = 0;
+  for (let i = 0; i < 60 * 400 && t.sim.checkpoint <= 4; i++) {
+    const c = t.sim.ctrl;
+    if (c && !c.hard && c.speed > 0) {
+      // Hard drops before Treetops to get there quickly, then shapes fall on their own.
+      const f = t.sim.foundation;
+      const x = f.x - f.width / 2 + 1 + (landed % Math.max(1, f.width - 2));
+      if (Math.abs(c.xTarget - x) > 0.01) t.intent({ type: 'moveTo', x });
+      else if (t.sim.checkpoint < 3) t.intent({ type: 'hardDrop' });
+    }
+    const hold = t.sim.holdState().active;
+    t.step();
+    if (t.stepIndex % 60 === 0) digests.push(t.digest());
+    for (const e of t.drainEvents()) {
+      const p = e.payload as Record<string, number & boolean>;
+      if (e.name === 'piece_landed') landed++;
+      if (e.name === 'hazard_warning') { warns.push({ step: e.step, cp: t.sim.checkpoint, strength: p.strength, first: p.first }); if (t.sim.checkpoint < 3) early++; }
+      if (e.name === 'hazard_start') starts.push({ step: e.step, cp: t.sim.checkpoint, hold: hold || t.sim.holdState().active, dur: p.duration, strength: p.strength });
+      if (e.name === 'hazard_end') ends.push({ step: e.step, cancelled: !!p.cancelled });
+    }
+  }
+  const lead = starts.every(st => warns.some(w => st.step - w.step === 120));
+  const inHold = starts.filter(st => st.hold).length;
+  const firstHalf = warns.length > 1 && warns[0].first && Math.abs(warns[0].strength - 0.025) < 1e-9 && !warns[1].first;
+  const strengths = starts.slice(1).every(st => Math.abs(st.strength - (st.cp === 3 ? 0.05 : st.cp === 4 ? 0.08 : st.strength)) < 1e-9);
+  const durs = starts.every(st => st.dur >= 2 && st.dur <= 3);
+  check('Gusts: none before Treetops, warned 2 s ahead, never start in a hold, first at half strength', early === 0 && starts.length >= 2 && lead && inHold === 0 && firstHalf && strengths && durs,
+    `reached CP ${t.sim.checkpoint}, ${warns.length} warnings, ${starts.length} gusts, ${ends.filter(e => e.cancelled).length} called off by a hold, early ${early}, lead ${lead}, in hold ${inHold}, first ${warns[0]?.strength} ${warns[0]?.first}`);
+  const r = replay({ seed: 21, tuning, inputs: t.sim.inputLog, steps: t.stepIndex });
+  const firstDiff = digests.findIndex((d, k) => d !== r.digests[k]);
+  check('A run with gusts replays exactly', firstDiff === -1 && r.digests.length === digests.length && t.sim.stats.gusts > 0, `${digests.length} digests, ${t.sim.stats.gusts} gusts, first mismatch ${firstDiff === -1 ? 'none' : 'at second ' + (firstDiff + 1)}`);
+  t.dispose();
+}
+
+// A gust pushes the tower: a loose O resting on the plinth slides with the wind, the same O with
+// gusts off doesn't move.
+{
+  const drift = (gusts: boolean) => {
+    const t = createSim({ seed: 3, tuning: { gusts, infiniteBudget: true, infiniteHearts: true, mortar: false, friction: 0.05, foundationFriction: 0.05 } });
+    t.sim.checkpoint = 6; // Cloudlands: 0.12 g
+    t.placePiece({ shape: 'O', x: 0, y: 1, as: 'dynamic' });
+    t.step(60);
+    const x0 = t.pieces()[0].x;
+    let blew = 0;
+    for (let i = 0; i < 60 * 14; i++) { t.step(); if (t.sim.gust.phase === 'blow') blew++; }
+    const dx = t.pieces()[0].x - x0;
+    t.dispose();
+    return { dx, blew };
+  };
+  const on = drift(true), off = drift(false);
+  check('A gust pushes a loose piece; with gusts off nothing moves', on.blew > 60 && Math.abs(on.dx) > 0.05 && Math.abs(off.dx) < 1e-6, `on: moved ${on.dx.toFixed(3)} over ${on.blew} steps of gust; off: ${off.dx.toExponential(1)}`);
+}
+
 console.log(failures ? `\n${failures} failing` : '\nall passing');
 (globalThis as any).process.exitCode = failures ? 1 : 0;

@@ -43,6 +43,13 @@ const CSS = `
 .st-pill span { position: relative; }
 .st-title { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -40px); opacity: 0; font: 700 34px 'Fredoka', sans-serif; color: #fff; -webkit-text-stroke: 4px ${INK}; paint-order: stroke fill; letter-spacing: 0.05em; transition: transform 500ms cubic-bezier(.2,1.6,.4,1), opacity 300ms; white-space: nowrap; }
 .st-title.show { transform: translate(-50%, 0); opacity: 1; }
+.st-hazard { position: absolute; top: 42%; display: flex; align-items: center; gap: 4px; background: #FFF7E8; border: 3px solid ${INK}; border-radius: 12px; box-shadow: 0 3px 0 ${INK}; font: 700 15px 'Fredoka', sans-serif; padding: 3px 9px; opacity: 0; transition: opacity 200ms; }
+.st-hazard.left { left: 8px; }
+.st-hazard.right { right: 8px; }
+.st-hazard.warn { opacity: 1; animation: st-pulse 500ms infinite; background: #FFAA2B; }
+.st-hazard.blow { opacity: 1; }
+.st-hcard { position: absolute; left: 50%; top: 30%; transform: translate(-50%, -20px) scale(0.9); opacity: 0; background: #FFF7E8; border: 3px solid ${INK}; border-radius: 14px; box-shadow: 0 4px 0 ${INK}; font: 700 18px 'Fredoka', sans-serif; padding: 8px 14px; white-space: nowrap; transition: transform 400ms cubic-bezier(.2,1.6,.4,1), opacity 250ms; }
+.st-hcard.show { transform: translate(-50%, 0) scale(1); opacity: 1; }
 .st-vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px 30px rgba(255,77,109,0.85); opacity: 0; z-index: 4; }
 .st-flash { position: fixed; inset: 0; pointer-events: none; background: #fff; opacity: 0; z-index: 4; transition: opacity 60ms; }
 .st-overlay { position: fixed; inset: 0; display: none; place-items: center; background: rgba(34,24,58,0.55); pointer-events: auto; z-index: 8; padding: 16px; }
@@ -98,6 +105,9 @@ export class Hud {
   private overlay: HTMLDivElement;
   private hint: HTMLDivElement;
   private arrow: HTMLDivElement;
+  private hazardEl: HTMLDivElement;
+  private hcard: HTMLDivElement;
+  private hazardKey = '';
   readonly pauseBtn: HTMLButtonElement;
   readonly labBtn: HTMLButtonElement;
   private slotBtns: HTMLButtonElement[];
@@ -141,6 +151,8 @@ export class Hud {
         <div class="st-pill" data-id="pill"><div class="st-fill"></div><span>CP 1</span></div>
       </div>
       <div class="st-title" data-id="title"></div>
+      <div class="st-hazard left" data-id="hazard"></div>
+      <div class="st-hcard" data-id="hcard"></div>
       <div class="st-hint" data-id="hint"><span>drag ↔ move</span><span>tap ⟳ rotate</span><span>drag ↓ faster</span><span>flick ↓ drop</span><span>flick ↑ hold</span></div>
       <div class="st-arrow" data-id="arrow">▼</div>
       <div class="st-powers">
@@ -164,6 +176,8 @@ export class Hud {
     this.title = q('title');
     this.hint = q('hint');
     this.arrow = q('arrow');
+    this.hazardEl = q('hazard');
+    this.hcard = q('hcard');
     this.pauseBtn = q('pause');
     this.labBtn = q('lab');
     this.slotBtns = [q('slot0'), q('slot1')];
@@ -296,6 +310,30 @@ export class Hud {
     setTimeout(() => this.title.classList.remove('show'), 1800);
   }
 
+  /**
+   * The hazard chip (gameplay.md §8.3), on the side the push comes from, with an arrow the way it
+   * pushes: it pulses during the 2 s warning and stays while the gust blows.
+   */
+  setHazard(phase: 'idle' | 'warn' | 'blow', dir: number): void {
+    const key = `${phase}|${dir}`;
+    if (key === this.hazardKey) return;
+    this.hazardKey = key;
+    const el = this.hazardEl;
+    el.classList.toggle('warn', phase === 'warn');
+    el.classList.toggle('blow', phase === 'blow');
+    if (phase === 'idle') return;
+    el.classList.toggle('left', dir > 0);
+    el.classList.toggle('right', dir < 0);
+    el.textContent = dir > 0 ? (phase === 'warn' ? '💨 GUST →' : '💨 →') : (phase === 'warn' ? '← GUST 💨' : '← 💨');
+  }
+
+  /** A hazard's first appearance: one line, for about 3 s ("Gusts ahead! Keep it wide."). */
+  hazardCard(text: string): void {
+    this.hcard.textContent = text;
+    this.hcard.classList.add('show');
+    setTimeout(() => this.hcard.classList.remove('show'), 3000);
+  }
+
   flash(alpha = 0.2): void {
     this.flashEl.style.opacity = String(alpha);
     setTimeout(() => (this.flashEl.style.opacity = '0'), 60);
@@ -392,6 +430,8 @@ export class Hud {
 
   reset(): void {
     this.powerKey = '';
+    this.setHazard('idle', 0);
+    this.hcard.classList.remove('show');
     this.windArmedUntil = 0;
     this.windSpentAt = 0;
     this.lastWind = 'earn';
