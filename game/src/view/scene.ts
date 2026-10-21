@@ -450,6 +450,7 @@ export class PlayScene extends Phaser.Scene {
         break;
       }
       case 'row_solid': this.onRows(p, now); break;
+      case 'row_ready': this.onRowsReady(p); break;
       case 'piece_lost': {
         this.slowmo(now, 0.35, 500);
         const s = this.sprites.get(p.id);
@@ -577,6 +578,16 @@ export class PlayScene extends Phaser.Scene {
     const words = ['', 'SOLID!', 'DOUBLE!', 'TRIPLE!', 'TOWERING!'];
     this.toast(words[Math.min(4, count)], p.x as number, Math.max(...(p.rows as number[])) + 1.2, '#FFFFFF', 24 + count * 2);
     this.shaker.add(0.22 + 0.06 * count);
+  }
+
+  /** Full rows waiting for the set streak: a faint outline across each, and the meter pulses. Information, so it shows with juice off too. */
+  private onRowsReady(p: Record<string, any>): void {
+    this.hooks.hud.pulseSet();
+    const w = p.width as number, x = p.x as number;
+    for (const ry of p.rows as number[]) {
+      const r = this.add.rectangle(x * this.ppb, -ry * this.ppb, w * this.ppb, this.ppb * 0.96).setStrokeStyle(Math.max(2, this.ppb * 0.06), 0xffffff, 0.7).setDepth(D.fx);
+      this.tweens.add({ targets: r, alpha: 0, delay: 350, duration: 650, onComplete: () => r.destroy() });
+    }
   }
 
   private onClaim(p: Record<string, any>, now: number): void {
@@ -1243,6 +1254,7 @@ export class PlayScene extends Phaser.Scene {
     const t = sim.tuning;
     hud.setHearts(sim.hearts, t.hearts, t.infiniteHearts);
     hud.setBricks(sim.budget - sim.used, t.infiniteBudget);
+    hud.setStreak(sim.streak, sim.setNeed);
     hud.setHeight(committed - sim.foundations[0].top);
     const hold = sim.holdState();
     hud.setCheckpoint(sim.checkpoint, sim.lineY - committed, hold.active ? hold.progress : null);

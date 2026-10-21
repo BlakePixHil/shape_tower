@@ -36,6 +36,12 @@ const CSS = `
 .st-chip.warn { background: #FFAA2B; }
 .st-chip.danger { background: #FF4D6D; color: #fff; }
 .st-chip.pulse { animation: st-pulse 400ms; }
+.st-set { gap: 3px; padding: 3px 8px; }
+.st-set[hidden] { display: none; }
+.st-set i { width: 9px; height: 9px; border-radius: 50%; border: 2px solid ${INK}; background: transparent; }
+.st-set i.on { background: #9AA7B8; }
+.st-set.ready { background: #FFE08A; }
+.st-set.ready i.on { background: #6B7A90; }
 @keyframes st-pulse { 50% { transform: scale(1.25); } }
 .st-center { position: absolute; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 8px); display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .st-height { font: 700 38px 'Fredoka', sans-serif; color: #fff; -webkit-text-stroke: 3px ${INK}; paint-order: stroke fill; line-height: 1; font-variant-numeric: tabular-nums; transition: transform 120ms; }
@@ -96,6 +102,8 @@ export class Hud {
   readonly root: HTMLDivElement;
   private hearts: HTMLDivElement;
   private bricks: HTMLDivElement;
+  private setEl: HTMLDivElement;
+  private setKey = '';
   private heightEl: HTMLDivElement;
   private pill: HTMLDivElement;
   private pillText: HTMLSpanElement;
@@ -151,6 +159,7 @@ export class Hud {
           <div class="st-row"><button class="st-btn st-iconbtn" data-id="pause" aria-label="Pause">❚❚</button><div class="st-hearts" data-id="hearts"></div></div>
           <div class="st-card" data-id="holdcard" style="width:58px;height:58px"><div class="st-cap">HOLD</div><canvas data-id="hold"></canvas></div>
           <div class="st-chip" data-id="bricks">🧱 <span>0</span></div>
+          <div class="st-chip st-set" data-id="set" hidden aria-label="Set streak"><span>🪨</span></div>
           <div class="st-gauges" data-id="gauges"></div>
         </div>
         <div class="st-col" style="align-items:flex-end">
@@ -174,6 +183,7 @@ export class Hud {
     const q = <T extends HTMLElement>(id: string) => this.root.querySelector(`[data-id="${id}"]`) as T;
     this.hearts = q('hearts');
     this.bricks = q('bricks');
+    this.setEl = q('set');
     this.heightEl = q('height');
     this.pill = q('pill');
     this.pillText = this.pill.querySelector('span')!;
@@ -287,6 +297,31 @@ export class Hud {
     if (span.textContent !== text) span.textContent = text;
     this.bricks.classList.toggle('warn', !infinite && left <= 5 && left > 1);
     this.bricks.classList.toggle('danger', !infinite && left <= 1);
+  }
+
+  /**
+   * The set streak (gameplay.md §9.1): a pip per Clean or Perfect placement in a row, out of `need`.
+   * Full, it glows: the next full row turns to stone. Hidden where rows set at once (need 0).
+   */
+  setStreak(count: number, need: number): void {
+    const key = `${count}/${need}`;
+    if (key === this.setKey) return;
+    this.setKey = key;
+    this.setEl.hidden = need <= 0;
+    if (need <= 0) return;
+    const pips = [...this.setEl.querySelectorAll('i')];
+    for (let i = pips.length; i < need; i++) this.setEl.appendChild(document.createElement('i'));
+    for (let i = need; i < pips.length; i++) pips[i].remove();
+    this.setEl.querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i < count));
+    this.setEl.classList.toggle('ready', count >= need);
+    this.setEl.setAttribute('aria-label', count >= need ? 'Set streak ready: the next full row turns to stone' : `Set streak ${count} of ${need}`);
+  }
+
+  /** A full row is waiting for the streak. */
+  pulseSet(): void {
+    this.setEl.classList.remove('pulse');
+    void this.setEl.offsetWidth;
+    this.setEl.classList.add('pulse');
   }
 
   pulseBricks(): void {
@@ -486,6 +521,7 @@ export class Hud {
 
   reset(): void {
     this.powerKey = '';
+    this.setKey = '';
     this.chips.clear();
     this.root.querySelectorAll('.ui-hazard, .ui-hcard, .ui-btitle').forEach(e => e.remove());
     this.setGauges(null, null);

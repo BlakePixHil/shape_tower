@@ -8,7 +8,7 @@ import { makeStreams, type RngStreams } from './rng.ts';
 import { SHAPES, bottomCells, colliderBoxes, extents, geometry, rotQ, rotate, type ColliderBox, type Rot } from './shapes.ts';
 import {
   DEFAULT_TUNING, GRADE_FACTOR, REMIX_POOL, biomeFor, bondDelayFor, budgetFor, fallSpeedFor, gapFor, gradeFor,
-  hazardsFor, maxSlabWidthFor, mortarStrengthFor, type FoundationGrade, type HazardKind, type LateHazard,
+  hazardsFor, maxSlabWidthFor, mortarStrengthFor, setStreakFor, type FoundationGrade, type HazardKind, type LateHazard,
   type StretchHazards, type Tuning,
 } from './tuning.ts';
 
@@ -199,6 +199,8 @@ export class Sim {
   hearts: number;
   score = 0;
   combo = 0;
+  /** Clean or Perfect placements in a row; full rows turn to stone once it reaches setNeed (§9.1). */
+  streak = 0;
   stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0, hazards: 0, hits: 0 };
 
   // Steering
@@ -1174,7 +1176,7 @@ export class Sim {
     this.combo = 0;
     this.tensionSpike = 1;
     this.bus.emit('piece_lost', { id: p.id, shape: p.shape });
-    if (!p.claimed) this.pendingLost.push(p);
+    if (!p.claimed) { this.pendingLost.push(p); this.setStreak(0); }
   }
 
   private applyHeartLosses(): void {
@@ -1229,7 +1231,17 @@ export class Sim {
     this.bus.emit('piece_settled', { id: p.id, shape: p.shape, grade, support, clutch });
     if (grade === 'perfect') this.bus.emit('perfect', { combo: this.combo });
     if (clutch) this.bus.emit('clutch', {});
+    this.setStreak(grade === 'messy' ? 0 : this.streak + 1);
     this.checkRows(p);
+  }
+
+  /** Good placements in a row it takes, here, before full rows turn to stone (0: at once). */
+  get setNeed(): number { return setStreakFor(this.tuning, this.checkpoint); }
+
+  private setStreak(n: number): void {
+    if (n === this.streak) return;
+    this.streak = n;
+    this.bus.emit('set_streak', { count: n, need: this.setNeed });
   }
 
   /** Share of probe points under the piece's bottom cells that touch something else. */
@@ -1262,20 +1274,46 @@ export class Sim {
     return hit;
   }
 
-  private checkRows(p: Piece): void {
+  /**
+   * Solid Rows (§9.1). In the Meadow, or with `force` (Quick-Set), a full row the piece touches turns
+   * to stone with everything under it. From CP 3 a full row waits until the set streak is reached:
+   * then every full row from the last stone one up to this piece sets at once, and the streak starts
+   * again. Until then the rows are only ready (`row_ready`).
+   */
+  private checkRows(p: Piece, force = false): void {
     const f = this.foundation;
     const k0 = Math.max(this.solidTo, Math.floor(p.bottom - f.top + 1e-3));
     const k1 = Math.floor(p.top - f.top - 1e-3);
+    const need = force ? 0 : this.setNeed;
     let newRows = 0;
     const rows: number[] = [];
-    for (let k = k0; k <= k1; k++) {
-      if (this.rowSolid(k)) { newRows++; rows.push(f.top + k + 0.5); this.solidify(f.top + k + 1); this.solidTo = k + 1; }
+    if (need === 0) {
+      for (let k = k0; k <= k1; k++) {
+        if (this.rowSolid(k)) { newRows++; rows.push(f.top + k + 0.5); this.solidify(f.top + k + 1); this.solidTo = k + 1; }
+      }
+    } else {
+      // Once the streak is reached, every full row counts, up to the tower top.
+      const charged = this.streak >= need;
+      const hi = charged ? Math.max(k1, Math.floor(this.height().committed - f.top - 1e-3)) : k1;
+      const full: number[] = [];
+      for (let k = charged ? this.solidTo : k0; k <= hi; k++) if (this.rowSolid(k)) full.push(k);
+      if (!full.length) return;
+      if (!charged) {
+        this.bus.emit('row_ready', { rows: full.map(k => f.top + k + 0.5), streak: this.streak, need, x: f.x, width: f.width });
+        return;
+      }
+      const top = full[full.length - 1];
+      this.solidify(f.top + top + 1);
+      this.solidTo = top + 1;
+      newRows = full.length;
+      for (const k of full) rows.push(f.top + k + 0.5);
+      this.setStreak(0);
     }
     if (!newRows) return;
     this.stats.rows += newRows;
     const pts = [0, 500, 1200, 2000, 3000][Math.min(newRows, 4)];
     this.addScore(pts * this.biomeMult());
-    this.bus.emit('row_solid', { count: newRows, rows, x: f.x, width: f.width });
+    this.bus.emit('row_solid', { count: newRows, rows, x: f.x, width: f.width, streak: need > 0 });
   }
 
   private rowSolid(k: number): boolean {
@@ -1643,7 +1681,7 @@ export class Sim {
     }
     if (!set.length) return null;
     set.sort((a, b) => a.bottom - b.bottom || a.id - b.id);
-    for (const p of set) this.checkRows(p);
+    for (const p of set) this.checkRows(p, true);
     return { ids: set.map(p => p.id) };
   }
 

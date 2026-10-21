@@ -6,7 +6,7 @@ import { Box2DEngine } from '../src/sim/engine/box2d.ts';
 import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { runBench } from '../src/sim/bench.ts';
 import { createSim, replay, restore, useRapier } from '../src/sim/testApi.ts';
-import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor } from '../src/sim/tuning.ts';
+import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor, setStreakFor } from '../src/sim/tuning.ts';
 
 if (process.env.SIM_ENGINE === 'rapier') await useRapier();
 
@@ -110,6 +110,32 @@ for (const mortar of [true, false]) {
   const stones = t.pieces().filter(p => p.state === 'stone').length;
   check('T15 full row turns to stone', !!row && stones === 2, `row ${JSON.stringify(row?.payload)} stones ${stones}`);
   t.dispose();
+}
+
+// Set streak (gameplay.md §9.1): from CP 7 full rows wait for 4 Clean or Perfect placements in a
+// row. Two flat I pieces fill row 1 (ready, still wood); two more fill row 2 and reach the streak,
+// so both rows turn to stone at once and the streak starts again.
+{
+  const t = createSim({ startCheckpoint: 7, tuning: { gusts: false, lateHazards: false, firstGap: 20 } });
+  const drop = (x: number) => { t.spawnControlled({ shape: 'I', x }); t.intent({ type: 'hardDrop' }); t.step(150); };
+  drop(-2); drop(2);
+  const ev1 = t.drainEvents();
+  const stone1 = t.pieces().filter(p => p.state === 'stone').length;
+  const ready = ev1.find(e => e.name === 'row_ready');
+  check('Set streak: a full row waits for the streak from CP 7', t.sim.setNeed === 4 && !!ready && stone1 === 0 && !ev1.some(e => e.name === 'row_solid'),
+    `need ${t.sim.setNeed} streak ${t.sim.streak} ready ${JSON.stringify(ready?.payload)} stones ${stone1}`);
+  drop(-2); drop(2);
+  const ev2 = t.drainEvents();
+  const row = ev2.find(e => e.name === 'row_solid');
+  const stone2 = t.pieces().filter(p => p.state === 'stone').length;
+  check('Set streak: the 4th clean placement sets both full rows, and the streak restarts', !!row && row.payload.count === 2 && stone2 === 4 && t.sim.streak === 0,
+    `row ${JSON.stringify(row?.payload)} stones ${stone2} streak ${t.sim.streak} grades ${ev1.concat(ev2).filter(e => e.name === 'piece_settled').map(e => e.payload.grade)}`);
+  t.dispose();
+  const mid = createSim({ startCheckpoint: 3, tuning: { gusts: false } });
+  const meadow = createSim({});
+  check('Set streak: 3 in a row from CP 3, none in the Meadow, 0 turns it off', mid.sim.setNeed === 3 && meadow.sim.setNeed === 0 && setStreakFor({ ...DEFAULT_TUNING, setStreak: 0 }, 9) === 0,
+    `CP 3 ${mid.sim.setNeed}, CP 1 ${meadow.sim.setNeed}`);
+  mid.dispose(); meadow.dispose();
 }
 
 // Needle: two vertical I pieces claim checkpoint 1 and get a 3-wide grade C foundation.

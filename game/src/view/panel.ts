@@ -60,6 +60,7 @@ const GROUPS: [string, [NumKey, string, number, number, number, boolean?][]][] =
     ['slackStart', 'Brick slack', 1, 2.5, 0.05, true],
     ['hearts', 'Hearts', 1, 6, 1, true],
     ['rowCoverage', 'Solid Row coverage', 0.7, 1, 0.01],
+    ['setStreak', 'Set streak from CP 7 (0 = at once)', 0, 8, 1],
     ['wind', 'Wind (g, + is right)', -0.3, 0.3, 0.01],
     ['gustScale', 'Gust strength ×', 0, 2, 0.1],
     ['hazardStrength', 'Late hazard strength ×', 0, 2, 0.1],
