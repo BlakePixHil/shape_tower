@@ -39,6 +39,7 @@ audio.setMono(true);
 audio.setCalm(true);             // softer stingers and heartbeat
 audio.setLockOnChime(false);     // the perfect-fit chime (assist setting)
 audio.setJuice(false);           // Gate 1's juice switch, before a run (or createAudioDirector({ juice }))
+audio.setZen(true);              // a Zen run, before it starts: the checkpoint hold keeps its suspense to itself
 ```
 
 **Juice off** keeps every sound that says what happened (impacts, settles, hearts, the checkpoint clack, warnings, creaks, hazards, UI) and drops the flourishes: the landing-note melody, shimmers, confetti, fireworks, coin cascades, stinger chords, biome entry moments, shape voices, ducking and all haptics. The band keeps playing every layer but stops following the run (no streak lead, tension layer, riser or tape stop).
@@ -82,6 +83,7 @@ It reads payloads defensively: missing or odd fields fall back to defaults, and 
 | `piece_spawned`, `piece_landed`, `piece_lost` | `shape` (each shape's voice pitch), `impact` and `x` on `piece_landed` |
 | `hazard_warning` | `type`, `dir` (-1 or 1), `eta`; `first: true` plays the heads-up chime under the hint card |
 | `hazard_end` | `type`; `cancelled: true` (a hold cut the warning short and no gust came) fades the warning out |
+| `checkpoint_hold` | `progress` (0 to 1): the hold ticks, and with juice on (not in Zen) the mix drains as it fills; a `hitstop` during the hold dips the music |
 | `achievement` | `tier` (`bronze`, `silver`, `gold`, `platinum`) and `inRun`: `true` for the toast in a run (a stamp and a sparkle under the play, no duck), `false` for the run-over strip (send one, at the highest tier earned; a repeat within 2 s is ignored) |
 | `piece_rotated` | `dir` (1 clockwise, -1 counter-clockwise), `blocked` |
 | power-ups (§13) | `bubble_spawned{x}`, `bubble_expired{x}`, `power_collected{x}`, `power_granted`, `power_used{kind, x}`, `power_refused`, `power_ended{kind}`, `pieces_swept{pieces}`, `second_wind_ready{how}`, `second_wind`, and `glue` on `piece_landed` and `bond_formed`. The sounds are in the audio section §6.11 |
@@ -123,7 +125,7 @@ npm test     # typecheck, unit tests, then the browser tests in headless Chromiu
 
 `npm run build:sketchbook` builds the Sound Sketchbook (`dist/sketchbook.html`), one page where every sound and the main moments can be played by hand through the real director.
 
-The browser tests render real mixes offline and check them: a scripted run through every system, a 150-hit collapse, a resting tower, loudness by impact speed, mono, bad payloads, danger hysteresis, worker baking, memory per biome, impacts by placement biome, every power-up moment, back-to-back runs with no `run_start`, the soundtrack through a whole run (layers on bar lines, the tension takeover, a breakdown, the riser, a biome handover, the tape stop and the results loop), the screen music, the juice switch, a restart from pause, the shape voices, achievement toasts and the run-over strip, and a gust warning that a hold cancels. When `../game` is present with its packages installed, they also play Gameplay's real sim with a bot the way the game does (a new sim per run, connected after its constructor) and check the audio of every run, the band included. The bot also collects and uses power-ups, and uses Second Wind on its last heart.
+The browser tests render real mixes offline and check them: a scripted run through every system, a 150-hit collapse, a resting tower, loudness by impact speed, mono, bad payloads, danger hysteresis, worker baking, memory per biome, impacts by placement biome, every power-up moment, back-to-back runs with no `run_start`, the soundtrack through a whole run (layers on bar lines, the tension takeover, a breakdown, the riser, a biome handover, the tape stop and the results loop), the screen music, the juice switch, a restart from pause, the shape voices, achievement toasts and the run-over strip, a gust warning that a hold cancels, and the checkpoint hold draining the music as its ring fills. When `../game` is present with its packages installed, they also play Gameplay's real sim with a bot the way the game does (a new sim per run, connected after its constructor) and check the audio of every run, the band included. The bot also collects and uses power-ups, and uses Second Wind on its last heart.
 
 Current numbers (headless Chromium in the cloud container):
 

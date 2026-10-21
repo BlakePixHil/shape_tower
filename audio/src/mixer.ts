@@ -33,6 +33,12 @@ export const OVERLAYS = {
 } satisfies Record<string, Snapshot>;
 export type Overlay = keyof typeof OVERLAYS;
 
+/** What a full hold ring adds on top of the hold overlay (setHoldDepth): extra dB, and the lowpass it closes an octave from. */
+const HOLD_DEPTH: Partial<Record<BusName, { gainDb: number; lowpass?: number }>> = {
+  music: { gainDb: -6, lowpass: OVERLAYS.hold.music.lowpass },
+  ambience: { gainDb: -4 },
+};
+
 interface Duck {
   db: number;
   start: number;
@@ -57,6 +63,8 @@ export class Mixer {
   private convolver: ConvolverNode;
   private base: BaseSnapshot = 'menu';
   private overlays = new Set<Overlay>();
+  /** how far the checkpoint hold has drained the mix, 0 to 1 (only while the hold overlay is on) */
+  private holdDepth = 0;
 
   constructor(private ctx: BaseAudioContext) {
     this.master = ctx.createGain();
@@ -137,12 +145,26 @@ export class Mixer {
     if (on === this.overlays.has(name)) return;
     if (on) this.overlays.add(name);
     else this.overlays.delete(name);
+    if (name === 'hold' && !on) this.holdDepth = 0;
     this.apply(when, tc);
   }
 
   clearOverlays(when: number): void {
     this.overlays.clear();
+    this.holdDepth = 0;
     this.apply(when, 0.1);
+  }
+
+  /**
+   * Drains the mix further as the hold ring fills (Blake, 2026-10-21: the screen greys part-way
+   * during the countdown): at full depth the music is a further 6 dB down with its lowpass an
+   * octave lower, and the ambience a further 4 dB down.
+   */
+  setHoldDepth(amount: number, when: number): void {
+    const a = Math.max(0, Math.min(1, amount));
+    if (Math.abs(a - this.holdDepth) < 0.01) return;
+    this.holdDepth = a;
+    if (this.overlays.has('hold')) this.apply(when, 0.15);
   }
 
   state(): { base: BaseSnapshot; overlays: Overlay[] } {
@@ -159,6 +181,13 @@ export class Mixer {
         if (!t) continue;
         db += t.gainDb ?? 0;
         if (t.lowpass !== undefined) lp = Math.min(lp, t.lowpass);
+      }
+      if (this.holdDepth > 0 && this.overlays.has('hold')) {
+        const d = HOLD_DEPTH[b];
+        if (d) {
+          db += d.gainDb * this.holdDepth;
+          if (d.lowpass) lp = Math.min(lp, d.lowpass * Math.pow(0.5, this.holdDepth));
+        }
       }
       const bus = this.buses[b];
       bus.snap.gain.setTargetAtTime(dbToGain(Math.max(-80, db)), when, tc);
