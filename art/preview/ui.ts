@@ -2,6 +2,7 @@
 // &ui=menu|pause|summary|levelup|profile|settings|avatar opens that screen (buttons work: Settings, Profile,
 // Close and so on). &ui=achievements opens the Achievements panel (&all=1: everything earned), &ui=achtoast plays three toasts (&plain=1: juice off).
 // &ui=shapes shows the bag and the shapes-left counter, banners and red edge counting down (see budget.ts).
+// &ui=daily opens the Daily Tower card with today's try still open (&done=1: today's score, the streak and best days).
 // &ui=icons|badges|logo|brand|hats|ach shows a sheet (brand: app icon, Android layers, splash, share card). &lv=<level> sets the player's level (default 7).
 // &still=1 skips the animations, as Reduce Motion does. Without &ui, a Screens row sits above the biome picker.
 // &rail=1 shows the altitude rail climbing through a few biomes, with the off-screen checkpoint and lost-piece chips.
@@ -15,6 +16,7 @@ import {
   altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail,
   BADGE_TIERS, BIOMES, HATS, INK, UI_ICONS, avatarPanel, avatarUrl, hatUrl, readAvatar, biomeCard, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
   postcardElement, profilePanel, readSettings, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, titleFor, uiIconUrl, xpBar,
+  armDailyScored, dailyCard, dailyMenuDot,
   type AvatarSpec, type SettingValue, type XpState,
 } from '../src/index.ts';
 
@@ -38,7 +40,18 @@ export function openScreen(name: string): void {
   const close = (el: HTMLElement) => () => el.remove();
   if (name === 'menu') {
     const m = mount(mainMenu({ name: 'Blake', ...xpAt(level, 0.62), avatar, still }));
-    onAction(m, a => { if (a === 'play' || a === 'daily' || a === 'zen') m.remove(); else openScreen(a); });
+    m.querySelector('.ui-mode[data-action="daily"]:not(.locked)')?.appendChild(dailyMenuDot());
+    onAction(m, a => { if (a === 'daily') openScreen('daily'); else if (a === 'play' || a === 'zen') m.remove(); else openScreen(a); });
+  } else if (name === 'daily') {
+    const done = qs.has('done');
+    const d = mount(dailyCard({
+      number: 12, day: '2026-11-01', countdown: '9h 41m', opening: ['O', 'T', 'L', 'I', 'S'],
+      scored: done ? { height: 63.4, score: 18240, checkpoints: 6, finished: true } : null,
+      practice: { runs: done ? 3 : 0, best: done ? { height: 58.1, score: 15020, checkpoints: 5, finished: true } : null },
+      streak: done ? 4 : 0,
+      bestDays: done ? [{ number: 12, height: 63.4, score: 18240, today: true }, { number: 9, height: 70.2, score: 17110 }, { number: 11, height: 41.0, score: 9050 }] : [],
+    }));
+    onAction(d, a => { if (a === 'scored' && !d.querySelector('.armed')) armDailyScored(d, true); else d.remove(); });
   } else if (name === 'pause') {
     const p = mount(pauseCard());
     onAction(p, a => { if (a === 'settings') openScreen('settings'); else p.remove(); });
@@ -192,7 +205,7 @@ function sheet(name: string): void {
 export function screensBar(): void {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 62px);display:flex;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;z-index:3;font:600 11px Fredoka,Nunito,system-ui,sans-serif';
-  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama'], ['avatar', 'Avatar'], ['hats', 'Hats'], ['ach', 'Badges 2'], ['achievements', 'Achievements'], ['achtoast', 'Toast'], ['shapes', 'Bag + shapes']]) {
+  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama'], ['avatar', 'Avatar'], ['hats', 'Hats'], ['ach', 'Badges 2'], ['achievements', 'Achievements'], ['achtoast', 'Toast'], ['shapes', 'Bag + shapes'], ['daily', 'Daily']]) {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = `background:#FFC23D;color:${INK};border:2px solid ${INK};border-radius:10px;box-shadow:0 2px 0 ${INK};padding:2px 8px;font:inherit;cursor:pointer`;

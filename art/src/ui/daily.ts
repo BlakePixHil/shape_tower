@@ -182,9 +182,21 @@ const CSS = `
 .ui-dl-chip { font-size: 14px; padding: 3px 8px; margin-top: 4px; }
 .ui .ui-dl-dot { position: absolute; font-style: normal; top: -9px; right: -7px; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--danger); color: #fff; border: 3px solid var(--ink); box-shadow: 0 2px 0 var(--ink); font: 700 14px/1 var(--display); animation: ui-dl-pulse 1.2s ease-in-out infinite; }
 @media (max-height: 700px) {
-  .ui-daily .ui-h2 { margin: 10px 0 6px; }
+  .ui-daily { padding: 12px 14px 14px; }
+  .ui-daily .ui-h2 { margin: 8px 0 5px; font-size: 16px; }
+  .ui-dl-head { gap: 10px; }
+  .ui-dl-head .ui-h1 { font-size: 28px; margin: 0 0 4px; }
+  .ui-cal { width: 58px; }
+  .ui-cal span { font-size: 12px; line-height: 18px; }
+  .ui-cal b { font-size: 28px; line-height: 36px; }
+  .ui-dl-opening { margin-top: 8px; }
   .ui-dl-opening > div { min-height: 44px; padding: 4px 8px; }
-  .ui-dl-opening img { max-height: 32px; }
+  .ui-dl-opening img { max-height: 30px; }
+  .ui-dl-box { margin-top: 8px; padding: 6px 10px 8px; }
+  .ui-dl-line { margin-top: 8px; }
+  .ui-dl-best li { padding: 1px 8px 1px 4px; }
+  .ui-dl-actions { margin-top: 10px; gap: 8px; }
+  .ui-dl-actions .ui-btn.big { min-height: 54px; font-size: 22px; padding: 8px 20px; }
 }
 `;
 

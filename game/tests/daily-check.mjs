@@ -12,8 +12,12 @@ mkdirSync(out, { recursive: true });
 // Served over http: on a file:// page, Chromium sometimes hands a reloaded page an empty localStorage,
 // and this check reloads to stand in for an app that was closed.
 const html = readFileSync(new URL('../dist-game/game.html', import.meta.url));
+const missing = [];
 const server = createServer((req, res) => {
-  if (req.url === '/' || req.url?.startsWith('/game.html')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); } else { res.writeHead(404); res.end(); }
+  if (req.url === '/' || req.url?.startsWith('/game.html')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); return; }
+  // The browser asks for /favicon.ico on its own; anything else missing is a real error.
+  if (req.url !== '/favicon.ico') missing.push(req.url);
+  res.writeHead(req.url === '/favicon.ico' ? 204 : 404); res.end();
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const url = `http://127.0.0.1:${server.address().port}/game.html`;
@@ -262,7 +266,7 @@ await ctx.close();
   await ctx.close();
 }
 
-step('no page errors', errors.length === 0, errors.slice(0, 3).join(' / '));
+step('no page errors or missing files', errors.length === 0 && missing.length === 0, [...missing.map(u => `missing: ${u}`), ...errors].slice(0, 3).join(' / '));
 writeFileSync(`${out}/report.json`, JSON.stringify({ steps, errors }, null, 2));
 await browser.close();
 server.close();
