@@ -22,6 +22,7 @@ The Shape Tower art kit. Everything is drawn in code with Canvas 2D (no image fi
 | Power-ups | `src/powers.ts` | Icons for Clean Slate, Quick-Set, Undo, Glue, Slow-Mo and Second Wind, the power bubble, and the CSS for the DOM power bar and Second Wind's states. |
 | UI kit | `src/ui/` | The DOM "sticker toy" UI (art-direction.md §8): `uiCss()` (Paper panels, Ink outlines, buttons that press and bounce, chips, XP bar, toggles, sliders), 43 icons, level badges in seven tiers with titles, the logo, biome postcards, the player's avatar, and builders for the main menu, pause card, run summary, level-up takeover, profile and settings. |
 | Gusts | `src/wind.ts`, `src/phaser/wind.ts`, `src/ui/hazard.ts` | Curled and long wind streaks, leaves and cloud wisps, `WindView` to play them, and the HUD's hazard chip (countdown ring, push chevrons) and first-appearance card for every hazard. Faces gain a `squint` expression for the tower's top during a gust. |
+| Altitude rail | `src/ui/rail.ts` | The HUD's altitude rail (biome colors, checkpoint ticks, best-height flag, a Blockling head at the tower's top) and the off-screen chips: gold "▲ 4" for a checkpoint above the view, red "▼" for a piece falling out of it. |
 | Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `PowerBubble`, `WindView`, `Backdrop`. |
 
 ## Using it from game/
@@ -156,6 +157,19 @@ if (e.first) hud.appendChild(hazardCard('gust'));  // "Gusts ahead! Keep it wide
 
 The chip sits at the upwind edge with the hazard's icon, a ring that fills over `eta` and chevrons pointing the way it pushes; it ignores touches. Add the class `paused` to hold its countdown while the game is paused, and pass `elapsed` to rebuild one partway through. `HAZARDS` has the icon and card copy for gusts, crosswind, junk, meteors, dust devils and tidal sway.
 
+### Altitude rail and off-screen chips
+
+```ts
+const rail = hud.appendChild(altitudeRail(220));      // right edge, top 200px; move it with --top or your own CSS
+setRail(rail, { top, cps, claimed, pb });              // every frame is fine: it redraws only on change
+const cpChip = hud.appendChild(checkpointChip(4));     // gold "▲ 4" at the top edge; --x moves it, --top sets its distance
+cpChip.classList.toggle('show', lineIsAboveView);       // pops in and out
+setOffscreenChip(cpChip, String(next));
+const lost = hud.appendChild(offscreenChip({ dir: 'down', label: '' }));  // red "▼" at the bottom edge, --x at the piece
+```
+
+`top` and `pb` are in blocks above the foundation; `cps` lists checkpoint heights from checkpoint 1, at least through the next one (later ones are extrapolated). The rail shows a window three stretches tall with the tower's top a third of the way up: claimed stretches in their biome's color (`RAIL_COLORS`), the rest washed out, the next checkpoint's tick in gold, a dot where a new biome starts, and the best-height flag (pinned to the top when it's above the window).
+
 ### Screens
 
 The screens are DOM overlays built from plain data; the game keeps the logic. Each builder returns an element to append to `document.body`, and every button carries a `data-action`.
@@ -230,6 +244,7 @@ Add these to the preview URL:
 - `pal=<0..3>` picks the Deep Cosmos palette (with `sp=9.3`); `palcycle=1` moves to the next one every 7 s with its landmark. `landmarks=1` shows the four landmark textures.
 - `ui=menu|pause|summary|levelup|profile|settings` opens that screen over the Meadow (its buttons work); `ui=icons|badges|logo` shows a sheet of the kit's parts. `lv=<level>` sets the player's level, `still=1` turns the animations off. Without `ui`, a Screens row sits above the biome picker.
 - `wind=1` loops a gust over the Treetops (with `sp=2.3`, Cloudlands' wisps): calm, the telegraph with the edge chip and, once, the first-gust card, the gust with squinting faces, the tail. `wdir=-1` holds the direction; `wt=<s>` starts that far into the loop (2.3 is late in the telegraph, 4 mid-gust).
+- `rail=1` shows the altitude rail climbing at 3 blocks a second with both off-screen chips; `top=<blocks>` starts it there and `hold=1` stops the climb.
 - Options also work after a `#` (for example `#tour`), for hosts that drop the query string.
 - `gallery=1` shows every shape in every rotation, with worried, stone and space-rim looks.
 - `climb=<blocks>` scrolls up, `zoom=<n>` zooms the camera, `sp=<0..9.7>` sets the sky position, `tension=<0..1>` fixes tension.

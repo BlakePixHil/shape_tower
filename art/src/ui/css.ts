@@ -257,6 +257,21 @@ export function uiCss(): string {
 .ui-hazard.go .ui-hz-arrow svg { animation-duration: 500ms; }
 .ui-hazard.out { animation: ui-hz-out 360ms cubic-bezier(.5,0,.8,.4) both; }
 
+/* Altitude rail (right edge, under the Next column) and off-screen chips */
+.ui-rail { position: fixed; right: calc(env(safe-area-inset-right, 0px) + 2px); top: var(--top, 200px); z-index: 5; pointer-events: none; }
+.ui-rail canvas { display: block; }
+.ui-offchip { position: fixed; left: var(--x, 50%); z-index: 6; pointer-events: none; display: flex; align-items: center; gap: 3px; font: 700 16px/1 var(--display);
+  background: var(--gold); border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); padding: 3px 9px; font-variant-numeric: tabular-nums;
+  opacity: 0; transform: translateX(-50%) scale(0.5); transition: opacity 160ms, transform 360ms cubic-bezier(.3,1.8,.5,1); }
+.ui-offchip.up { top: calc(env(safe-area-inset-top, 0px) + var(--top, 120px)); }
+.ui-offchip.down { bottom: calc(env(safe-area-inset-bottom, 0px) + var(--bottom, 96px)); }
+.ui-offchip.danger { background: var(--danger); color: #fff; }
+.ui-offchip.danger b, .ui-offchip.danger .ui-oc-arrow { -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; }
+.ui-oc-arrow { font-size: 12px; }
+.ui-offchip.show { opacity: 1; transform: translateX(-50%); }
+.ui-offchip.up.show .ui-oc-arrow { animation: ui-oc-bob 1s ease-in-out infinite; }
+.ui-offchip.down.show .ui-oc-arrow { animation: ui-oc-drop 1s ease-in-out infinite; }
+
 /* A hazard's first-appearance card, styled like the biome title */
 .ui-hcard { position: fixed; left: 0; right: 0; top: var(--top, 18%); z-index: 16; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 6px;
   animation: ui-hc 3.2s cubic-bezier(.3,1.5,.5,1) both; }
@@ -283,6 +298,8 @@ export function uiCss(): string {
 @keyframes ui-hz-chev { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 @keyframes ui-hz-push { 0%, 100% { transform: none; } 50% { transform: translateX(calc(var(--d) * 4px)) rotate(calc(var(--d) * 3deg)); } }
 @keyframes ui-hc { 0% { opacity: 0; transform: translateY(-24px) scale(0.7); } 12% { opacity: 1; transform: none; } 85% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-16px); } }
+@keyframes ui-oc-bob { 0%, 100% { transform: none; } 50% { transform: translateY(-3px); } }
+@keyframes ui-oc-drop { 0%, 100% { transform: none; } 50% { transform: translateY(3px); } }
 @keyframes ui-hc-fade { 0%, 100% { opacity: 0; } 8%, 88% { opacity: 1; } }
 
 /* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard card fades in and out. */

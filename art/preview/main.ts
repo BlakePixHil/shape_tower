@@ -69,7 +69,7 @@ class Preview extends Phaser.Scene {
     this.cameras.main.setZoom(num('zoom', 1));
     this.backdrop = new Backdrop(scene, { width: W, height: H });
     this.sky.set(num('sp', 0.15));
-    if (!qs.has('sp') && !qs.has('tour') && !qs.has('powers') && !qs.has('ui') && !qs.has('wind')) { this.biomePicker(); screensBar(); }
+    if (!qs.has('sp') && !qs.has('tour') && !qs.has('powers') && !qs.has('ui') && !qs.has('wind') && !qs.has('rail')) { this.biomePicker(); screensBar(); }
     if (qs.has('wind')) this.wind = new WindView(this.tex, { width: W, height: H, drifters: windDrifters(Math.floor(num('sp', 1.35))) });
 
     this.groundY = H * 0.8;

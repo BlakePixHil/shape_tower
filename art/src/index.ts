@@ -29,6 +29,7 @@ export { UI_ICONS, bakeUiIcon, drawUiIcon, uiIconUrl, type UiIcon } from './ui/i
 export { BADGE_TIERS, TITLES, badgeTier, badgeUrl, bakeBadge, drawBadge, newTitleAt, titleFor, type BadgeTier } from './ui/badge.ts';
 export { LOGO_ROWS, bakeLogo, logoElement, logoPeekerUrl, logoTileUrl } from './ui/logo.ts';
 export { bakePostcard, postcardElement, postcardUrl, type PostcardOptions } from './ui/postcard.ts';
+export { RAIL_COLORS, altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail, type OffscreenChipOptions, type RailState } from './ui/rail.ts';
 export { HAZARDS, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, type HazardChipOptions, type HazardType } from './ui/hazard.ts';
 export {
   MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarUrl, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel, readSettings,

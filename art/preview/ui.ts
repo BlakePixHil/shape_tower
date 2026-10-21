@@ -2,8 +2,10 @@
 // &ui=menu|pause|summary|levelup|profile|settings opens that screen (buttons work: Settings, Profile,
 // Close and so on). &ui=icons|badges|logo shows a sheet. &lv=<level> sets the player's level (default 7).
 // &still=1 skips the animations, as Reduce Motion does. Without &ui, a Screens row sits above the biome picker.
+// &rail=1 shows the altitude rail climbing through a few biomes, with the off-screen checkpoint and lost-piece chips.
 
 import {
+  altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail,
   BADGE_TIERS, BIOMES, INK, UI_ICONS, avatarUrl, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
   postcardElement, profilePanel, readSettings, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, titleFor, uiIconUrl, xpBar,
   type SettingValue, type XpState,
@@ -146,8 +148,28 @@ export function screensBar(): void {
   document.body.appendChild(bar);
 }
 
+/** The rail climbing at 3 blocks a second from &top=<blocks> (default 0), claiming checkpoints as it passes them. */
+function railDemo(): void {
+  const cps: number[] = [];
+  for (let n = 1, h = 0; n <= 30; n++) { h += 10 + Math.min(n, 14); cps.push(h); }
+  const rail = mount(altitudeRail(240)), chip = mount(checkpointChip(1)), lost = mount(offscreenChip({ dir: 'down', label: '' }));
+  lost.style.setProperty('--x', '30%');
+  const t0 = performance.now(), start = Number(qs.get('top') ?? 0), pb = start + 40;
+  const frame = () => {
+    const t = (performance.now() - t0) / 1000, top = start + (qs.has('hold') ? 0 : t * 3);
+    const claimed = cps.filter(h => h <= top).length;
+    setRail(rail, { top, cps, claimed, pb });
+    setOffscreenChip(chip, String(claimed + 1));
+    chip.classList.toggle('show', cps[claimed] - top > 6);
+    lost.classList.toggle('show', qs.has('hold') || t % 4 < 1.6);
+    requestAnimationFrame(frame);
+  };
+  frame();
+}
+
 export function initUiPreview(): void {
   injectUiCss();
   const ui = qs.get('ui');
   if (ui) openScreen(ui);
+  if (qs.has('rail')) railDemo();
 }
