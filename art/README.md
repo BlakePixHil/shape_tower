@@ -244,7 +244,7 @@ The screens are DOM overlays built from plain data; the game keeps the logic. Ea
 import { injectUiCss, loadUiFonts, onAction, pauseCard, summaryCard, showXpLine, setXpBar, levelUp } from '@art/index.ts';
 
 injectUiCss();
-await loadUiFonts();               // badges and logo letters are drawn text
+await loadUiFonts();               // badge numbers are drawn text (logo letters are outlines)
 
 const pause = document.body.appendChild(pauseCard());          // quitHalves: false in Zen
 onAction(pause, action => { /* 'resume' | 'restart' | 'settings' | 'quit' */ });
