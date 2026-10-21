@@ -16,14 +16,15 @@
 // &wind=1 loops a gust over the Treetops (with &sp=2.3, Cloudlands' wisps): calm, the 2 s telegraph with the edge chip
 // (and the first-gust card once), the gust with squinting top faces, the tail. &wdir=-1 holds the direction (else it alternates).
 // &wt=<s> starts the loop that many seconds in (fast-forwarded, for screenshots: 2.3 = late telegraph, 4 = mid-gust).
-// &ui=menu|pause|summary|levelup|profile|settings|icons|badges|logo opens a UI kit screen or sheet (see ui.ts).
+// &ui=menu|pause|summary|levelup|profile|settings|icons|badges|logo|titles opens a UI kit screen or sheet (see ui.ts).
+// Picking a biome (or climbing into one on the tour) also plays its title card.
 // Options also work after a # (e.g. #gallery), for hosts that drop the query string.
 
 import * as Phaser from 'phaser';
 import {
   ART_SHAPES, ArtTextures, BIOMES, INK, LANDMARKS, POWER, POWER_COLORS, POWER_KINDS, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
   PowerBubble, SkyClock, bakeLandmark, pedestalHeight, pose, powerBarCss, powerIconUrl, rimAmount, skyColors,
-  WindView, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, loadUiFonts, windDrifters, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
+  WindView, biomeCard, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, loadUiFonts, windDrifters, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
 } from '../src/index.ts';
 import { initUiPreview, screensBar } from './ui.ts';
 
@@ -104,6 +105,15 @@ class Preview extends Phaser.Scene {
 
   /** Frozen frames of a bubble's life (spawn, collect, fly to a slot, fade) over a day and a night sky. */
   private pick: { biome: number; t: number; played: boolean } | null = null;
+
+  private seen = new Set<number>();
+
+  /** The biome's title card, with the new-postcard chip on its first showing. */
+  private titleCard(biome: number): void {
+    document.querySelectorAll('.ui-btitle').forEach(e => e.remove());
+    document.body.appendChild(biomeCard(biome, { newPostcard: !this.seen.has(biome) }));
+    this.seen.add(biome);
+  }
 
   /** A row of biome buttons along the bottom: tap one to jump there and play its arrival. */
   private biomePicker(): void {
@@ -371,11 +381,11 @@ class Preview extends Phaser.Scene {
       this.backdrop.update(0, ground, sp);
     } else this.backdrop.update(dt, ground, sp);
     if (qs.has('at')) this.palSet = true;
-    if (this.pick && !this.pick.played && time - this.pick.t > 300) { this.pick.played = true; this.backdrop.arrival(this.pick.biome); }
+    if (this.pick && !this.pick.played && time - this.pick.t > 300) { this.pick.played = true; this.backdrop.arrival(this.pick.biome); this.titleCard(this.pick.biome); }
     if (qs.has('pal') && !this.palSet) { this.palSet = true; this.backdrop.setCosmos(BIOMES[9].firstCp + 6 * num('pal', 0)); }
     if (qs.has('palcycle') && Math.floor(t / 7) !== Math.floor((t - dt) / 7)) this.backdrop.setCosmos(BIOMES[9].firstCp + 6 * Math.floor(t / 7));
     const bi = Math.floor(sp + 0.02);
-    if (tour && bi > this.lastBiome && t > 0.5) this.backdrop.arrival(bi);
+    if (tour && bi > this.lastBiome && t > 0.5) { this.backdrop.arrival(bi); this.titleCard(bi); }
     if (qs.has('arrive') && Math.floor((t - 0.5) / 4) !== Math.floor((t - 0.5 - dt) / 4)) this.backdrop.arrival(bi);
     this.lastBiome = bi;
     const rim = rimAmount(sp);
