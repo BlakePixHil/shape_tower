@@ -8,6 +8,7 @@ import {
   normalize, osc, partials, rand, resonate, saturate, scale, shape, trimTail, type Rng, TAU,
 } from './dsp';
 import { renderNote } from './instruments';
+import { REACTIONS, renderVoice } from './voice';
 import type { BedParams } from '../biomes';
 import { MATERIALS, type Material } from '../types';
 
@@ -551,6 +552,14 @@ export const SOUNDS: Record<string, SoundDef> = {
     },
   },
 
+  // shape voices (6.8): three takes of each reaction; the director pitches them per shape
+  ...Object.fromEntries(Object.entries(REACTIONS).map(([name, syllables]) => [`voice.${name}`, {
+    rate: 0.4,
+    variants: 3,
+    // formants stay under 4 kHz, so the voices bake at 0.4 of the rate
+    render: (sr: number, rng: Rng, v: number) => finish(renderVoice(sr, rng, syllables(rng), [1, 1.06, 0.95][v], [1, 1.04, 0.97][v]), sr, 0.8),
+  } satisfies SoundDef])),
+
   // power-ups and Second Wind (6.11)
   'bubble.spawn': {
     rate: 0.5,
@@ -774,6 +783,64 @@ export const SOUNDS: Record<string, SoundDef> = {
         t0 += sec + rand(rng, 0.03, 0.12);
       }
       return finish(y, sr, 0.5);
+    },
+  },
+  // Meadow: a cricket's chirps, pulses of a high carrier in little trains
+  'amb.cricket': {
+    variants: 2,
+    render: (sr, rng) => {
+      const y = alloc(sr, 1);
+      const f = rand(rng, 4300, 4900), chirps = 2 + Math.floor(rng() * 2), pulses = 3 + Math.floor(rng() * 2);
+      for (let c = 0; c < chirps; c++) {
+        for (let k = 0; k < pulses; k++) {
+          const p = osc(Math.round(sr * 0.022), sr, f * rand(rng, 0.995, 1.005), 'sine');
+          shape(p, sr, (t) => Math.sin(Math.PI * clamp(t / 0.022, 0, 1)));
+          mixInto(y, p, sr, c * rand(rng, 0.3, 0.42) + k * 0.034, 1 - 0.12 * k);
+        }
+      }
+      return finish(y, sr, 0.3);
+    },
+  },
+  // Meadow: a distant sheep, bleating on the voice synth with a tremolo
+  'amb.sheep': {
+    rate: 0.5,
+    variants: 2,
+    render: (sr, rng) => {
+      const p = rand(rng, 190, 240);
+      const y = renderVoice(sr, rng, [{ at: 0, dur: rand(rng, 0.7, 0.95), f0: [p, p * 1.08, p * 1.02, p * 0.9], vowels: ['e', 'a', 'a', 'a'] }], 1, 0.72);
+      shape(y, sr, (t) => 0.62 + 0.38 * Math.sin(TAU * 7.5 * t));
+      return finish(biquad(y, sr, 'lowpass', 2200, 0.7), sr, 0.35);
+    },
+  },
+  // Treetops: a woodpecker's drum roll, far off in the canopy
+  'amb.woodpecker': {
+    variants: 2,
+    render: (sr, rng) => {
+      const y = alloc(sr, 1.1);
+      const hits = 9 + Math.floor(rng() * 6), gap = rand(rng, 0.048, 0.06), f = rand(rng, 1250, 1600);
+      for (let i = 0; i < hits; i++) {
+        const k = resonate(burst(sr, rng, 0.6, 6000, Math.round(sr * 0.05)), sr, [{ f, a: 1, tau: 0.012 }, { f: f * 2.3, a: 0.4, tau: 0.006 }]);
+        mixInto(y, k, sr, i * gap, 1 - (0.5 * i) / hits);
+      }
+      return finish(biquad(y, sr, 'lowpass', 3500, 0.7), sr, 0.3);
+    },
+  },
+  // Treetops: a squirrel's chatter, quick falling chirps
+  'amb.squirrel': {
+    variants: 3,
+    render: (sr, rng) => {
+      const y = alloc(sr, 0.9);
+      const n = 5 + Math.floor(rng() * 5), base = rand(rng, 3200, 4200);
+      let t0 = 0;
+      for (let i = 0; i < n; i++) {
+        const sec = rand(rng, 0.025, 0.04);
+        const c = osc(Math.round(sr * sec), sr, (t) => base * (1.25 - 0.45 * (t / sec)), 'tri');
+        mixInto(c, biquad(noise(c.length, rng), sr, 'bandpass', base, 3), sr, 0, 0.35);
+        shape(c, sr, (t) => Math.sin(Math.PI * clamp(t / sec, 0, 1)));
+        mixInto(y, c, sr, t0, rand(rng, 0.6, 1));
+        t0 += sec + rand(rng, 0.03, 0.07);
+      }
+      return finish(y, sr, 0.3);
     },
   },
   'amb.leaves': { variants: 3, render: (sr, rng) => finish(shape(biquad(noise(Math.round(sr * 1.2), rng), sr, 'highpass', 2500, 0.7), sr, (t) => Math.pow(Math.sin(Math.PI * clamp(t / 1.2, 0, 1)), 2) * (0.6 + 0.4 * rng())), sr, 0.4) },

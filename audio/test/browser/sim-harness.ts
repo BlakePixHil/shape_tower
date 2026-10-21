@@ -14,6 +14,7 @@ const SR = 48000;
   const ctx = new OfflineAudioContext(2, SR * (seconds + 4), SR);
   const d = new AudioDirector({ context: ctx, haptics: false, storage: null, seed: 1, lowEnd: false });
   await d.ready;
+  await d.music.prewarm();
   const played: Record<string, number> = {};
   const target = d as unknown as { play: (name: string, ...rest: unknown[]) => unknown };
   const play = target.play.bind(d);
@@ -30,6 +31,8 @@ const SR = 48000;
   let chase: { id: number; aim: number } | null = null;
   const peak: Record<string, number> = {};
   let maxVoices = 0;
+  let memoryMB = 0;
+  const musicRuns = new Set<string>();
   const mixLog: string[] = [];
   const runs: { from: number; hits: number; overAt: number | null }[] = [];
   // Like the game's view: a new sim for every run, connected after its constructor has emitted
@@ -103,6 +106,13 @@ const SR = 48000;
       handled++;
       for (const [k, v] of Object.entries(d.voices.counts())) peak[k] = Math.max(peak[k] ?? 0, v);
       maxVoices = Math.max(maxVoices, d.voices.count());
+      if (d.music.mode === 'run') musicRuns.add(String(runs.length));
+      // in the game, the next band and the results loop bake in the seconds after these;
+      // offline no time passes between events, so give the baker its turn here
+      if (e.name === 'checkpoint_claimed' || e.name === 'run_over') {
+        await d.music.prewarm();
+        memoryMB = Math.max(memoryMB, Math.round(d.bank.bytes() / 1e5) / 10);
+      }
     }
   }
   t.dispose();
@@ -126,5 +136,8 @@ const SR = 48000;
     mixLog,
     runs,
     played,
+    music: d.music.state(),
+    musicRuns: musicRuns.size,
+    memoryMB,
   };
 };

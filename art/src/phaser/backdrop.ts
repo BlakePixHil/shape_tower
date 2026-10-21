@@ -6,14 +6,15 @@
 // baked when the climb is about halfway through the biome before it, and freed two biomes later
 // (§9.7). Deep Cosmos is endless: its nebula changes palette every 6 checkpoints (setCosmos).
 
+import { BIOME_BAKERS as BAKERS } from '../backdrops.ts';
 import { BIOMES, presence, skyColors, starAmount } from '../biomes.ts';
-import { bakeCloudlands, bakePunchThrough } from '../cloudlands.ts';
-import { COSMOS_PALETTES, LANDMARKS, bakeCosmos, bakeLandmark } from '../cosmos.ts';
-import { type BackdropPart, bakeMeadow } from '../meadow.ts';
-import { bakeDustDevil, bakeMoon, bakeOrbit, bakeRedPlanet, bakeRingArc, bakeRinged } from '../space.ts';
+import { bakePunchThrough } from '../cloudlands.ts';
+import { COSMOS_PALETTES, LANDMARKS, bakeLandmark } from '../cosmos.ts';
+import type { BackdropPart } from '../meadow.ts';
+import { bakeDustDevil, bakeRingArc } from '../space.ts';
 import { STAR_LAYERS, bakeStarTile } from '../stars.ts';
-import { bakeFlare, bakeRumble, bakeStorm, bakeStratosphere } from '../storm.ts';
-import { bakeTreetops, bird } from '../treetops.ts';
+import { bakeFlare, bakeRumble } from '../storm.ts';
+import { bird } from '../treetops.ts';
 import { TAU, clamp, ctx2d, hash, makeCanvas } from '../util.ts';
 import type { CanvasTextureLike, ImageLike, SceneLike, TileSpriteLike } from './types.ts';
 
@@ -30,11 +31,6 @@ export interface BackdropOptions {
   /** "Reduce motion": no drift, sway or sweeping arrivals (§7.5). */
   reduceMotion?: boolean;
 }
-
-/** Prop bakers by biome index. */
-const BAKERS: ((W: number, H: number, k: number) => BackdropPart[])[] = [
-  bakeMeadow, bakeTreetops, bakeCloudlands, bakeStorm, bakeStratosphere, bakeOrbit, bakeMoon, bakeRedPlanet, bakeRinged, bakeCosmos,
-];
 
 /** A flash's brightness at time t: a fast rise, a flicker and a slow decay, `dur` s long every `every` s. */
 function flashAt(t: number, f: NonNullable<BackdropPart['flash']>): number {

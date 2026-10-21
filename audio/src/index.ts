@@ -16,4 +16,5 @@ export { connectJuiceBus, type EventSink } from './juicebus';
 export { Haptics, PATTERNS, type CapacitorHapticsLike, type PatternName } from './haptics';
 export { DEFAULT_SETTINGS, type AudioSettings } from './settings';
 export { BIOMES, biome, biomeKey } from './biomes';
+export { MUSIC_TUNING, type MusicScreen, type MusicMode } from './music/engine';
 export { JUICE_EVENTS, DEFAULT_SIGNALS, type Signals, type Material, type HapticsLevel, type JuiceEventName } from './types';
