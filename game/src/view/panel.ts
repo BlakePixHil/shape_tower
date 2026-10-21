@@ -59,6 +59,8 @@ const GROUPS: [string, [NumKey, string, number, number, number, boolean?][]][] =
   ['Run', [
     ['firstGap', 'First checkpoint gap', 3, 16, 1, true],
     ['holdTime', 'Hold steady (s)', 0.5, 4, 0.1],
+    ['holdGrey', 'Hold: fade to grey', 0, 1, 0.05],
+    ['holdHitstop', 'Hold: knock freeze (ms)', 0, 200, 10],
     ['slabBoost', 'Wider slabs early (+ blocks in the Meadow)', 0, 4, 1],
     ['slackStart', 'Brick slack', 1, 2.5, 0.05, true],
     ['hearts', 'Hearts', 1, 6, 1, true],

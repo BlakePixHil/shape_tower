@@ -60,6 +60,8 @@ export interface Tuning {
   gapCap: number;
   holdTime: number;
   holdHover: boolean;         // the shape in hand waits during a hold and the claim's slab drop
+  holdGrey: number;           // view: how far the screen fades toward grey as a hold fills, 0 to 1 (gameplay.md §7.2)
+  holdHitstop: number;        // view: ms the screen freezes when shapes knock together during a hold, 0 for none
   claimClearance: number;     // blocks: room kept between the new slab and the shape in hand
   minSlabWidth: number;
   slabBoost: number;          // extra minimum slab width for the Meadow's claims, one less per biome after (gameplay.md §7.3)
@@ -161,6 +163,8 @@ export const DEFAULT_TUNING: Tuning = {
   gapCap: 16,
   holdTime: 2.0,
   holdHover: true,
+  holdGrey: 0.55,
+  holdHitstop: 80,
   claimClearance: 2.5,
   minSlabWidth: 3,
   slabBoost: 3,
