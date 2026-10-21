@@ -148,6 +148,21 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: 'Power-ups', hue: 'gumdrop', blurb: 'Bubbles to steer through, five powers and Second Wind. Each power sounds like what it does.',
+    pads: [
+      { id: 'bubble.spawn', label: 'Bubble appears', opts: { gainDb: -8 } },
+      { id: 'bubble.pop', label: 'Bubble caught', opts: { gainDb: -6 } },
+      { id: 'sweep', label: 'Clean Slate', opts: { gainDb: -6 } },
+      { id: 'quickset', label: 'Quick-Set', opts: { gainDb: -5 } },
+      { id: 'undo', label: 'Undo', opts: { gainDb: -6 } },
+      { id: 'glue.on', label: 'Glue', opts: { gainDb: -6 } },
+      { id: 'glue.squelch', label: 'Glued bond', opts: { gainDb: -6 } },
+      { id: 'slow.in', label: 'Slow-Mo starts', opts: { gainDb: -6 } },
+      { id: 'slow.out', label: 'Slow-Mo ends', opts: { gainDb: -6 } },
+      { id: 'windgust', label: 'Second Wind', opts: { gainDb: -4 } },
+    ],
+  },
+  {
     title: 'Ambience', hue: 'lime', blurb: 'Little sounds scattered over each biome bed every 3 to 15 seconds.',
     pads: [
       { id: 'amb.bird', label: 'Bird (Meadow)' },
@@ -515,6 +530,72 @@ const MOMENTS: Moment[] = [
       for (let k = 0; k < 30; k++) audio.handle('xp_tick', {}, t + k * 0.07);
       audio.handle('level_up', { level: 5 }, t + 2.4);
       return 4.6;
+    },
+  },
+  {
+    title: 'Catch a power-up', desc: 'A bubble bloops in above the tower, and a falling shape pops it: a rising chime in the biome\'s key.',
+    run: (t) => {
+      audio.handle('bubble_spawned', { id: 1, kind: 'glue', x: 1, y: 6 }, t);
+      audio.handle('power_collected', { id: 1, kind: 'glue', slot: 0, x: 1, y: 6 }, t + 1.3);
+      return 2.4;
+    },
+  },
+  {
+    title: 'Glue', desc: 'A gloopy squelch, then the next shapes squelch as they stick.',
+    run: (t) => {
+      audio.handle('power_used', { kind: 'glue', slot: 0, shapes: 3 }, t);
+      for (let k = 0; k < 2; k++) {
+        audio.handle('contact_hit', { bodyA: `g${k}`, bodyB: 'tower', approachSpeed: 6, point: { x: k - 0.5, y: 3 }, size: 4 }, t + 0.9 + k * 0.9);
+        audio.handle('piece_landed', { impact: 0.4, x: k - 0.5, glue: true }, t + 0.9 + k * 0.9);
+        audio.handle('bond_formed', { pos: { x: k - 0.5, y: 3 }, glue: true }, t + 0.95 + k * 0.9);
+        audio.handle('piece_settled', { grade: 'clean' }, t + 1.1 + k * 0.9);
+      }
+      audio.handle('power_ended', { kind: 'glue' }, t + 3);
+      return 3.4;
+    },
+  },
+  {
+    title: 'Slow-Mo', desc: 'Time stretches down. Landings sink a little and the music softens, until it stretches back.',
+    run: (t) => {
+      audio.handle('power_used', { kind: 'slowmo', slot: 0, shapes: 3 }, t);
+      for (let k = 0; k < 3; k++) {
+        audio.handle('contact_hit', { bodyA: `s${k}`, bodyB: 'tower', approachSpeed: 5, point: { x: k - 1, y: 3 }, size: 4 }, t + 1.2 + k * 0.9);
+        audio.handle('piece_settled', { grade: 'clean' }, t + 1.4 + k * 0.9);
+      }
+      audio.handle('power_ended', { kind: 'slowmo' }, t + 4.2);
+      return 5;
+    },
+  },
+  {
+    title: 'Clean Slate', desc: 'One broom stroke sweeps the loose pieces away, then a clean sparkle.',
+    run: (t) => {
+      const pieces = Array.from({ length: 6 }, (_, i) => ({ id: i, shape: 'T', x: i - 3, y: 2 }));
+      audio.handle('pieces_swept', { pieces }, t);
+      audio.handle('power_used', { kind: 'clean', slot: 0, pieces, refund: 6 }, t);
+      return 1.4;
+    },
+  },
+  {
+    title: 'Quick-Set', desc: 'The tower turns to stone from the top down.',
+    run: (t) => { audio.handle('power_used', { kind: 'quickset', slot: 0, ids: [1, 2, 3, 4] }, t); return 1.6; },
+  },
+  {
+    title: 'Undo', desc: 'The last shape comes back to your hand with a reverse fwip. Then a power with nothing to do.',
+    run: (t) => {
+      audio.handle('power_used', { kind: 'undo', slot: 0, id: 9, shape: 'L', x: -1, y: 3 }, t);
+      audio.handle('piece_spawned', { shape: 'L' }, t + 0.35);
+      audio.handle('power_refused', { kind: 'glue', slot: 1 }, t + 1.4);
+      return 2;
+    },
+  },
+  {
+    title: 'Second Wind', desc: 'A big gust clears the tower, then a warm chord as your hearts and bricks come back.',
+    run: (t) => {
+      const pieces = Array.from({ length: 8 }, (_, i) => ({ id: i, shape: 'S', x: i - 4, y: 3 }));
+      audio.handle('pieces_swept', { pieces }, t);
+      audio.handle('second_wind', { pieces: 8, refund: 8, hearts: 3, restored: 2, bricks: 20 }, t);
+      audio.handle('heart_restored', { left: 3 }, t);
+      return 2.8;
     },
   },
   {
