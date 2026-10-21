@@ -4,6 +4,7 @@
 // CHROMIUM=/path/to/chrome uses that browser instead of Playwright's own download.
 
 import { chromium } from '@playwright/test';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const dir = fileURLToPath(new URL('..', import.meta.url));
@@ -14,6 +15,16 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || 
 const errors = [];
 for (const q of queries) {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+  // Headless Chromium can't reach Google Fonts through a TLS-inspecting proxy. If shots/fonts/ holds
+  // a copy (fonts.css plus its .woff2 files, fetched with curl), serve the fonts from there.
+  const fonts = `${dir}shots/fonts/`;
+  if (existsSync(`${fonts}fonts.css`)) {
+    await page.route('https://fonts.googleapis.com/**', r => r.fulfill({ contentType: 'text/css', body: readFileSync(`${fonts}fonts.css`, 'utf8') }));
+    await page.route('https://fonts.gstatic.com/**', r => {
+      const f = `${fonts}${new URL(r.request().url()).pathname.split('/').pop()}`;
+      return existsSync(f) ? r.fulfill({ contentType: 'font/woff2', body: readFileSync(f) }) : r.abort();
+    });
+  }
   page.on('pageerror', e => errors.push(`${q}: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error') errors.push(`${q}: ${m.text()}`); });
   await page.goto(`file://${dir}dist/index.html?${q}`);

@@ -829,5 +829,183 @@
       }
     ],
     "checkpointsPerPalette": 6
+  },
+  "ui": {
+    "badgeTiers": [
+      {
+        "name": "Wood",
+        "from": 1,
+        "base": "#D9A066",
+        "light": "#F2C891",
+        "shade": "#A8723E"
+      },
+      {
+        "name": "Stone",
+        "from": 10,
+        "base": "#A9AFC0",
+        "light": "#D4D8E2",
+        "shade": "#6E7487"
+      },
+      {
+        "name": "Bronze",
+        "from": 20,
+        "base": "#D08A4E",
+        "light": "#F2B98A",
+        "shade": "#9A5A2A"
+      },
+      {
+        "name": "Silver",
+        "from": 30,
+        "base": "#C9D1DE",
+        "light": "#F4F7FB",
+        "shade": "#8E98AB"
+      },
+      {
+        "name": "Gold",
+        "from": 40,
+        "base": "#FFC23D",
+        "light": "#FFE08A",
+        "shade": "#D9971A"
+      },
+      {
+        "name": "Crystal",
+        "from": 50,
+        "base": "#7FE3F5",
+        "light": "#D2F8FF",
+        "shade": "#3AA9C9"
+      },
+      {
+        "name": "Cosmic",
+        "from": 70,
+        "base": "#6B3FD9",
+        "light": "#B48CFF",
+        "shade": "#3A1F8C"
+      }
+    ],
+    "titles": [
+      [
+        1,
+        "Pebble Stacker"
+      ],
+      [
+        5,
+        "Brick Layer"
+      ],
+      [
+        10,
+        "Tower Tinkerer"
+      ],
+      [
+        15,
+        "Block Wrangler"
+      ],
+      [
+        20,
+        "Cloud Climber"
+      ],
+      [
+        25,
+        "Storm Chaser"
+      ],
+      [
+        30,
+        "Sky Architect"
+      ],
+      [
+        35,
+        "Orbit Mason"
+      ],
+      [
+        40,
+        "Moonwalker"
+      ],
+      [
+        45,
+        "Red Rock Roofer"
+      ],
+      [
+        50,
+        "Ring Rider"
+      ],
+      [
+        55,
+        "Star Builder"
+      ],
+      [
+        60,
+        "Cosmic Mason"
+      ]
+    ],
+    "unlocks": [
+      {
+        "level": 2,
+        "icon": "hold",
+        "name": "Hold slot",
+        "text": "Tap the Hold card to save a shape for later."
+      },
+      {
+        "level": 3,
+        "icon": "daily",
+        "name": "Daily Tower",
+        "text": "The same tower for everyone. One scored try a day."
+      },
+      {
+        "level": 6,
+        "icon": "gift",
+        "name": "Head start",
+        "text": "Every run now starts with a power-up in a slot."
+      },
+      {
+        "level": 8,
+        "icon": "zen",
+        "name": "Zen mode",
+        "text": "No budget, unlimited hearts, half XP. Just build."
+      }
+    ],
+    "icons": [
+      "pause",
+      "play",
+      "settings",
+      "sound",
+      "mute",
+      "music",
+      "haptics",
+      "close",
+      "back",
+      "share",
+      "info",
+      "home",
+      "restart",
+      "rotate_l",
+      "rotate_r",
+      "drop",
+      "check",
+      "profile",
+      "trophy",
+      "crown",
+      "flag",
+      "star",
+      "lock",
+      "heart",
+      "brick",
+      "hold",
+      "daily",
+      "zen",
+      "xp",
+      "gift",
+      "stats",
+      "tower",
+      "biome",
+      "streak",
+      "perfect",
+      "row",
+      "clutch",
+      "score",
+      "wind",
+      "junk",
+      "meteor",
+      "swirl",
+      "plumb"
+    ]
   }
 }

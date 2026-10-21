@@ -13,14 +13,16 @@
 // &powers=1 shows the power bubbles (spawn, bob, collect or fade), the power effects and a DOM power
 // bar with every icon and Second Wind state. &pw=idle holds the bubbles; &fx=sweep|glue|slowmo|gust holds one effect.
 // &pstrip=1 shows frozen frames of a bubble's spawn, idle, collect and fade, and the power effect textures.
+// &ui=menu|pause|summary|levelup|profile|settings|icons|badges|logo opens a UI kit screen or sheet (see ui.ts).
 // Options also work after a # (e.g. #gallery), for hosts that drop the query string.
 
 import * as Phaser from 'phaser';
 import {
   ART_SHAPES, ArtTextures, BIOMES, INK, LANDMARKS, POWER, POWER_COLORS, POWER_KINDS, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
   PowerBubble, SkyClock, bakeLandmark, pedestalHeight, pose, powerBarCss, powerIconUrl, rimAmount, skyColors,
-  type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
+  loadUiFonts, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
 } from '../src/index.ts';
+import { initUiPreview, screensBar } from './ui.ts';
 
 const qs = new URLSearchParams(location.search || location.hash.slice(1));
 const num = (k: string, d: number) => (qs.has(k) ? Number(qs.get(k)) : d);
@@ -60,6 +62,7 @@ class Preview extends Phaser.Scene {
     this.cameras.main.setZoom(num('zoom', 1));
     this.backdrop = new Backdrop(scene, { width: W, height: H });
     this.sky.set(num('sp', 0.15));
+    if (!qs.has('sp') && !qs.has('tour') && !qs.has('powers') && !qs.has('ui')) { this.biomePicker(); screensBar(); }
 
     this.groundY = H * 0.8;
     const pedW = 6;
@@ -92,6 +95,22 @@ class Preview extends Phaser.Scene {
   // ---- power-ups ----
 
   /** Frozen frames of a bubble's life (spawn, collect, fly to a slot, fade) over a day and a night sky. */
+  private pick: { biome: number; t: number; played: boolean } | null = null;
+
+  /** A row of biome buttons along the bottom: tap one to jump there and play its arrival. */
+  private biomePicker(): void {
+    const bar = document.createElement('div');
+    bar.style.cssText = 'position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);display:flex;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;z-index:3;font:600 11px Fredoka,Nunito,system-ui,sans-serif';
+    BIOMES.forEach((b, i) => {
+      const btn = document.createElement('button');
+      btn.textContent = b.name;
+      btn.style.cssText = `background:${b.sky[1]};color:${i >= 3 ? '#FFF7E8' : INK};border:2px solid ${INK};border-radius:10px;box-shadow:0 2px 0 ${INK};padding:2px 6px;font:inherit;cursor:pointer`;
+      btn.onclick = () => { this.pick = { biome: i, t: this.time.now, played: false }; };
+      bar.appendChild(btn);
+    });
+    document.body.appendChild(bar);
+  }
+
   private landmarkSheet(W: number, H: number): void {
     const [a, , c] = skyColors(9.5), g = this.add.graphics();
     g.fillGradientStyle(hexNum(a), hexNum(a), hexNum(c), hexNum(c), 1).fillRect(0, 0, W, H);
@@ -298,7 +317,7 @@ class Preview extends Phaser.Scene {
     cam.scrollY = -(tour ? Math.max(0, t - 1) * 2.2 : num('climb', 0)) * cell;
 
     const clock = this.sky.update(dt, 0, 0.2);
-    const sp = tour ? Math.min(qs.has('from') ? 9.7 : 2.6, from + Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : clock;
+    const sp = tour ? Math.min(qs.has('from') ? 9.7 : 2.6, from + Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : this.pick ? this.pick.biome + 0.3 : clock;
     // From scrollY, not worldView, which only catches up after the first frame renders.
     const ground = (this.groundY - (cam.scrollY + cam.height * (1 - 1 / cam.zoom) / 2)) * cam.zoom;
     if (qs.has('at')) {
@@ -311,6 +330,7 @@ class Preview extends Phaser.Scene {
       this.backdrop.update(0, ground, sp);
     } else this.backdrop.update(dt, ground, sp);
     if (qs.has('at')) this.palSet = true;
+    if (this.pick && !this.pick.played && time - this.pick.t > 300) { this.pick.played = true; this.backdrop.arrival(this.pick.biome); }
     if (qs.has('pal') && !this.palSet) { this.palSet = true; this.backdrop.setCosmos(BIOMES[9].firstCp + 6 * num('pal', 0)); }
     if (qs.has('palcycle') && Math.floor(t / 7) !== Math.floor((t - dt) / 7)) this.backdrop.setCosmos(BIOMES[9].firstCp + 6 * Math.floor(t / 7));
     const bi = Math.floor(sp + 0.02);
@@ -402,7 +422,13 @@ ${powerBarCss()}`;
   setInterval(() => { spent?.classList.remove('spent'); void (spent as HTMLElement | null)?.offsetWidth; spent?.classList.add('spent'); }, 1500);
 }
 
-new Phaser.Game({
+// The UI kit bakes text (badges, logo letters), so its fonts load first.
+void loadUiFonts().then(() => {
+  initUiPreview();
+  startGame();
+});
+
+const startGame = () => new Phaser.Game({
   type: qs.get('renderer') === 'canvas' ? Phaser.CANVAS : Phaser.AUTO,
   parent: 'game',
   backgroundColor: '#FFF7E8',
