@@ -4,7 +4,7 @@
 // the XP tally's timing and QA's one-tap questions.
 
 import {
-  MENU_MODES, injectUiCss, levelUp, mainMenu, onAction, pauseCard, profilePanel, readSettings, rewardAt, setXpBar, settingsPanel,
+  MENU_MODES, avatarPanel, injectUiCss, levelUp, mainMenu, onAction, pauseCard, profilePanel, readAvatar, readSettings, rewardAt, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, type SettingGroup, type SettingValue,
 } from '@art/index.ts';
 import { levelStep } from '../sim/tuning.ts';
@@ -22,7 +22,7 @@ export interface ScreenSounds {
 
 /** The sound each kit action makes; anything else is a plain tap. */
 const ACTION_SOUND: Record<string, UiSound> = {
-  play: 'start', again: 'start', resume: 'resume', profile: 'open', settings: 'open', share: 'open',
+  play: 'start', again: 'start', resume: 'resume', profile: 'open', settings: 'open', share: 'open', avatar: 'open', done: 'tap2',
   close: 'back', home: 'back', quit: 'back', continue: 'tap',
 };
 
@@ -142,7 +142,7 @@ export class Screens {
     const p = o.profile;
     // Daily Tower and Zen open at their levels but aren't built yet.
     const modes = MENU_MODES.map(m => (p.level >= (m.unlockAt ?? 0) ? { ...m, sub: 'Coming in the next build' } : m));
-    const el = mainMenu({ name: this.playerName, ...xpOf(p), modes, still: o.still });
+    const el = mainMenu({ name: this.playerName, ...xpOf(p), avatar: p.avatar, modes, still: o.still });
     const bottom = el.querySelector('.ui-menu-bottom')!;
     if (o.note) bottom.insertAdjacentHTML('afterbegin', `<div class="sc-testing">${esc(o.note)}</div>`);
     bottom.insertAdjacentHTML('beforeend', `<div class="sc-build">build ${esc(o.build)}</div>`);
@@ -171,14 +171,25 @@ export class Screens {
 
   // ---------------------------------------------------------------- profile
 
-  profile(p: Profile, onBack: () => void): void {
+  /** The profile; tapping the avatar opens the picker, and `onSave` stores a new choice. */
+  profile(p: Profile, onBack: () => void, onSave: () => void): void {
     const st = p.stats;
     const el = profilePanel({
-      name: this.playerName, ...xpOf(p),
+      name: this.playerName, ...xpOf(p), avatar: p.avatar,
       stats: { bestHeight: st.bestHeight, bestBiome: Math.max(0, st.bestBiome - 1), bricks: st.bricks, perfects: st.perfects, rows: st.rows, checkpoints: st.checkpoints, runs: p.runs, streak: p.streak },
       postcards: p.postcards,
     });
-    this.open('profile', el, { close: onBack });
+    const back = () => this.profile(p, onBack, onSave);
+    this.open('profile', el, { close: onBack, avatar: () => this.avatar(p, back, onSave) });
+  }
+
+  /** Art's avatar picker: shape, face and a hat (hats above the player's level stay locked). Done keeps the choice. */
+  private avatar(p: Profile, onBack: () => void, onSave: () => void): void {
+    const el = avatarPanel({ avatar: p.avatar, level: p.level });
+    this.open('avatar', el, {
+      close: onBack,
+      done: () => { p.avatar = readAvatar(el); onSave(); onBack(); },
+    });
   }
 
   // ---------------------------------------------------------------- run over
