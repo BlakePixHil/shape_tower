@@ -5,10 +5,19 @@ import { RapierEngine, initRapier } from './engine/rapier.ts';
 import { Sim, registerEngine, type Ghost, type Intent, type LoggedInput, type PieceState, type SecondWindMode, type SimOptions } from './sim.ts';
 import type { Tuning } from './tuning.ts';
 
-// The bake-off's contender (gameplay.md §15): tests pick it with engine: 'rapier' (QA_ENGINE=rapier).
-await initRapier(() => import('@dimforge/rapier2d-deterministic-compat'));
-registerEngine('rapier', s => new RapierEngine(s));
-/** SIM_ENGINE=rapier runs a whole suite on Rapier (npm run sim:smoke, for the bake-off). */
+// Held in a variable so bundlers (Sound's IIFE sim check, Vite) leave the 3.4 MB of WASM out.
+const RAPIER_PACKAGE = '@dimforge/rapier2d-deterministic-compat';
+
+/**
+ * Loads Rapier and registers it, so createSim({ engine: 'rapier' }) works: the bake-off's contender
+ * (gameplay.md §15, QA_ENGINE=rapier). Safe to call more than once.
+ */
+export async function useRapier(): Promise<void> {
+  await initRapier(() => import(/* @vite-ignore */ RAPIER_PACKAGE));
+  registerEngine('rapier', s => new RapierEngine(s));
+}
+
+/** SIM_ENGINE=rapier runs a whole suite on Rapier (npm run sim:smoke, for the bake-off); call useRapier() first. */
 const DEFAULT_ENGINE: 'box2d' | 'rapier' = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SIM_ENGINE === 'rapier' ? 'rapier' : 'box2d';
 
 export interface CreateSimOptions {

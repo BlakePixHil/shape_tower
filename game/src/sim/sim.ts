@@ -212,7 +212,7 @@ export class Sim {
     this.secondWind = opts.secondWind === 'ready' ? 'ready' : opts.secondWind === 'off' ? 'off' : 'earn';
     this.bubbleIn = this.bubbleGap();
     const make = ENGINES[opts.engine ?? 'box2d'];
-    if (!make) throw new Error(`physics engine "${opts.engine}" is not registered (Rapier: registerEngine('rapier', ...) after initRapier())`);
+    if (!make) throw new Error(`physics engine "${opts.engine}" is not loaded: await useRapier() from testApi.ts first (or registerEngine after initRapier)`);
     this.engine = make({ gravity: this.tuning.gravity, pushoutVelocity: this.tuning.pushoutVelocity, hitThreshold: 0.3 });
 
     // The plinth: an 8-wide raised pedestal, top surface at y = 0.
