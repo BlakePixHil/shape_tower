@@ -254,6 +254,31 @@ for (const [shape, x] of [['Domino', -2], ['O', 2.5], ['Plank', -1.5]] as const)
   check('QA-003 a bond to a J turned to stone holds still', fastest < 0.1, `fastest ${fastest.toFixed(2)} blocks/s`);
 }
 
+// QA-004: the physics path uses only maths every JavaScript engine computes bit for bit the same.
+// atan2, exp, pow and the rest may differ in their last bits between engines, so an Android phone
+// drifted from Node. sin and cos of 0 are exact, so those are allowed.
+{
+  const M = Math as unknown as Record<string, (...a: number[]) => number>;
+  const names = ['atan2', 'atan', 'sin', 'cos', 'tan', 'exp', 'expm1', 'log', 'log1p', 'log2', 'log10', 'pow', 'hypot', 'cbrt', 'asin', 'acos', 'sinh', 'cosh', 'tanh'];
+  const saved = names.map(n => M[n]);
+  const used = new Map<string, number>();
+  names.forEach((n, k) => { M[n] = (...a: number[]) => { if (!((n === 'sin' || n === 'cos') && a[0] === 0)) used.set(n, (used.get(n) ?? 0) + 1); return saved[k](...a); }; });
+  try {
+    const t = createSim({ autoSpawn: true, seed: 11, tuning: { firstGap: 4, wind: 0.05, infiniteHearts: true, infiniteBudget: true } });
+    let bonds = 0;
+    for (let i = 0; i < 60 * 40 && t.sim.state === 'playing'; i++) {
+      const c = t.sim.ctrl;
+      if (c && c.speed > 0 && !c.hard) { t.intent({ type: 'moveTo', x: -1.5 + (i % 4) }); t.intent({ type: 'hardDrop' }); }
+      t.step();
+      bonds += t.drainEvents().filter(e => e.name === 'bond_formed').length;
+    }
+    t.dispose();
+    check('QA-004 the physics path uses only exactly-rounded maths', used.size === 0 && bonds > 5, `${bonds} bonds; ${used.size ? [...used].map(([n, k]) => `${n} ×${k}`).join(', ') : 'no atan2, exp, pow, … calls'}`);
+  } finally {
+    names.forEach((n, k) => { M[n] = saved[k]; });
+  }
+}
+
 // Auto-play smoke: a run with auto spawn and a naive bot keeps going without errors.
 {
   const t = createSim({ autoSpawn: true, rookieOpening: true });

@@ -204,9 +204,10 @@ export class Box2DEngine implements PhysicsEngine {
     jd.localAnchorA = B.b2Body_GetLocalPoint(ea.body, anchor);
     jd.localAnchorB = B.b2Body_GetLocalPoint(eb.body, anchor);
     const qa = B.b2Body_GetRotation(ea.body), qb = B.b2Body_GetRotation(eb.body);
-    // Relative rotation of B in A's frame; the angle is engine-side setup data.
+    // Relative rotation of B in A's frame, through the port's portable atan2 (QA-004), so every
+    // device computes the same angle.
     const rc = qa.c * qb.c + qa.s * qb.s, rs = qa.c * qb.s - qa.s * qb.c;
-    jd.referenceAngle = Math.atan2(rs, rc);
+    jd.referenceAngle = B.b2Rot_GetAngle(new B.b2Rot(rc, rs));
     jd.linearHertz = hertz;
     jd.angularHertz = hertz;
     jd.linearDampingRatio = damping;

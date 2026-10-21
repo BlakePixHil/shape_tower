@@ -32,6 +32,33 @@ const fixes = [
   // as soon as it is solved (QA-003).
   ['  bodySim.invInertia = 0;\n  bodySim.minExtent = B2_HUGE;',
    '  bodySim.invInertia = 0;\n  bodySim.localCenter = new b2Vec2();\n  bodySim.minExtent = B2_HUGE;'],
+  // Math.atan2 may differ in its last bits between JavaScript engines, and bonds call it in every
+  // step, so an Android phone and Node drifted apart (QA-004). Box2D v3.1's b2Atan2 uses only
+  // + - * / abs min max, which every engine computes the same; upstream added it for this.
+  ['function b2Rot_GetAngle(q3) {\n  return Math.atan2(q3.s, q3.c);\n}',
+   `function b2Atan2(y, x) {
+  const ax = Math.abs(x);
+  const ay = Math.abs(y);
+  const mx = Math.max(ay, ax);
+  const mn = Math.min(ay, ax);
+  const a = mn / (mx + 1.1754943508222875e-38);
+  const s = a * a;
+  const c = s * a;
+  const q = s * s;
+  let r = 0.024840285 * q + 0.18681418;
+  const t = -0.094097948 * q - 0.33213072;
+  r = r * s + t;
+  r = r * c + a;
+  if (ay > ax) r = 1.57079637 - r;
+  if (x < 0) r = 3.14159274 - r;
+  if (y < 0) r = -r;
+  return r;
+}
+function b2Rot_GetAngle(q3) {
+  return b2Atan2(q3.s, q3.c);
+}`],
+  ['  const c2 = b.c * a.c + b.s * a.s;\n  return Math.atan2(s, c2);',
+   '  const c2 = b.c * a.c + b.s * a.s;\n  return b2Atan2(s, c2);'],
 ];
 
 let src = readFileSync(file, 'utf8');
