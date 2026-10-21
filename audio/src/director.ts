@@ -7,6 +7,7 @@ import { BIOMES, biome, biomeKey, type BiomeAudio } from './biomes';
 import { SoundBank, type NoteRequest } from './bank';
 import { FallbackBaker, ThreadBaker, WorkerBaker, type Baker } from './bake/baker';
 import { Haptics, defaultHapticsLevel, type CapacitorHapticsLike, type PatternName } from './haptics';
+import { MusicEngine, type MusicScreen } from './music/engine';
 import { LandingLadder, type Grade } from './music/ladder';
 import { run, scaleNote, tonicChord, type Key } from './music/theory';
 import { Mixer, type Overlay } from './mixer';
@@ -105,6 +106,8 @@ export class AudioDirector {
   readonly voices: VoiceAllocator;
   readonly haptics: Haptics;
   readonly ladder = new LandingLadder();
+  /** the adaptive soundtrack (audio section 4) */
+  readonly music: MusicEngine;
   /** resolves when every placeholder sound has been baked */
   readonly ready: Promise<void>;
 
@@ -164,6 +167,7 @@ export class AudioDirector {
     this.storage = opts.storage;
     this.mixer = new Mixer(this.ctx);
     this.bank = new SoundBank(this.ctx, opts.seed ?? 1, makeBaker(opts.worker, this.realtime));
+    this.music = new MusicEngine(this.ctx, this.mixer.input('music'), this.bank);
     const sr = this.ctx.sampleRate;
     const reverb = this.bank.baker
       .bake([{ kind: 'ir', seconds: 1.6, seed: opts.seed ?? 7, sr }])
@@ -177,6 +181,7 @@ export class AudioDirector {
         // play can start as soon as the core sounds are in; the rest keeps baking
         this.isReady = true;
         void this.bank.warmNotes([...this.musicFor(this.key, this.material), ...this.metaMusic()]);
+        this.music.warmBiome(1);
       },
     })]).then(() => undefined);
   }
@@ -217,6 +222,17 @@ export class AudioDirector {
     if (kind === 'start') this.runStartChime(when);
     else this.play(UI_SOUNDS[kind], { bus: 'ui', when, gainDb: kind === 'slider' ? -18 : -12, category: 'ui', priority: 2, slowmo: false });
     if (kind !== 'slider') this.haptic('uiTap');
+  }
+
+  /**
+   * Music outside a run: 'menu' for the title and menus, 'profile' for the profile and unlocks
+   * (a lighter arrangement), 'none' for silence. Results music starts by itself after a run.
+   */
+  screen(name: MusicScreen | 'none', when: number = this.now()): void {
+    if (this.running) return;
+    if (name === 'none') return this.music.stop(when);
+    if (name !== 'results') this.mixer.setBase('menu', when, 0.5);
+    this.music.showScreen(name, when);
   }
 
   setVolume(bus: 'music' | 'sfx' | 'voices', linear: number): void {
@@ -285,12 +301,14 @@ export class AudioDirector {
       latency: { base: (this.ctx as AudioContext).baseLatency, output: (this.ctx as AudioContext).outputLatency },
       haptics: this.haptics.backend.name,
       baking: this.bank.baker.name,
+      music: this.music.state(),
     };
   }
 
   dispose(): void {
     this.disposers.forEach((d) => d());
     this.disposers = [];
+    this.music.stop(this.now());
     this.stopAll(this.now());
     this.bank.baker.dispose?.();
     if (this.ownsContext && typeof (this.ctx as AudioContext).close === 'function') void (this.ctx as AudioContext).close();
@@ -505,7 +523,7 @@ export class AudioDirector {
 
   // ------------------------------------------------------------ the ticker
 
-  /** Continuous behaviour: danger heartbeat, creaks, scrapes, ambience sweeteners. */
+  /** Continuous behaviour: danger heartbeat, creaks, scrapes, ambience sweeteners, and the music's clock. */
   tick(when: number = this.now()): void {
     if (!this.isReady) return;
     const t = this.signals.tension;
@@ -555,6 +573,7 @@ export class AudioDirector {
       }
     }
     if (when - this.lastXp > 1.5) this.xpCount = 0;
+    this.music.update(when, { tension: t, progress: this.signals.checkpointProgress, streak: this.ladder.currentStreak });
   }
 
   private installRealtime(): void {
@@ -602,6 +621,7 @@ export class AudioDirector {
     if (changed) {
       void this.bank.prepareBiome(b.id);
       void this.bank.warmNotes(this.musicFor(this.key, b.material));
+      this.music.setBiome(b.id, this.checkpointN);
     }
     if (changed || !this.bed) this.startBed(when);
     if (withEntry && !this.entryPlayed.has(b.id)) {
@@ -949,6 +969,7 @@ export class AudioDirector {
     this.biomeId = 0;
     this.switchBiome(this.maxBiome, when, false);
     this.entryPlayed.add(this.biomeId);
+    this.music.startRun(when, this.biomeId, this.checkpointN);
     this.nextSweet = when + 2;
     this.nextCreak = when;
     if (chime) {
@@ -1081,6 +1102,7 @@ export class AudioDirector {
     const m = asMaterial(p?.material, this.material);
     const { inst, octave } = this.instFor(m);
     this.play('settle', { when, gainDb: -16, category: 'note', priority: 3 });
+    this.music.settled();
     const r = this.ladder.settle(this.key, grade);
     if (r.kind === 'clonk') {
       this.playNote('clonk', this.key.root - 12, { when: when + 0.01, gainDb: -12 });
@@ -1140,11 +1162,13 @@ export class AudioDirector {
     this.mixer.duck('ambience', -6, when, 2);
     this.haptic('checkpoint');
     this.haptic('foundation', 1, 1.3);
+    this.music.claimed(when, n);
     // Deep Cosmos rotates key every 6 checkpoints
     if (this.biomeId === 10) {
       const k = biomeKey(10, n);
       if (k.root !== this.key.root) void this.bank.warmNotes(this.musicFor(k, this.material));
       this.key = k;
+      this.music.setBiome(10, n);
     }
   }
 
@@ -1194,6 +1218,7 @@ export class AudioDirector {
       r.linearRampToValueAtTime(Math.max(0.05, pl.baseRate * 0.2), when + 0.6);
       pl.gain.gain.setTargetAtTime(0, when + 0.3, 0.12);
     }
+    this.music.stopRun(when);
     this.rateFactor = 1;
     this.mixer.clearOverlays(when);
     this.mixer.setBase('gameover', when, 0.2);
@@ -1209,6 +1234,7 @@ export class AudioDirector {
     const phrase = [4, 2, 1, 0].map((d) => scaleNote(this.key, d) + 12 * octave);
     const t = when + 1.1 + journey.length * 0.13;
     this.mixer.setBase('results', t + 1.4, 0.5);
+    this.music.showScreen('results', t + 1.4);
     this.withNotes([...journey.map((j) => ({ inst: j.inst, midis: [j.midi] })), ...phrase.map((m) => ({ inst, midis: [m] }))], () => {
       journey.forEach((j, i) => this.playNote(j.inst, j.midi, { bus: 'ui', when: when + 1.1 + i * 0.13, gainDb: -12, priority: 2, slowmo: false }));
       phrase.forEach((m, i) => this.playNote(inst, m, { bus: 'ui', when: t + 0.3 + i * 0.22, gainDb: -10, priority: 2, slowmo: false }));

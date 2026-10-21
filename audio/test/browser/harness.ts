@@ -2,6 +2,7 @@
 // OfflineAudioContext, renders the result and returns numbers for the runner to check.
 
 import { AudioDirector } from '../../src/director';
+import { MUSIC_TUNING } from '../../src/music/engine';
 import { FULL_CAPS, FULL_GLOBAL_CAP } from '../../src/voices';
 import { JUICE_EVENTS, type Material } from '../../src/types';
 import { mulberry32 } from '../../src/synth/dsp';
@@ -252,8 +253,9 @@ const scenarios = {
   async rest() {
     const { ctx, d } = await makeDirector(10);
     d.handle('run_start', {}, 0.1);
-    // ambience bed and sweeteners are meant to be heard; mute them so only the tower is measured
+    // ambience and music are meant to be heard; mute them so only the tower is measured
     d.mixer.setVolume('ambience', 0, 0.2);
+    d.mixer.setVolume('music', 0, 0.2);
     const rng = mulberry32(5);
     for (let t = 0.2; t < 10; t += 0.1) {
       d.handle('signals', { tension: 0.15, biome: 1, cameraY: 5 }, t);
@@ -394,6 +396,85 @@ const scenarios = {
     d.handle('piece_spawned', {}, 26);
     seen.push(base());
     return seen;
+  },
+
+  /**
+   * The soundtrack through a whole run, with only the music bus audible: layers on bar
+   * lines, the tension takeover, a breakdown, the riser, a biome handover, the tape stop
+   * and the results loop.
+   */
+  async music() {
+    const { ctx, d } = await makeDirector(58);
+    for (const bus of ['sfx', 'ui', 'ambience', 'voices'] as const) d.mixer.setVolume(bus, 0, 0);
+    const T = MUSIC_TUNING;
+    const saved = { every: T.breakdownEvery, bars: T.breakdownBars };
+    // a breakdown every 10 bars instead of every 72, so one fits in the test
+    T.breakdownEvery = 10;
+    T.breakdownBars = 2;
+    try {
+      await d.music.prewarm();
+      d.handle('run_start', {}, 0.1);
+      const tensionAt = (t: number) => (t >= 12 && t < 16 ? 0.75 : 0.1);
+      const progressAt = (t: number) => (t < 33 ? Math.min(1, Math.max(0, (t - 24) / 8)) : 0);
+      let biome = 1;
+      let maxVoices = 0;
+      for (let i = 2; i <= 560; i++) {
+        const t = i / 10;
+        if (i >= 5 && i <= 30 && i % 5 === 0) d.handle('piece_settled', { grade: 'clean', material: 'wood' }, t);
+        if (i === 330) {
+          d.handle('checkpoint_claimed', { n: 1, leftover: 0 }, t);
+          await d.music.prewarm();
+        }
+        if (i === 360) {
+          d.handle('checkpoint_claimed', { n: 2, leftover: 0 }, t);
+          d.handle('biome_entered', { id: 2 }, t + 0.01);
+          biome = 2;
+          await d.music.prewarm();
+        }
+        if (i === 460) {
+          d.handle('run_over', {}, t);
+          // the results loop bakes during the 2.7 s of tape stop and "nice try"
+          await d.music.prewarm();
+        }
+        d.handle('signals', { tension: tensionAt(t), checkpointProgress: progressAt(t), biome, cameraY: 5 }, t);
+        maxVoices = Math.max(maxVoices, d.music.state().voices);
+      }
+      const buf = await ctx.startRendering();
+      const level = (a: number, b: number) => {
+        const st = analyse(buf, a, b);
+        return { rmsDb: db(st.rms), peakDb: db(st.peak) };
+      };
+      const all = analyse(buf);
+      return {
+        nonFinite: all.nonFinite, peak: all.peak, nearClip: all.nearClip,
+        log: d.music.log, stats: d.music.state(), maxVoices, streak: d.ladder.currentStreak,
+        levels: {
+          intro: level(1, 4.5), full: level(6, 11.5), tension: level(12.5, 15.5), breakdown: level(20, 23.5),
+          treetops: level(38, 45), stopped: level(47.2, 48.5), results: level(50, 57.5),
+        },
+      };
+    } finally {
+      T.breakdownEvery = saved.every;
+      T.breakdownBars = saved.bars;
+    }
+  },
+
+  /** Title and profile screens play the lullaby; 'none' fades it out. */
+  async screens() {
+    const { ctx, d } = await makeDirector(13);
+    d.screen('menu', 0.1);
+    await d.music.prewarm();
+    const modes: string[] = [];
+    for (let i = 1; i <= 120; i++) {
+      const t = i / 10;
+      if (i === 60) d.screen('profile', t);
+      if (i === 95) d.screen('none', t);
+      d.tick(t);
+      if (i % 30 === 0) modes.push(d.music.mode);
+    }
+    const buf = await ctx.startRendering();
+    const level = (a: number, b: number) => db(analyse(buf, a, b).rms);
+    return { modes, menuDb: level(1, 5.5), profileDb: level(6.5, 9), afterDb: level(11, 13), stats: d.music.state(), nonFinite: analyse(buf).nonFinite };
   },
 };
 

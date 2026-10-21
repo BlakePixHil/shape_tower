@@ -119,6 +119,44 @@ const checks = {
   },
 };
 
+const BAR = 2.4;
+checks.music = (r) => {
+  assert.equal(r.nonFinite, 0, 'no NaN in the music');
+  assert.ok(r.peak <= 1 && r.nearClip === 0, `the music never clips (peak ${r.peak.toFixed(3)})`);
+  assert.equal(r.stats.misses, 0, `every note was baked before its bar (${r.stats.misses} missed: ${r.stats.missed.join(" ")})`);
+  assert.ok(r.maxVoices <= 16 && r.stats.peakVoices <= 16, `the band stays within its 16 voices (peak ${r.stats.peakVoices})`);
+  const at = (what) => r.log.find((e) => e.what === what)?.t;
+  const t0 = at('run start');
+  const onBar = (t) => t !== undefined && Math.abs(((t - t0) / BAR) - Math.round((t - t0) / BAR)) < 0.01;
+  assert.ok(Math.abs(t0 - 0.12) < 0.01, `the run's band starts with the run (${t0})`);
+  assert.ok(onBar(at('L2 on')) && Math.abs(at('L2 on') - (t0 + 2 * BAR)) < 0.01, `the groove joins on the bar after the intro (${at('L2 on')})`);
+  assert.ok(onBar(at('L3 on')) && at('L3 on') >= t0 + 2 * BAR, `the lead joins on a bar line once the streak reaches 4 (${at('L3 on')})`);
+  assert.ok(Math.abs(at('L3 off (tension)') - 12) < 0.15, `high tension takes the lead out right away (${at('L3 off (tension)')})`);
+  assert.ok(r.log.some((e) => e.what === 'L3 on' && e.t > 16), 'the lead comes back once the tower calms down');
+  assert.ok(onBar(at('L2 off (breakdown)')), `breakdowns start on a bar line (${at('L2 off (breakdown)')})`);
+  assert.ok(r.log.some((e) => e.what === 'L2 on' && e.t > at('L2 off (breakdown)')), 'the groove returns after the breakdown');
+  assert.ok(onBar(at('L5 on')) && at('L5 on') >= 30.8, `the riser starts in the last 15% to a checkpoint (${at('L5 on')})`);
+  assert.equal(at('L5 off (claimed)'), 33, 'the riser resolves on the claim');
+  const band = r.log.find((e) => e.what.startsWith('band 2:'));
+  // the next bar line not already scheduled (bars go out 0.35 s ahead)
+  assert.ok(band && onBar(band.t) && band.t > 36 && band.t < 36 + BAR + 0.35, `Treetops' band takes over on the next bar line (${band?.t})`);
+  assert.equal(at('tape stop'), 46, 'game over stops the tape');
+  assert.ok(at('results') > 47 && at('results') < 50, `the results loop follows the "nice try" phrase (${at('results')})`);
+  const L = r.levels;
+  for (const [k, v] of Object.entries(L)) if (k !== 'stopped') assert.ok(v.rmsDb > -48 && v.rmsDb < -14, `music is audible but sits under the effects: ${k} ${v.rmsDb} dB`);
+  assert.ok(L.full.rmsDb > L.intro.rmsDb, `the groove adds energy (${L.intro.rmsDb} -> ${L.full.rmsDb} dB)`);
+  assert.ok(L.breakdown.rmsDb < L.full.rmsDb, `breakdowns give the ear a rest (${L.breakdown.rmsDb} vs ${L.full.rmsDb} dB)`);
+  assert.ok(L.stopped.peakDb < -45, `after the tape stop the music is silent (${L.stopped.peakDb} dBFS)`);
+};
+
+checks.screens = (r) => {
+  assert.equal(r.nonFinite, 0, 'no NaN');
+  assert.deepEqual(r.modes, ['menu', 'profile', 'profile', 'off'], 'screens switch the music');
+  assert.equal(r.stats.misses, 0, 'the lullaby was baked first');
+  assert.ok(r.menuDb > -45 && r.profileDb > -48, `menus play the lullaby (${r.menuDb} / ${r.profileDb} dB)`);
+  assert.ok(r.afterDb < -70, `'none' fades it out (${r.afterDb} dB)`);
+};
+
 checks.sim = (r) => {
   assert.equal(r.nonFinite, 0, 'no NaN in the mix');
   assert.ok(r.peak <= 1, `the mix never exceeds full scale (peak ${r.peak.toFixed(3)})`);
@@ -135,6 +173,11 @@ checks.sim = (r) => {
   }
   assert.ok(r.mixLog.some((m) => m.endsWith('->results')), `a run ends on the results mix (${r.mixLog.join(', ')})`);
   assert.ok(r.counts.power_used > 0 && r.counts.second_wind > 0, 'the bot used power-ups and Second Wind');
+  assert.equal(r.musicRuns, r.runs.length, `the band plays in every run (${r.musicRuns} of ${r.runs.length})`);
+  assert.equal(r.music.misses, 0, `every band note was baked in time (${r.music.misses} missed: ${r.music.missed.join(' ')})`);
+  assert.ok(r.music.peakVoices <= 16, `the band stays within its 16 voices (${r.music.peakVoices})`);
+  // audio section 4.8: about 25 MB of effects, 20 MB of instruments for two biomes, 15 MB of ambience
+  assert.ok(r.memoryMB < 60, `decoded audio stays under 60 MB with the band playing (${r.memoryMB} MB)`);
   // the bot stays in Meadow and Treetops: wood pieces on stone slabs
   assert.ok(r.played.wood > 0 && r.played.stone > 0, `pieces sound like wood and slabs like stone (${JSON.stringify(r.played)})`);
 };
@@ -162,10 +205,12 @@ process.exitCode = failed ? 1 : 0;
 
 function summary(name, r) {
   if (name === 'worker') return `worker bake ${r.workerMs} ms (longest main-thread stall ${r.workerStall} ms) vs main thread ${r.threadMs} ms (stall ${r.threadStall} ms)`;
-  if (name === 'sim') return `${r.runs.length} runs, ${r.counts.contact_hit} hits (${Object.entries(r.played).map(([m, n]) => `${m} ${n}`).join(', ')}), ${r.counts.piece_settled ?? 0} settles, ${r.counts.power_used ?? 0} powers and ${r.counts.second_wind ?? 0} Second Winds used, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms`;
+  if (name === 'sim') return `${r.runs.length} runs, ${r.counts.contact_hit} hits (${Object.entries(r.played).map(([m, n]) => `${m} ${n}`).join(', ')}), ${r.counts.piece_settled ?? 0} settles, ${r.counts.power_used ?? 0} powers and ${r.counts.second_wind ?? 0} Second Winds used, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB`;
   if (name === 'bank') return `bake ${r.buildMs} ms, ${r.names} sounds, memory per biome ${r.memoryMB.join('/')} MB`;
   if (name === 'run') return `peak ${r.all.peak.toFixed(3)}, voices ${r.caps.total}/${r.capLimits.total}, contact ${r.contactCpuMs.mean.toFixed(3)} ms`;
   if (name === 'rest') return `resting tower ${r.quietPeakDb} dBFS`;
+  if (name === 'music') return `levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v.rmsDb}`).join(', ')} dB; ${r.stats.notes} notes, ${r.stats.stolen} stolen, ${r.stats.dropped} dropped, peak ${r.stats.peakVoices} voices`;
+  if (name === 'screens') return `menu ${r.menuDb} dB, profile ${r.profileDb} dB, after ${r.afterDb} dB`;
   if (name === 'loudness') return `${r.softDb} / ${r.midDb} / ${r.hardDb} dB, below-screen ${r.belowDb} dB`;
   return JSON.stringify(r).slice(0, 120);
 }
