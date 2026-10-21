@@ -29,8 +29,9 @@ if [ -d "$R/game" ]; then
     # The built game played headless through every screen, its power-ups from the HUD, a run down to
     # its last shapes (the shapes-left warnings, #51), the level-up celebration with its avatar picker,
     # a Zen run through pause, Finish, the summary and back to Endless (#57), the achievements' toast,
-    # strip, tally and panel (#37), and the Daily Tower's card, attempts and played day (#60).
-    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check; do
+    # strip, tally and panel (#37), the Daily Tower's card, attempts and played day (#60), and the loading
+    # splash (#61).
+    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check; do
       [ -f "$R/game/tests/$t.mjs" ] && run "game: $t" bash -c "cd game && node tests/$t.mjs"
     done
   fi
