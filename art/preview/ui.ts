@@ -1,6 +1,6 @@
 // UI kit preview: the DOM screens over the running scene, and sheets of the kit's parts.
-// &ui=menu|pause|summary|levelup|profile|settings opens that screen (buttons work: Settings, Profile,
-// Close and so on). &ui=icons|badges|logo|brand shows a sheet (brand: app icon, Android layers, splash, share card). &lv=<level> sets the player's level (default 7).
+// &ui=menu|pause|summary|levelup|profile|settings|avatar opens that screen (buttons work: Settings, Profile,
+// Close and so on). &ui=icons|badges|logo|brand|hats shows a sheet (brand: app icon, Android layers, splash, share card). &lv=<level> sets the player's level (default 7).
 // &still=1 skips the animations, as Reduce Motion does. Without &ui, a Screens row sits above the biome picker.
 // &rail=1 shows the altitude rail climbing through a few biomes, with the off-screen checkpoint and lost-piece chips.
 // &top=<blocks> starts it there, &hold=1 stops the climb, &span=<blocks> shows a scrolling window instead of the whole run.
@@ -9,9 +9,9 @@ import { demoTower } from './tower.ts';
 import {
   bakeAppIcon, bakePanorama, bakeShareCard, bakeSplash, panoramaBiome,
   altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail,
-  BADGE_TIERS, BIOMES, INK, UI_ICONS, avatarUrl, biomeCard, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
+  BADGE_TIERS, BIOMES, HATS, INK, UI_ICONS, avatarPanel, avatarUrl, hatUrl, readAvatar, biomeCard, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
   postcardElement, profilePanel, readSettings, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, titleFor, uiIconUrl, xpBar,
-  type SettingValue, type XpState,
+  type AvatarSpec, type SettingValue, type XpState,
 } from '../src/index.ts';
 
 const qs = new URLSearchParams(location.search || location.hash.slice(1));
@@ -20,6 +20,7 @@ const level = Math.max(1, Number(qs.get('lv') ?? 7));
 const step = (L: number): number => Math.round((50 * L ** 1.65 + 50) / 10) * 10;
 const xpAt = (L: number, f: number): XpState => ({ level: L, into: Math.round(step(L) * f), need: step(L) });
 
+let avatar: AvatarSpec = { shape: 'O', hat: level >= 4 ? 'cap' : 'party' };
 let settings: Record<string, SettingValue> = { music: 0.7, sfx: 0.9, haptics: true, controls: 'gestures', splitTap: false, safeDrop: false, leftHand: false, sensitivity: 1, reducedMotion: false, shake: 1, patterns: false };
 
 function mount(el: HTMLElement): HTMLElement {
@@ -32,7 +33,7 @@ function mount(el: HTMLElement): HTMLElement {
 export function openScreen(name: string): void {
   const close = (el: HTMLElement) => () => el.remove();
   if (name === 'menu') {
-    const m = mount(mainMenu({ name: 'Blake', ...xpAt(level, 0.62), avatar: { shape: 'O' }, still }));
+    const m = mount(mainMenu({ name: 'Blake', ...xpAt(level, 0.62), avatar, still }));
     onAction(m, a => { if (a === 'play' || a === 'daily' || a === 'zen') m.remove(); else openScreen(a); });
   } else if (name === 'pause') {
     const p = mount(pauseCard());
@@ -44,9 +45,16 @@ export function openScreen(name: string): void {
     onAction(l, close(l));
   } else if (name === 'profile') {
     const dates = ['20 OCT 2026', '20 OCT 2026', '21 OCT 2026', '21 OCT 2026', '', null, null, null, null, null];
-    const p = mount(profilePanel({ name: 'Blake', ...xpAt(level, 0.62), avatar: { shape: 'O' }, postcards: dates,
+    const p = mount(profilePanel({ name: 'Blake', ...xpAt(level, 0.62), avatar, postcards: dates,
       stats: { bestHeight: 84.6, bestBiome: 4, bricks: 2318, perfects: 412, rows: 57, checkpoints: 31, runs: 46, streak: 3 } }));
-    onAction(p, close(p));
+    onAction(p, a => { if (a === 'avatar') openScreen('avatar'); else p.remove(); });
+  } else if (name === 'avatar') {
+    // Done keeps the choice and refreshes the avatar wherever it shows.
+    const v = mount(avatarPanel({ avatar, level }));
+    onAction(v, a => {
+      if (a === 'done') { avatar = readAvatar(v); document.querySelectorAll<HTMLImageElement>('.ui-prof-head .ui-avatar').forEach(i => { i.src = avatarUrl(avatar, 72); }); }
+      v.remove();
+    });
   } else if (name === 'settings') {
     const s = mount(settingsPanel(settings));
     onAction(s, a => { if (a === 'close') { settings = readSettings(s); s.remove(); } });
@@ -118,6 +126,12 @@ function sheet(name: string): void {
       <h3>Avatars</h3><div class="pv-wrap">${['O', 'T', 'L', 'S', 'I', 'Z', 'J', 'Domino'].map((k, i) => `<img alt="" style="width:56px;height:56px" src="${avatarUrl({ shape: k, face: (['idle', 'proud', 'idle', 'worried', 'idle', 'impact', 'idle', 'proud'] as const)[i] }, 56)}">`).join('')}</div>`;
     const bars = root.querySelector('.pv-bars')!;
     for (const [L, f] of [[1, 0.1], [2, 0.95], [7, 0.62], [12, 0.3], [41, 0.8], [72, 0.5]] as const) bars.appendChild(xpBar(xpAt(L, f)));
+  } else if (name === 'hats') {
+    const shapes = ['O', 'T', 'L', 'J', 'S', 'Z', 'I'];
+    root.innerHTML = `<h3>Hats (unlock level)</h3><div class="pv-wrap">${HATS.map(h => `<div class="pv-cell"><img alt="" style="width:72px;height:72px" src="${hatUrl(h.key, 72)}">${h.name}<br>Lv ${h.level}</div>`).join('')}</div>
+      <h3>Worn</h3><div class="pv-wrap">${HATS.map((h, i) => `<img alt="" style="width:72px;height:72px" src="${avatarUrl({ shape: shapes[i % shapes.length], face: i % 2 ? 'proud' : 'idle', hat: h.key }, 72)}">`).join('')}</div>
+      <h3>Every Blockling in a party hat</h3><div class="pv-wrap">${shapes.map(k => `<img alt="" style="width:56px;height:56px" src="${avatarUrl({ shape: k, hat: 'party' }, 56)}">`).join('')}</div>
+      <h3>Small (40 px)</h3><div class="pv-wrap">${HATS.map((h, i) => `<img alt="" style="width:40px;height:40px" src="${avatarUrl({ shape: shapes[(i + 3) % shapes.length], hat: h.key }, 40)}">`).join('')}</div>`;
   } else if (name === 'logo') {
     root.innerHTML = `<h3>Logo (DOM, drops in)</h3><div class="pv-logo" style="display:flex;justify-content:center;padding:8px 0 14px"></div>
       <h3>Logo baked still (splash, share card)</h3><div class="pv-bake" style="display:flex;justify-content:center"></div>
@@ -165,7 +179,7 @@ function sheet(name: string): void {
 export function screensBar(): void {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 62px);display:flex;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;z-index:3;font:600 11px Fredoka,Nunito,system-ui,sans-serif';
-  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama']]) {
+  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama'], ['avatar', 'Avatar'], ['hats', 'Hats']]) {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = `background:#FFC23D;color:${INK};border:2px solid ${INK};border-radius:10px;box-shadow:0 2px 0 ${INK};padding:2px 8px;font:inherit;cursor:pointer`;

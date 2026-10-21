@@ -8,12 +8,15 @@ import { FONT_BODY, FONT_DISPLAY, INK } from '../config.ts';
 import { drawPiece } from '../piece.ts';
 import { ART_SHAPES, pose } from '../shapes.ts';
 import { BIOMES } from '../biomes.ts';
-import type { Expression } from '../face.ts';
+import { type Expression, drawFace } from '../face.ts';
+import { faceAnchor } from '../geometry.ts';
 import { ctx2d, hash, makeCanvas } from '../util.ts';
 import { badgeTier, badgeUrl, newTitleAt, titleFor } from './badge.ts';
 import { type UiIcon, uiIconUrl } from './icons.ts';
 import { logoElement } from './logo.ts';
+import { HATS, type Hat, drawHat, hatUrl } from './hats.ts';
 import { postcardElement } from './postcard.ts';
+import { part, rrPath } from '../sticker.ts';
 
 const DPR = (): number => (typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1);
 const esc = (s: string): string => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
@@ -52,7 +55,7 @@ export function onAction(root: HTMLElement, fn: (action: string, target: HTMLEle
 // ---------------------------------------------------------------------------------------------
 // Unlocks (gameplay.md §10.3) and what the XP bar is heading for
 
-export interface Unlock { level: number; icon: UiIcon; name: string; text: string }
+export interface Unlock { level: number; icon: UiIcon; name: string; text: string; /** A hat unlock shows the hat instead of the icon. */ hat?: Hat }
 
 /** Gameplay unlocks. Titles (every 5 levels) and badge tiers (every 10) come from badge.ts. */
 export const UNLOCKS: Unlock[] = [
@@ -62,10 +65,12 @@ export const UNLOCKS: Unlock[] = [
   { level: 8, icon: 'zen', name: 'Zen mode', text: 'No budget, unlimited hearts, half XP. Just build.' },
 ];
 
-/** What reaching `level` gives, for the level-up's unlock card: a gameplay unlock, else a new badge or title. */
+/** What reaching `level` gives, for the level-up's unlock card: a gameplay unlock, a hat, else a new badge or title. */
 export function rewardAt(level: number): Unlock | undefined {
   const u = UNLOCKS.find(x => x.level === level);
   if (u) return u;
+  const h = HATS.find(x => x.level === level && level > 1);
+  if (h) return { level, icon: 'gift', name: h.name, text: 'A new hat for your Blockling. Try it on in your profile.', hat: h.key };
   const t = badgeTier(level);
   if (t.from === level && level > 1) return { level, icon: 'star', name: `${t.name} badge`, text: 'A new frame for your level badge.' };
   if (newTitleAt(level) && level > 1) return { level, icon: 'crown', name: titleFor(level), text: 'A new title for your profile.' };
@@ -85,7 +90,7 @@ export interface XpState {
 
 function nextHtml(level: number): string {
   const r = rewardAt(level + 1);
-  return r ? icon(r.icon, 18) : badge(level + 1, 24);
+  return r ? (r.hat ? `<img alt="" src="${hatUrl(r.hat, 20)}">` : icon(r.icon, 18)) : badge(level + 1, 24);
 }
 
 /** The XP bar: badge, striped violet track with "1,240 / 1,930 XP", and what the next level gives. `badge: false` leaves the badge off. */
@@ -227,7 +232,7 @@ export function levelUp(o: LevelUpOptions): HTMLElement {
   }
   const title = newTitleAt(L) ? `<span class="ui-kicker">New title</span><span class="ui-plate">${esc(titleFor(L))}</span>` : `<span class="ui-plate">${esc(titleFor(L))}</span>`;
   // A new title is already the reward: skip a crown card that would repeat it.
-  const card = u && !(u.icon === 'crown' && newTitleAt(L)) ? `<div class="ui-unlock">${icon(u.icon, 52)}<div><span class="ui-kicker">Unlocked</span><b>${esc(u.name)}</b><span>${esc(u.text)}</span></div></div>` : '';
+  const card = u && !(u.icon === 'crown' && newTitleAt(L)) ? `<div class="ui-unlock">${u.hat ? `<img alt="" src="${hatUrl(u.hat, 52)}">` : icon(u.icon, 52)}<div><span class="ui-kicker">Unlocked</span><b>${esc(u.name)}</b><span>${esc(u.text)}</span></div></div>` : '';
   return el(`<div class="ui ui-levelup" role="dialog" aria-label="Level ${L}">
     <div class="ui-rays"></div>
     <div class="ui-confetti">${confetti}</div>
@@ -246,13 +251,16 @@ export interface AvatarSpec {
   /** A key of ART_SHAPES (default 'O', the Butterblock). */
   shape?: string;
   face?: Expression;
+  /** Default none. */
+  hat?: Hat | null;
 }
 
 const avatars = new Map<string, string>();
 
-/** The player's Blockling on a round sky disc, as a cached PNG data URL `cssPx` square. Hats come later. */
+/** The player's Blockling on a round sky disc, wearing its hat, as a cached PNG data URL `cssPx` square. */
 export function avatarUrl(a: AvatarSpec = {}, cssPx = 56, dpr = DPR()): string {
-  const key = a.shape ?? 'O', face = a.face ?? 'idle', px = Math.round(cssPx * dpr), id = `${key}:${face}:${px}`;
+  const key = a.shape ?? 'O', face = a.face ?? 'idle', hat = a.hat ? HATS.find(h => h.key === a.hat) : undefined;
+  const px = Math.round(cssPx * dpr), id = `${key}:${face}:${hat?.key ?? ''}:${px}`;
   let u = avatars.get(id);
   if (u) return u;
   const cv = makeCanvas(px, px), c = ctx2d(cv), R = px / 2, lw = Math.max(2, px * 0.055);
@@ -261,9 +269,16 @@ export function avatarUrl(a: AvatarSpec = {}, cssPx = 56, dpr = DPR()): string {
   c.beginPath(); c.arc(R, R, R - lw / 2, 0, Math.PI * 2); c.fillStyle = g; c.fill();
   c.save(); c.clip();
   c.fillStyle = '#7FD36B'; c.fillRect(0, px * 0.8, px, px);
-  const p = pose(key, 0), s = (px * 0.56) / Math.max(p.w, p.h, 1.6);
+  // A hat (about a block across) sits over the face; shrink the Blockling so both fit the disc. The flat
+  // I would be a sliver at that size, so it spans most of the disc's width instead.
+  const p = pose(key, 0), hw = 1.35, fit = p.w >= p.h * 3 ? (px * 0.8) / p.w : (px * 0.56) / Math.max(p.w, p.h, 1.6);
+  const s = Math.min(fit, hat ? (px * 0.7) / (p.h + hat.h * hw) : Infinity);
   c.translate(R - (p.w * s) / 2, px * 0.8 - p.h * s + s * 0.04);
   drawPiece(c, key, 0, s, { face, shadow: false, detail: s >= 20 });
+  if (hat) {
+    const [ax] = faceAnchor(p), col = Math.min(p.w - 1, Math.floor(ax)), top = p.cells.length ? Math.min(...p.cells.filter(([x]) => x === col).map(([, y]) => y)) : 0;
+    drawHat(c, hat.key, ax * s, top * s + s * 0.06, hw * s);
+  }
   c.restore();
   c.beginPath(); c.arc(R, R, R - lw / 2, 0, Math.PI * 2); c.lineWidth = lw; c.strokeStyle = INK; c.stroke();
   u = cv.toDataURL('image/png');
@@ -358,14 +373,14 @@ export interface ProfileData extends XpState {
   postcards: (string | null)[];
 }
 
-/** The profile panel: avatar, name, badge and title, the XP bar, stats and the biome postcards. Action: close. */
+/** The profile panel: avatar, name, badge and title, the XP bar, stats and the biome postcards. Actions: close, avatar (tapping the avatar: open avatarPanel). */
 export function profilePanel(d: ProfileData): HTMLElement {
   const s = d.stats;
   const stat = (ic: UiIcon, v: string, label: string): string => `<div class="ui-stat">${icon(ic, 26)}<div><b${v.length > 9 ? ' class="sm"' : ''}>${v}</b><span>${label}</span></div></div>`;
   const root = el(`<div class="ui ui-overlay" role="dialog" aria-label="Profile"><div class="ui-panel ui-profile">
     ${iconBtn('close', 'close', 'Close', 'sm ui-close')}
     <div class="ui-prof-head">
-      <img class="ui-avatar" alt="" src="${avatarUrl(d.avatar, 72)}">
+      <button type="button" class="ui-av-edit" data-action="avatar" aria-label="Change your Blockling"><img class="ui-avatar" alt="" src="${avatarUrl(d.avatar, 72)}"><i><img alt="" src="${hatUrl('party', 18)}"></i></button>
       <div><b>${esc(d.name)}</b><div class="ui-row">${badge(d.level, 34)}<span class="ui-plate">${esc(titleFor(d.level))}</span></div></div>
     </div>
     <div class="ui-prof-xp"></div>
@@ -386,6 +401,75 @@ export function profilePanel(d: ProfileData): HTMLElement {
     cards.appendChild(postcardElement({ biome: i, width: 60, locked: date === null || date === undefined, date: date || undefined }));
   });
   return root;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Avatar picker
+
+/** What the avatar picker offers: seven Blocklings, six faces, and the hats (HATS). */
+export const AVATAR_SHAPES = ['O', 'T', 'L', 'J', 'S', 'Z', 'I'];
+export const AVATAR_FACES: Expression[] = ['idle', 'proud', 'blink', 'squint', 'falling', 'dizzy'];
+
+export interface AvatarPanelData {
+  avatar?: AvatarSpec;
+  /** The player's level: hats it hasn't reached are locked, with the level they need. */
+  level: number;
+}
+
+/**
+ * The avatar picker: a big preview over rows of Blocklings, faces and hats (locked hats show their
+ * level). Picking updates the preview; read the choice back with readAvatar. Actions: close, done.
+ */
+export function avatarPanel(d: AvatarPanelData): HTMLElement {
+  const a = { shape: d.avatar?.shape ?? 'O', face: d.avatar?.face ?? 'idle', hat: d.avatar?.hat ?? null };
+  const opt = (kind: string, value: string, img: string, label: string, on: boolean, lock = 0): string =>
+    `<label class="ui-pick${lock ? ' locked' : ''}"><input type="radio" name="ui-av-${kind}" data-kind="${kind}" value="${value}"${on ? ' checked' : ''}${lock ? ' disabled' : ''} aria-label="${esc(label)}${lock ? `, unlocks at level ${lock}` : ''}">`
+    + `<span><img alt="" src="${img}">${lock ? `<i>${icon('lock', 14)}${lock}</i>` : ''}</span></label>`;
+  const hats = [opt('hat', '', uiIconUrl('close', 20), 'No hat', !a.hat)]
+    .concat(HATS.map(h => opt('hat', h.key, hatUrl(h.key, 34), h.name, a.hat === h.key, h.level > d.level ? h.level : 0)));
+  const root = el(`<div class="ui ui-overlay" role="dialog" aria-label="Your Blockling"><div class="ui-panel ui-avpick">
+    ${iconBtn('close', 'close', 'Close', 'sm ui-close')}
+    <h1 class="ui-h1" style="text-align:center">Your Blockling</h1>
+    <img class="ui-avatar ui-av-big" alt="Your avatar" src="${avatarUrl(a, 112)}">
+    <h2 class="ui-h2">Blockling</h2>
+    <div class="ui-picks">${AVATAR_SHAPES.map(k => opt('shape', k, avatarUrl({ shape: k }, 34), ART_SHAPES[k].name, a.shape === k)).join('')}</div>
+    <h2 class="ui-h2">Face</h2>
+    <div class="ui-picks">${AVATAR_FACES.map(f => opt('face', f, faceUrl(a.shape, f, 34), f, a.face === f)).join('')}</div>
+    <h2 class="ui-h2">Hat</h2>
+    <div class="ui-picks">${hats.join('')}</div>
+    ${btn('done', 'Done', undefined, 'primary')}
+  </div></div>`);
+  root.addEventListener('change', () => {
+    const now = readAvatar(root);
+    (root.querySelector('.ui-av-big') as HTMLImageElement).src = avatarUrl(now, 112);
+    root.querySelectorAll<HTMLInputElement>('input[data-kind="face"]').forEach(i => {
+      (i.nextElementSibling!.firstElementChild as HTMLImageElement).src = faceUrl(now.shape ?? 'O', i.value as Expression, 34);
+    });
+  });
+  return root;
+}
+
+/** A face swatch for the picker: one block of the shape's color, close up, wearing `face`. */
+function faceUrl(shape: string, face: Expression, cssPx: number, dpr = DPR()): string {
+  const px = Math.round(cssPx * dpr), id = `face:${shape}:${face}:${px}`;
+  let u = avatars.get(id);
+  if (u) return u;
+  const sh = ART_SHAPES[shape], cv = makeCanvas(px, px), c = ctx2d(cv), R = px / 2, cell = px * 0.52;
+  c.save(); c.translate(R, R + px * 0.02); c.scale(cell, cell);
+  const block = rrPath(-0.5, -0.5, 1, 1, 0.14);
+  part(c, block, sh.base, sh.light, sh.shade, 0.09);
+  c.lineWidth = 0.12; c.lineJoin = 'round'; c.strokeStyle = INK; c.stroke(block);
+  c.restore();
+  drawFace(c, R, R + px * 0.02, cell, face, { detail: cell >= 20 });
+  u = cv.toDataURL('image/png');
+  avatars.set(id, u);
+  return u;
+}
+
+/** The avatar an avatar picker shows now. */
+export function readAvatar(panel: HTMLElement): AvatarSpec {
+  const v = (kind: string): string | undefined => panel.querySelector<HTMLInputElement>(`input[data-kind="${kind}"]:checked`)?.value;
+  return { shape: v('shape') ?? 'O', face: (v('face') ?? 'idle') as Expression, hat: (v('hat') || null) as Hat | null };
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -5,6 +5,7 @@
 import { ART } from '../config.ts';
 import { bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from '../checkpoint.ts';
 import { type Expression, FACE, drawEyes, drawMouth, drawPupil, drawSpiral, drawSweat } from '../face.ts';
+import { CELEB_TEX, type CelebTex, bakeCelebration } from '../celebrate.ts';
 import { HAZARD_TEX, type HazardTex, bakeHazard } from '../hazards.ts';
 import { type GlyphState, bakeBeamFill, bakeChevron, bakeContactDot, bakeContactRing, bakeGhostEdge, bakeGlyph } from '../guide.ts';
 import { type Baked, type Finish, bakePiece, bakeRim, bakeSilhouette } from '../piece.ts';
@@ -76,7 +77,7 @@ export class ArtTextures {
   }
 
   /** Bake ahead of time (e.g. on a loading screen) so nothing bakes mid-run. */
-  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean; powers?: boolean; wind?: boolean; hazards?: boolean } = {}): void {
+  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean; powers?: boolean; wind?: boolean; hazards?: boolean; celebrations?: boolean } = {}): void {
     for (const key of keys) for (let q = 0; q < 4; q++) {
       for (const f of o.finishes ?? [null]) this.piece(key, q, { finish: f });
       if (o.stone ?? true) this.piece(key, q, { stone: true });
@@ -89,6 +90,7 @@ export class ArtTextures {
     if (o.vfx ?? true) for (const v of VFX_NAMES) this.vfx(v);
     if (o.wind ?? true) for (const k of Object.keys(WIND) as WindKind[]) for (let i = 0; i < WIND_VARIANTS[k]; i++) this.wind(`${k}${i}` as WindTex);
     if (o.hazards) { for (const h of HAZARD_TEX) this.hazard(h); this.hazardDash(); }
+    if (o.celebrations) for (const c of CELEB_TEX) this.celebration(c);
     if (o.powers ?? true) {
       for (const k of POWER_ICON_NAMES) this.powerIcon(k);
       for (const k of POWER_KINDS) this.bubble(k);
@@ -182,6 +184,9 @@ export class ArtTextures {
 
   /** The trajectory dash as a texture of its own, for a TileSprite along the line. Origin: left middle. */
   hazardDash(): TexRef { return this.single(this.name('hazarddash'), () => bakeHazard('dash', this.s).canvas, 0, 0.5); }
+
+  /** A celebration texture (see CELEB for sizes). Origin: centre; a balloon's middle; the rainbow's and cloud's bottom centre; the comet's head. */
+  celebration(name: CelebTex): TexRef { return this.packed(this.name('celeb', name), () => bakeCelebration(name, this.s)); }
 
   // ---- power-ups ----
 

@@ -41,6 +41,7 @@ async function boot(): Promise<void> {
       dailyWind = dailyWindReady(profile);
       return dailyWind ? 'ready' : 'earn';
     },
+    newPostcard: b => profile.postcards[b] === null,
     onEvent(e) {
       if (dailyWind && e.name === 'piece_landed') { dailyWind = false; spendDailyWind(profile); }
       if (e.name === 'hazard_start' && !profile.seenGusts) { profile.seenGusts = true; saveProfile(profile); }

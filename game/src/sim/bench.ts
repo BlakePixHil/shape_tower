@@ -1,5 +1,6 @@
 // The silent phone benchmark (qa-section.md §10.1 item 9): S1's tower with Mortar on, first 60 and
-// then about 150 awake bodies, 2.5 s of steps each. Pure TS so it runs in a worker or in Node.
+// then about 150 awake bodies, 2.5 s of steps each. Pure TS so it runs in a worker or in Node. Pass
+// engine 'rapier' for the bake-off (gameplay.md §15) once Rapier is loaded and registered.
 
 import { DT, Sim } from './sim.ts';
 
@@ -8,10 +9,10 @@ export interface BenchResult { engine: string; phases: BenchPhase[]; totalMs: nu
 
 const ROW = [-3, -1, 1, 3];
 
-export function runBench(now: () => number = () => performance.now()): BenchResult {
+export function runBench(now: () => number = () => performance.now(), engine: 'box2d' | 'rapier' = 'box2d'): BenchResult {
   const t0 = now();
   // A light crosswind keeps every loose body awake; the line is out of reach so nothing turns to stone.
-  const sim = new Sim({ seed: 1, autoSpawn: false, tuning: { mortar: true, wind: 0.03, firstGap: 1000, gapCap: 1000, infiniteBudget: true, infiniteHearts: true } });
+  const sim = new Sim({ engine, seed: 1, autoSpawn: false, tuning: { mortar: true, wind: 0.03, firstGap: 1000, gapCap: 1000, infiniteBudget: true, infiniteHearts: true } });
   const phases: BenchPhase[] = [];
   let rows = 0;
   const addRows = (n: number) => {
@@ -38,7 +39,7 @@ export function runBench(now: () => number = () => performance.now()): BenchResu
   addRows(23);   // 152 bodies
   measure(steps);
   sim.dispose();
-  return { engine: 'box2d', phases, totalMs: round(now() - t0) };
+  return { engine, phases, totalMs: round(now() - t0) };
 }
 
 const round = (x: number) => Math.round(x * 1000) / 1000;
