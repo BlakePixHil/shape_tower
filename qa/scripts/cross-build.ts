@@ -3,7 +3,10 @@
 // build; another build replays them from their inputs and compares the digests.
 // Usage:
 //   QA_GAME_SIM=<old checkout>/game/src/sim/testApi.ts tsx scripts/cross-build.ts record <runs.json> [count] [--powers]
-//   QA_GAME_SIM=<new checkout>/game/src/sim/testApi.ts tsx scripts/cross-build.ts replay <runs.json>
+//   QA_GAME_SIM=<new checkout>/game/src/sim/testApi.ts tsx scripts/cross-build.ts replay <runs.json> [--tuning '<json>']
+// --tuning merges into each run's tuning on replay, e.g. '{"gusts":false}' to turn off a feature the
+// recording build didn't have. Without it, a run that differs only from the first gust on is
+// reported as matching until then (a new hazard is expected to change runs that reach it).
 // Replaying on the build that recorded them is the control: it shows the bot's ghost queries
 // left no trace in the sim.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -13,6 +16,8 @@ import { gameSimPath } from '../src/adapters/index';
 import { Bot, runBot, type BotSim } from '../src/bot';
 
 const [mode, file, countArg, flag] = process.argv.slice(2);
+const tuningAt = process.argv.indexOf('--tuning');
+const extraTuning = tuningAt > 0 ? JSON.parse(process.argv[tuningAt + 1]) : {};
 if ((mode !== 'record' && mode !== 'replay') || !file) throw new Error('usage: tsx scripts/cross-build.ts record|replay <runs.json> [count] [--powers]');
 const api = await import(pathToFileURL(gameSimPath()).href);
 const where = gameSimPath();
@@ -38,17 +43,22 @@ if (mode === 'record') {
 } else {
   const { runs, recordedWith } = JSON.parse(readFileSync(file, 'utf8'));
   let bad = 0;
+  let untilGust = 0;
   for (const r of runs) {
-    const { digests, sim } = api.replay({ seed: r.seed, tuning: r.tuning, rookieOpening: r.rookieOpening, secondWind: r.secondWind, inputs: r.inputs, steps: r.steps });
+    const { digests, sim } = api.replay({ seed: r.seed, tuning: { ...r.tuning, ...extraTuning }, rookieOpening: r.rookieOpening, secondWind: r.secondWind, inputs: r.inputs, steps: r.steps });
     const first = r.digests.findIndex((d: string, i: number) => d !== digests[i]);
     const final = sim.digest() === r.finalDigest;
     const end = { cause: sim.cause ?? null, placed: sim.stats.placed, checkpoints: sim.stats.checkpoints, powers: sim.stats.powers ?? 0, secondWind: sim.stats.secondWind ?? false, score: Math.round(sim.score) };
     const sameEnd = JSON.stringify(end) === JSON.stringify(r.end);
     const ok = first === -1 && final && sameEnd;
-    if (!ok) bad++;
-    console.log(`seed ${r.seed}: ${ok ? 'MATCH' : `MISMATCH (first digest ${first === -1 ? 'none' : `at second ${first + 1}`}, final ${final ? 'matches' : 'differs'}, end ${sameEnd ? 'matches' : `${JSON.stringify(end)} vs ${JSON.stringify(r.end)}`})`}`);
+    // Digest i is taken at step 60 × (i + 1); a gust starting at step g first moves pieces after it.
+    const gust = (sim.bus?.log as { name: string; step: number }[] | undefined)?.find((e) => e.name === 'hazard_start')?.step;
+    const beforeGust = !ok && gust !== undefined && first !== -1 && 60 * (first + 1) > gust;
+    if (beforeGust) untilGust++;
+    else if (!ok) bad++;
+    console.log(`seed ${r.seed}: ${ok ? 'MATCH' : beforeGust ? `MATCH until the first gust at second ${(gust! / 60).toFixed(1)}, then differs (expected)` : `MISMATCH (first digest ${first === -1 ? 'none' : `at second ${first + 1}`}, final ${final ? 'matches' : 'differs'}, end ${sameEnd ? 'matches' : `${JSON.stringify(end)} vs ${JSON.stringify(r.end)}`})`}`);
     sim.dispose?.();
   }
-  console.log(`${runs.length - bad} of ${runs.length} runs recorded on ${recordedWith} replay exactly on ${where}`);
+  console.log(`${runs.length - bad - untilGust} of ${runs.length} runs recorded on ${recordedWith} replay exactly on ${where}${untilGust ? `, and ${untilGust} more up to their first gust` : ''}${Object.keys(extraTuning).length ? ` (tuning ${JSON.stringify(extraTuning)})` : ''}`);
   process.exitCode = bad ? 1 : 0;
 }
