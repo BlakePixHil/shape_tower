@@ -6,7 +6,7 @@ import { Box2DEngine } from '../src/sim/engine/box2d.ts';
 import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { runBench } from '../src/sim/bench.ts';
 import { createSim, replay, restore, useRapier } from '../src/sim/testApi.ts';
-import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor } from '../src/sim/tuning.ts';
+import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor, setStreakFor } from '../src/sim/tuning.ts';
 
 if (process.env.SIM_ENGINE === 'rapier') await useRapier();
 
@@ -110,6 +110,111 @@ for (const mortar of [true, false]) {
   const stones = t.pieces().filter(p => p.state === 'stone').length;
   check('T15 full row turns to stone', !!row && stones === 2, `row ${JSON.stringify(row?.payload)} stones ${stones}`);
   t.dispose();
+}
+
+// Set streak (gameplay.md §9.1): from CP 7 full rows wait for 4 Clean or Perfect placements in a
+// row. Two flat I pieces fill row 1 (ready, still wood); two more fill row 2 and reach the streak,
+// so both rows turn to stone at once and the streak starts again.
+{
+  const t = createSim({ startCheckpoint: 7, tuning: { gusts: false, lateHazards: false, firstGap: 20 } });
+  const drop = (x: number) => { t.spawnControlled({ shape: 'I', x }); t.intent({ type: 'hardDrop' }); t.step(150); };
+  drop(-2); drop(2);
+  const ev1 = t.drainEvents();
+  const stone1 = t.pieces().filter(p => p.state === 'stone').length;
+  const ready = ev1.find(e => e.name === 'row_ready');
+  check('Set streak: a full row waits for the streak from CP 7', t.sim.setNeed === 4 && !!ready && stone1 === 0 && !ev1.some(e => e.name === 'row_solid'),
+    `need ${t.sim.setNeed} streak ${t.sim.streak} ready ${JSON.stringify(ready?.payload)} stones ${stone1}`);
+  drop(-2); drop(2);
+  const ev2 = t.drainEvents();
+  const row = ev2.find(e => e.name === 'row_solid');
+  const stone2 = t.pieces().filter(p => p.state === 'stone').length;
+  check('Set streak: the 4th clean placement sets both full rows, and the streak restarts', !!row && row.payload.count === 2 && stone2 === 4 && t.sim.streak === 0,
+    `row ${JSON.stringify(row?.payload)} stones ${stone2} streak ${t.sim.streak} grades ${ev1.concat(ev2).filter(e => e.name === 'piece_settled').map(e => e.payload.grade)}`);
+  t.dispose();
+  const mid = createSim({ startCheckpoint: 3, tuning: { gusts: false } });
+  const meadow = createSim({});
+  check('Set streak: 3 in a row from CP 3, none in the Meadow, 0 turns it off', mid.sim.setNeed === 3 && meadow.sim.setNeed === 0 && setStreakFor({ ...DEFAULT_TUNING, setStreak: 0 }, 9) === 0,
+    `CP 3 ${mid.sim.setNeed}, CP 1 ${meadow.sim.setNeed}`);
+  mid.dispose(); meadow.dispose();
+}
+
+// Brittle shapes (gameplay.md §4.3): dealt from CP 5 as a shape first shows in the preview, about one
+// in brittleEvery, never two within half that, never O, I or Plank, and never with another in play.
+{
+  const deal = (cp: number, tuning: Record<string, unknown> = {}) => {
+    const t = createSim({ startCheckpoint: cp, tuning: { gusts: false, lateHazards: false, ...tuning } });
+    const got: { shape: string; brittle: boolean }[] = [];
+    for (let i = 0; i < 1200; i++) got.push((t.sim as any).takeNext());
+    t.dispose();
+    return got;
+  };
+  const d = deal(5);
+  const idx = d.flatMap((g, i) => (g.brittle ? [i] : []));
+  const minGap = Math.min(...idx.slice(1).map((v, i) => v - idx[i]));
+  const rescue = d.filter(g => g.brittle && ['O', 'I', 'Plank'].includes(g.shape)).length;
+  check('Brittle: about 1 in 12-18 shapes from CP 5, spaced, never a rescue shape', idx.length >= 1200 / 20 && idx.length <= 1200 / 10 && minGap > 6 && rescue === 0,
+    `${idx.length} of 1200, min gap ${minGap}, rescue ${rescue}`);
+  const none = [deal(4), deal(9, { brittleEvery: 0 }), deal(9, { holdUnlocked: false })].map(g => g.filter(x => x.brittle).length);
+  check('Brittle: none before CP 5, with brittleEvery 0, or before Hold opens', none.every(n => n === 0), `${none}`);
+}
+
+// A brittle shape holds two O pieces (8 cells) with cracks, and crumbles under a third (12 cells).
+// What it held drops into the gap. Off the tower it costs nothing; turned to stone it is safe.
+{
+  const mk = () => createSim({ startCheckpoint: 5, tuning: { gusts: false, lateHazards: false, firstGap: 20 } });
+  const drop = (t: ReturnType<typeof mk>, shape: string, brittle = false) => { t.spawnControlled({ shape, brittle }); t.intent({ type: 'hardDrop' }); t.step(150); };
+  const t = mk();
+  drop(t, 'Domino', true); drop(t, 'O'); drop(t, 'O');
+  t.step(600);
+  const ev = t.drainEvents();
+  const strain = ev.filter(e => e.name === 'brittle_strain').map(e => e.payload.stage);
+  const dom = t.sim.pieceViews().find(v => v.shape === 'Domino');
+  check('Brittle: two shapes on it crack it to stage 2 and it holds', !!dom && dom.brittle && dom.strain === 2 && strain.join() === '1,2' && !ev.some(e => e.name === 'brittle_broke'),
+    `strain ${strain} now ${dom?.strain}`);
+  const h0 = t.height().committed;
+  drop(t, 'O');
+  t.step(120);
+  const ev2 = t.drainEvents();
+  const broke = ev2.find(e => e.name === 'brittle_broke');
+  const h1 = t.height().committed;
+  check('Brittle: a third shape on it breaks it after the creak, and the column drops', !!broke && broke.payload.load === 12 && !t.sim.pieceViews().some(v => v.shape === 'Domino') && h1 < h0 + 2 - 0.5 && t.hearts === 3,
+    `broke ${JSON.stringify(broke?.payload && { load: broke.payload.load, above: broke.payload.above })} height ${h0.toFixed(2)}→${h1.toFixed(2)} hearts ${t.hearts}`);
+  t.dispose();
+
+  const q = mk();
+  drop(q, 'Domino', true); drop(q, 'O'); drop(q, 'O');
+  q.sim.slots = ['quickset', null];
+  q.drainEvents();
+  const s0 = q.sim.score;
+  q.intent({ type: 'power', slot: 0 });
+  q.step(10);
+  const mended = q.drainEvents().find(e => e.name === 'brittle_mended');
+  drop(q, 'O'); drop(q, 'O');
+  q.step(300);
+  check('Brittle: turned to stone (Quick-Set) it is mended, pays 300 a biome, and never breaks', !!mended && q.sim.score - s0 >= 300 && q.sim.pieceViews().some(v => v.shape === 'Domino' && v.state === 'stone' && !v.brittle) && !q.drainEvents().some(e => e.name === 'brittle_broke'),
+    `mended ${JSON.stringify(mended?.payload)}`);
+  q.dispose();
+
+  const m = mk();
+  m.sim.streak = 2;
+  m.spawnControlled({ shape: 'L', brittle: true });
+  m.intent({ type: 'moveTo', x: 9 });
+  m.step(400);
+  const evm = m.drainEvents();
+  check('Brittle: tossed off the tower it costs no heart and no brick, and keeps the streak', evm.some(e => e.name === 'brittle_tossed') && !evm.some(e => e.name === 'heart_lost') && m.hearts === 3 && m.sim.used === 0 && m.sim.streak === 2,
+    `hearts ${m.hearts} used ${m.sim.used} streak ${m.sim.streak} events ${evm.filter(e => /lost|toss/.test(e.name)).map(e => e.name)}`);
+  m.dispose();
+
+  const hu = mk();
+  hu.spawnControlled({ shape: 'L', brittle: true });
+  hu.intent({ type: 'hold' });
+  const held = hu.sim.held === 'L' && hu.sim.heldBrittle && !hu.sim.ctrl?.brittle;
+  hu.intent({ type: 'hardDrop' }); hu.step(150);
+  hu.spawnControlled({});
+  hu.intent({ type: 'hold' });
+  const back = hu.sim.ctrl?.shape === 'L' && hu.sim.ctrl.brittle;
+  check('Brittle: Hold keeps it brittle both ways', held && !!back, `held ${hu.sim.held}/${hu.sim.heldBrittle} back ${hu.sim.ctrl?.shape}/${hu.sim.ctrl?.brittle}`);
+  hu.dispose();
 }
 
 // Needle: two vertical I pieces claim checkpoint 1 and get a 3-wide grade C foundation.

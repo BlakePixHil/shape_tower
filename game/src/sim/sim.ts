@@ -8,7 +8,7 @@ import { makeStreams, type RngStreams } from './rng.ts';
 import { SHAPES, bottomCells, colliderBoxes, extents, geometry, rotQ, rotate, type ColliderBox, type Rot } from './shapes.ts';
 import {
   DEFAULT_TUNING, GRADE_FACTOR, REMIX_POOL, biomeFor, bondDelayFor, budgetFor, fallSpeedFor, gapFor, gradeFor,
-  hazardsFor, maxSlabWidthFor, mortarStrengthFor, type FoundationGrade, type HazardKind, type LateHazard,
+  hazardsFor, maxSlabWidthFor, mortarStrengthFor, setStreakFor, type FoundationGrade, type HazardKind, type LateHazard,
   type StretchHazards, type Tuning,
 } from './tuning.ts';
 
@@ -88,6 +88,9 @@ export interface PieceView {
   w: number;
   bonds: number;
   top: number;
+  /** A brittle shape (§4.3), and how cracked it is: 0 to 2, then 3 while it creaks before breaking. */
+  brittle: boolean;
+  strain: number;
 }
 
 export interface FoundationView { id: number; x: number; y: number; width: number; top: number; thickness: number; grade?: FoundationGrade }
@@ -140,6 +143,10 @@ interface Piece {
   lostTime: number;
   glue: boolean;              // placed under Glue: bonds the moment it touches
   points: number;             // its placement score, taken back by Undo
+  brittle: boolean;           // §4.3: breaks under brittleLoad cells until it turns to stone
+  load: number;               // cells of loose pieces resting on it (brittle shapes only)
+  strain: number;             // crack stage, 0 to 3
+  fuse: number;               // s it has creaked under the full load
   top: number;
   bottom: number;
   cx: number;
@@ -148,6 +155,7 @@ interface Piece {
 
 interface Controlled {
   shape: string; x: number; y: number; rot: number; xTarget: number; soft: boolean; hard: boolean; speed: number;
+  brittle: boolean;
   steerAt: number;            // sim time the player last moved or turned it
   touchedAt: number | null;   // sim time it first touched down without landing (touchdown grace)
 }
@@ -199,12 +207,17 @@ export class Sim {
   hearts: number;
   score = 0;
   combo = 0;
-  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0, hazards: 0, hits: 0 };
+  /** Clean or Perfect placements in a row; full rows turn to stone once it reaches setNeed (§9.1). */
+  streak = 0;
+  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0, hazards: 0, hits: 0, brittle: 0, mended: 0, crumbled: 0 };
 
   // Steering
   ctrl: Controlled | null = null;
   queue: string[] = [];
+  /** Which queued shapes are brittle, decided as each first shows in the preview (§4.3). */
+  private queueBrittle: (boolean | undefined)[] = [];
   held: string | null = null;
+  heldBrittle = false;
   holdUsed = false;
 
   // Power-ups and Second Wind (gameplay.md §13)
@@ -263,6 +276,7 @@ export class Sim {
   private bubbleIn = 0;          // shapes until the next bubble
   private bubbleSeq = 0;         // bubble ids (separate from body ids, so those match older builds)
   private lastPlaced: number | null = null;
+  private sinceBrittle = 0;      // shapes dealt since the last brittle one
 
   constructor(opts: SimOptions = {}) {
     this.tuning = { ...DEFAULT_TUNING, ...(opts.tuning ?? {}) };
@@ -287,6 +301,7 @@ export class Sim {
     this.stretch = this.planStretch();
     this.stretchCp = this.checkpoint;
     this.refillQueue();
+    this.dealPreview();
     this.bus.emit('run_start', { seed: this.seed });
     this.bus.emit('biome_entered', { id: biome.id });
     if (this.secondWind === 'ready') this.bus.emit('second_wind_ready', { how: 'start' });
@@ -340,19 +355,23 @@ export class Sim {
   }
 
   /** Spawn the next shape now, ignoring timers (QA sandboxes, debug). */
-  spawnControlled(opts: { shape?: string; x?: number; rot?: number } = {}): void {
+  spawnControlled(opts: { shape?: string; x?: number; rot?: number; brittle?: boolean } = {}): void {
     if (this.ctrl) return;
-    const shape = opts.shape ?? this.takeNext();
-    this.spawn(shape, opts.x, opts.rot ?? 0);
+    const n = opts.shape ? { shape: opts.shape, brittle: !!opts.brittle } : this.takeNext();
+    this.spawn(n.shape, opts.x, opts.rot ?? 0, n.brittle);
   }
 
   /** Put a piece straight into the world, for canonical towers. */
-  placePiece(opts: { shape: string; x: number; y: number; rot?: number; as?: 'dynamic' | 'stone' }): number {
+  placePiece(opts: { shape: string; x: number; y: number; rot?: number; as?: 'dynamic' | 'stone'; brittle?: boolean }): number {
     const p = this.createPiece(opts.shape, opts.x, opts.y, rotQ(opts.rot ?? 0), 0, 0, opts.as === 'stone', opts.rot ?? 0);
     p.state = opts.as === 'stone' ? 'stone' : 'settling';
     p.graded = true;
+    p.brittle = !!opts.brittle && opts.as !== 'stone';
     return p.id;
   }
+
+  /** Whether the two shapes in the preview are brittle (§4.3). */
+  nextBrittle(): boolean[] { return [this.queueBrittle[0] ?? false, this.queueBrittle[1] ?? false]; }
 
   ghost(): Ghost | null {
     if (!this.ctrl) return null;
@@ -366,7 +385,7 @@ export class Sim {
       if (!this.engine.hasBody(p.id)) continue;
       const t = this.engine.transform(p.id);
       const v = this.engine.velocity(p.id);
-      out.push({ id: p.id, shape: p.shape, state: p.state, x: t.x, y: t.y, c: t.c, s: t.s, vx: v.vx, vy: v.vy, w: v.w, bonds: p.bonds.size, top: p.top });
+      out.push({ id: p.id, shape: p.shape, state: p.state, x: t.x, y: t.y, c: t.c, s: t.s, vx: v.vx, vy: v.vy, w: v.w, bonds: p.bonds.size, top: p.top, brittle: p.brittle, strain: p.strain });
     }
     return out;
   }
@@ -442,6 +461,7 @@ export class Sim {
     this.processHits();
     this.updatePieces();
     this.updateMortar();
+    this.updateBrittle();
     this.updateTension();
     const h = this.height().committed;
     if (h > this.stats.maxHeight) this.stats.maxHeight = h;
@@ -938,6 +958,7 @@ export class Sim {
     p.landX = c.x;
     p.tintAtDrop = knocked ? 'none' : ghost.tint;
     p.glue = this.glueLeft > 0;
+    p.brittle = c.brittle;
     this.ctrl = null;
     this.used++;
     this.stats.placed++;
@@ -945,7 +966,7 @@ export class Sim {
     this.nextSpawnAt = this.time + t.spawnDelay;
     this.bus.emit('piece_landed', {
       id: p.id, shape: c.shape, impact: Math.min(1, speed / 12), x: c.x,
-      pose: { x: c.x, y, rot: c.rot }, touchedIds: touched, knocked, glue: p.glue,
+      pose: { x: c.x, y, rot: c.rot }, touchedIds: touched, knocked, glue: p.glue, brittle: p.brittle,
     });
     const left = this.budget - this.used;
     if (!t.infiniteBudget && (left === 5 || left === 3 || left === 1)) this.bus.emit('budget_low', { left });
@@ -954,6 +975,7 @@ export class Sim {
 
   private missed(c: Controlled): void {
     const p = this.createPiece(c.shape, c.x, c.y, rotQ(c.rot), 0, -c.speed, false, c.rot);
+    p.brittle = c.brittle;
     this.ctrl = null;
     this.used++;
     this.stats.placed++;
@@ -983,15 +1005,16 @@ export class Sim {
   private doHold(): void {
     const c = this.ctrl!;
     if (this.holdUsed || !this.tuning.holdUnlocked) return;
-    const swapIn = this.held ?? this.takeNext();
+    const swapIn = this.held !== null ? { shape: this.held, brittle: this.heldBrittle } : this.takeNext();
     this.held = c.shape;
+    this.heldBrittle = c.brittle;
     this.ctrl = null;
-    this.spawn(swapIn, undefined, 0);
+    this.spawn(swapIn.shape, undefined, 0, swapIn.brittle);
     this.holdUsed = true;
-    this.bus.emit('hold_swap', { shape: this.held });
+    this.bus.emit('hold_swap', { shape: this.held, brittle: this.heldBrittle });
   }
 
-  private spawn(shape: string, x: number | undefined, rot: number): void {
+  private spawn(shape: string, x: number | undefined, rot: number, brittle = false): void {
     const f = this.foundation;
     const e = extents(shape, rot);
     const w = e.maxX - e.minX;
@@ -999,19 +1022,50 @@ export class Sim {
     const sx = x ?? snap(left + Math.round((f.width - w) / 2) - e.minX, this.tuning.snapStep);
     const top = Math.max(this.height().provisional, f.top);
     const sy = top + this.tuning.spawnHeight - e.minY;
-    this.ctrl = { shape, x: sx, y: sy, rot, xTarget: sx, soft: false, hard: false, speed: 0, steerAt: -Infinity, touchedAt: null };
+    this.ctrl = { shape, x: sx, y: sy, rot, xTarget: sx, soft: false, hard: false, speed: 0, brittle, steerAt: -Infinity, touchedAt: null };
     this.ctrl.xTarget = this.clampX(this.ctrl, sx);
     this.ctrl.x = this.ctrl.xTarget;
     this.holdUsed = false;
-    this.bus.emit('piece_spawned', { shape, next: this.queue.slice(0, 2) });
+    this.bus.emit('piece_spawned', { shape, next: this.queue.slice(0, 2), brittle, nextBrittle: this.nextBrittle() });
     if (this.tuning.powerUps && !this.bubble && this.bubbleIn <= 0 && this.slots.includes(null)) this.makeBubble(top);
   }
 
-  private takeNext(): string {
+  private takeNext(): { shape: string; brittle: boolean } {
     if (this.queue.length < 3) this.refillQueue();
-    const s = this.queue.shift()!;
+    const shape = this.queue.shift()!;
+    const brittle = this.queueBrittle.shift() ?? false;
     if (this.queue.length < 3) this.refillQueue();
-    return s;
+    this.dealPreview();
+    return { shape, brittle };
+  }
+
+  /**
+   * Brittle shapes (§4.3) are dealt as a shape first shows in the preview, so the preview never
+   * changes its mind. From brittleFrom, with Hold open: about one shape in brittleEvery, never two
+   * within half that, never the bag's rescue shapes, and never while another is in play.
+   */
+  private dealPreview(): void {
+    for (let i = 0; i < 2 && i < this.queue.length; i++) {
+      if (this.queueBrittle[i] === undefined) this.queueBrittle[i] = this.dealBrittle(this.queue[i]);
+    }
+  }
+
+  private dealBrittle(shape: string): boolean {
+    const t = this.tuning;
+    if (t.brittleEvery <= 0 || this.checkpoint < t.brittleFrom || !t.holdUnlocked) return false;
+    const gap = Math.floor(t.brittleEvery / 2);
+    if (++this.sinceBrittle <= gap || RESCUE.has(shape) || this.brittleInPlay()) return false;
+    if (this.rng.brittle.int(Math.max(1, t.brittleEvery - gap)) !== 0) return false;
+    this.sinceBrittle = 0;
+    this.stats.brittle++;
+    return true;
+  }
+
+  /** A brittle shape in hand, in Hold, in the preview, or loose in the tower. */
+  private brittleInPlay(): boolean {
+    if (this.ctrl?.brittle || (this.held !== null && this.heldBrittle) || this.queueBrittle.some(b => b)) return true;
+    for (const p of this.pieces.values()) if (p.brittle && p.state !== 'lost' && p.state !== 'stone') return true;
+    return false;
   }
 
   private refillQueue(): void {
@@ -1057,7 +1111,8 @@ export class Sim {
     const p: Piece = {
       id, shape, state: stone ? 'stone' : 'landing', segment: this.checkpoint, claimed: false,
       landTime: this.time, landX: x, restTime: 0, graded: false, tintAtDrop: 'none',
-      bonds: new Map(), bullet: false, bondCheckAt: 0, lostTime: 0, glue: false, points: 0, top: y, bottom: y, cx: x, cy: y,
+      bonds: new Map(), bullet: false, bondCheckAt: 0, lostTime: 0, glue: false, points: 0,
+      brittle: false, load: 0, strain: 0, fuse: 0, top: y, bottom: y, cx: x, cy: y,
     };
     this.pieces.set(id, p);
     this.updateBounds(p);
@@ -1166,15 +1221,23 @@ export class Sim {
   }
 
   private markLost(p: Piece): void {
-    for (const [, jid] of p.bonds) this.removeWeld(jid);
+    for (const [, jid] of [...p.bonds]) this.removeWeld(jid);
     p.state = 'lost';
     p.lostTime = this.time;
     this.engine.setLost(p.id);
+    // A brittle shape costs nothing to lose (§4.3): no heart, its brick back, the streak kept.
+    const free = p.brittle && !p.claimed;
+    this.bus.emit('piece_lost', { id: p.id, shape: p.shape, brittle: free });
+    if (free) {
+      this.used = Math.max(0, this.used - 1);
+      this.outOfBricksAt = null;
+      this.bus.emit('brittle_tossed', { id: p.id, shape: p.shape });
+      return;
+    }
     this.stats.lost++;
     this.combo = 0;
     this.tensionSpike = 1;
-    this.bus.emit('piece_lost', { id: p.id, shape: p.shape });
-    if (!p.claimed) this.pendingLost.push(p);
+    if (!p.claimed) { this.pendingLost.push(p); this.setStreak(0); }
   }
 
   private applyHeartLosses(): void {
@@ -1202,6 +1265,77 @@ export class Sim {
     for (const [, jid] of [...p.bonds]) this.removeWeld(jid);
     this.engine.setStatic(p.id);
     p.state = 'stone';
+    if (p.brittle) this.mend(p);
+  }
+
+  // ------------------------------------------------------------------ brittle shapes (§4.3)
+
+  /** Turned to stone, a brittle shape is safe for good, and pays a bonus. */
+  private mend(p: Piece): void {
+    p.brittle = false;
+    p.strain = 0;
+    p.load = 0;
+    const points = 300 * this.biomeMult();
+    this.addScore(points);
+    this.stats.mended++;
+    this.bus.emit('brittle_mended', { id: p.id, shape: p.shape, points, x: p.cx, y: p.cy });
+  }
+
+  /**
+   * What rests on each brittle shape, and its cracks: stage 1 from a third of brittleLoad, 2 from
+   * two thirds, 3 at the full load. At 3 it creaks for brittleFuse seconds and breaks. A checkpoint
+   * hold and the claim pause stop the clock, and the claim turns it to stone.
+   */
+  private updateBrittle(): void {
+    const t = this.tuning;
+    for (const p of [...this.pieces.values()]) {
+      if (!p.brittle || p.claimed || p.state === 'lost' || p.state === 'stone') continue;
+      if (this.stepIndex % 6 === 0) p.load = this.loadOn(p).cells;
+      const cap = Math.max(1, t.brittleLoad);
+      const stage = Math.min(3, Math.floor(3 * p.load / cap));
+      if (stage !== p.strain) {
+        p.strain = stage;
+        p.fuse = 0;
+        this.bus.emit('brittle_strain', { id: p.id, stage, load: p.load, cap, fuse: stage === 3 ? t.brittleFuse : 0, x: p.cx, y: p.cy });
+      }
+      if (stage < 3 || this.calm) continue;
+      p.fuse += DT;
+      if (p.fuse >= t.brittleFuse) this.crumble(p);
+    }
+  }
+
+  /** Cells of the loose pieces resting on p, straight on it or through others. Stone carries itself. */
+  private loadOn(p: Piece): { cells: number; ids: number[] } {
+    const seen = new Set<number>([p.id]);
+    const stack = [p], ids: number[] = [];
+    let cells = 0;
+    while (stack.length) {
+      const q = stack.pop()!;
+      for (const c of this.engine.contacts(q.id)) {
+        if (seen.has(c.other)) continue;
+        const o = this.pieces.get(c.other);
+        // Resting on q: it starts at least half a block higher (not a neighbour leaning on its side).
+        if (!o || o.state === 'lost' || o.state === 'stone' || o.bottom < q.bottom + 0.5) continue;
+        seen.add(o.id);
+        ids.push(o.id);
+        cells += SHAPES[o.shape].cells.length;
+        stack.push(o);
+      }
+    }
+    return { cells, ids };
+  }
+
+  /** The brittle shape gives way: it crumbles to dust and what it held drops. */
+  private crumble(p: Piece): void {
+    const above = this.loadOn(p).ids;
+    const tr = this.engine.transform(p.id);
+    const cells = geometry(p.shape).cells.map(([cx, cy]) => { const [rx, ry] = rotate(tr, cx, cy); return { x: tr.x + rx, y: tr.y + ry }; });
+    this.bus.emit('brittle_broke', { id: p.id, shape: p.shape, x: p.cx, y: p.cy, load: p.load, cells, above });
+    this.removePiece(p);
+    // Wake what it held, so it drops into the gap at once.
+    for (const id of above) this.engine.applyImpulse(id, 0, -0.01 * this.engine.mass(id), this.pieces.get(id)!.cx, this.pieces.get(id)!.cy);
+    this.stats.crumbled++;
+    this.tensionSpike = 1;
   }
 
   // ------------------------------------------------------------------ grading, rows
@@ -1229,7 +1363,17 @@ export class Sim {
     this.bus.emit('piece_settled', { id: p.id, shape: p.shape, grade, support, clutch });
     if (grade === 'perfect') this.bus.emit('perfect', { combo: this.combo });
     if (clutch) this.bus.emit('clutch', {});
+    this.setStreak(grade === 'messy' ? 0 : this.streak + 1);
     this.checkRows(p);
+  }
+
+  /** Good placements in a row it takes, here, before full rows turn to stone (0: at once). */
+  get setNeed(): number { return setStreakFor(this.tuning, this.checkpoint); }
+
+  private setStreak(n: number): void {
+    if (n === this.streak) return;
+    this.streak = n;
+    this.bus.emit('set_streak', { count: n, need: this.setNeed });
   }
 
   /** Share of probe points under the piece's bottom cells that touch something else. */
@@ -1262,20 +1406,46 @@ export class Sim {
     return hit;
   }
 
-  private checkRows(p: Piece): void {
+  /**
+   * Solid Rows (§9.1). In the Meadow, or with `force` (Quick-Set), a full row the piece touches turns
+   * to stone with everything under it. From CP 3 a full row waits until the set streak is reached:
+   * then every full row from the last stone one up to this piece sets at once, and the streak starts
+   * again. Until then the rows are only ready (`row_ready`).
+   */
+  private checkRows(p: Piece, force = false): void {
     const f = this.foundation;
     const k0 = Math.max(this.solidTo, Math.floor(p.bottom - f.top + 1e-3));
     const k1 = Math.floor(p.top - f.top - 1e-3);
+    const need = force ? 0 : this.setNeed;
     let newRows = 0;
     const rows: number[] = [];
-    for (let k = k0; k <= k1; k++) {
-      if (this.rowSolid(k)) { newRows++; rows.push(f.top + k + 0.5); this.solidify(f.top + k + 1); this.solidTo = k + 1; }
+    if (need === 0) {
+      for (let k = k0; k <= k1; k++) {
+        if (this.rowSolid(k)) { newRows++; rows.push(f.top + k + 0.5); this.solidify(f.top + k + 1); this.solidTo = k + 1; }
+      }
+    } else {
+      // Once the streak is reached, every full row counts, up to the tower top.
+      const charged = this.streak >= need;
+      const hi = charged ? Math.max(k1, Math.floor(this.height().committed - f.top - 1e-3)) : k1;
+      const full: number[] = [];
+      for (let k = charged ? this.solidTo : k0; k <= hi; k++) if (this.rowSolid(k)) full.push(k);
+      if (!full.length) return;
+      if (!charged) {
+        this.bus.emit('row_ready', { rows: full.map(k => f.top + k + 0.5), streak: this.streak, need, x: f.x, width: f.width });
+        return;
+      }
+      const top = full[full.length - 1];
+      this.solidify(f.top + top + 1);
+      this.solidTo = top + 1;
+      newRows = full.length;
+      for (const k of full) rows.push(f.top + k + 0.5);
+      this.setStreak(0);
     }
     if (!newRows) return;
     this.stats.rows += newRows;
     const pts = [0, 500, 1200, 2000, 3000][Math.min(newRows, 4)];
     this.addScore(pts * this.biomeMult());
-    this.bus.emit('row_solid', { count: newRows, rows, x: f.x, width: f.width });
+    this.bus.emit('row_solid', { count: newRows, rows, x: f.x, width: f.width, streak: need > 0 });
   }
 
   private rowSolid(k: number): boolean {
@@ -1486,7 +1656,7 @@ export class Sim {
     if (!this.autoSpawn || this.ctrl || this.hold.active) return;
     if (this.time < this.claimPauseUntil || this.time < this.nextSpawnAt) return;
     const t = this.tuning;
-    if (t.infiniteBudget || this.used < this.budget) { this.spawn(this.takeNext(), undefined, 0); return; }
+    if (t.infiniteBudget || this.used < this.budget) { const n = this.takeNext(); this.spawn(n.shape, undefined, 0, n.brittle); return; }
     // Out of bricks: a grace period while things settle (gameplay.md §7.2).
     if (this.outOfBricksAt === null) this.outOfBricksAt = this.time;
     if (this.time - this.outOfBricksAt >= t.budgetGrace) this.endRun('bricks');
@@ -1643,7 +1813,7 @@ export class Sim {
     }
     if (!set.length) return null;
     set.sort((a, b) => a.bottom - b.bottom || a.id - b.id);
-    for (const p of set) this.checkRows(p);
+    for (const p of set) this.checkRows(p, true);
     return { ids: set.map(p => p.id) };
   }
 
@@ -1658,8 +1828,8 @@ export class Sim {
     this.score -= p.points;
     this.outOfBricksAt = null;
     // The shape already falling goes back to the front of the queue.
-    if (this.ctrl) { this.queue.unshift(this.ctrl.shape); this.ctrl = null; }
-    this.spawn(p.shape, undefined, 0);
+    if (this.ctrl) { this.queue.unshift(this.ctrl.shape); this.queueBrittle.unshift(this.ctrl.brittle); this.ctrl = null; }
+    this.spawn(p.shape, undefined, 0, p.brittle);
     return out;
   }
 

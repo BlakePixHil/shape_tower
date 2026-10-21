@@ -6,6 +6,8 @@ import {
   powerIconUrl, setOffscreenChip, setPlumb, setRail, setWindsock, windsock, type HazardType,
 } from '@art/index.ts';
 import type { PowerKind, SecondWindState } from '../sim/sim.ts';
+import { geometry } from '../sim/shapes.ts';
+import { crackCanvas } from './cracks.ts';
 import { INK } from './palette.ts';
 
 /** The short label under each power's slot. */
@@ -36,6 +38,12 @@ const CSS = `
 .st-chip.warn { background: #FFAA2B; }
 .st-chip.danger { background: #FF4D6D; color: #fff; }
 .st-chip.pulse { animation: st-pulse 400ms; }
+.st-set { gap: 3px; padding: 3px 8px; }
+.st-set[hidden] { display: none; }
+.st-set i { width: 9px; height: 9px; border-radius: 50%; border: 2px solid ${INK}; background: transparent; }
+.st-set i.on { background: #9AA7B8; }
+.st-set.ready { background: #FFE08A; }
+.st-set.ready i.on { background: #6B7A90; }
 @keyframes st-pulse { 50% { transform: scale(1.25); } }
 .st-center { position: absolute; left: 50%; transform: translateX(-50%); top: calc(env(safe-area-inset-top, 0px) + 8px); display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .st-height { font: 700 38px 'Fredoka', sans-serif; color: #fff; -webkit-text-stroke: 3px ${INK}; paint-order: stroke fill; line-height: 1; font-variant-numeric: tabular-nums; transition: transform 120ms; }
@@ -96,6 +104,8 @@ export class Hud {
   readonly root: HTMLDivElement;
   private hearts: HTMLDivElement;
   private bricks: HTMLDivElement;
+  private setEl: HTMLDivElement;
+  private setKey = '';
   private heightEl: HTMLDivElement;
   private pill: HTMLDivElement;
   private pillText: HTMLSpanElement;
@@ -151,6 +161,7 @@ export class Hud {
           <div class="st-row"><button class="st-btn st-iconbtn" data-id="pause" aria-label="Pause">❚❚</button><div class="st-hearts" data-id="hearts"></div></div>
           <div class="st-card" data-id="holdcard" style="width:58px;height:58px"><div class="st-cap">HOLD</div><canvas data-id="hold"></canvas></div>
           <div class="st-chip" data-id="bricks">🧱 <span>0</span></div>
+          <div class="st-chip st-set" data-id="set" hidden aria-label="Set streak"><span>🪨</span></div>
           <div class="st-gauges" data-id="gauges"></div>
         </div>
         <div class="st-col" style="align-items:flex-end">
@@ -174,6 +185,7 @@ export class Hud {
     const q = <T extends HTMLElement>(id: string) => this.root.querySelector(`[data-id="${id}"]`) as T;
     this.hearts = q('hearts');
     this.bricks = q('bricks');
+    this.setEl = q('set');
     this.heightEl = q('height');
     this.pill = q('pill');
     this.pillText = this.pill.querySelector('span')!;
@@ -219,38 +231,45 @@ export class Hud {
     c.style.width = c.style.height = `${css}px`;
   }
 
-  private preview(shape: string): HTMLCanvasElement {
-    let c = this.previewCache.get(shape);
-    if (!c) { c = bakePiece(shape, 0, 48, { finish: 'wood' }).canvas; this.previewCache.set(shape, c); }
+  /** A shape's preview picture; a brittle one (gameplay.md §4.3) shows its cracks. */
+  private preview(shape: string, brittle = false): HTMLCanvasElement {
+    const key = brittle ? `${shape}!` : shape;
+    let c = this.previewCache.get(key);
+    if (!c) {
+      const b = bakePiece(shape, 0, 48, { finish: 'wood' });
+      c = b.canvas;
+      if (brittle) c = crackCanvas(c, shape, b.s, b.originX * c.width - geometry(shape).width * b.s / 2, INK);
+      this.previewCache.set(key, c);
+    }
     return c;
   }
 
-  private draw(c: HTMLCanvasElement, shape: string | null, dim = false): void {
+  private draw(c: HTMLCanvasElement, shape: string | null, dim = false, brittle = false): void {
     const ctx = c.getContext('2d')!;
     ctx.clearRect(0, 0, c.width, c.height);
     if (!shape) return;
-    const p = this.preview(shape);
+    const p = this.preview(shape, brittle);
     const k = Math.min(c.width * 0.86 / p.width, c.height * 0.86 / p.height);
     ctx.globalAlpha = dim ? 0.8 : 1;
     ctx.drawImage(p, (c.width - p.width * k) / 2, (c.height - p.height * k) / 2, p.width * k, p.height * k);
   }
 
-  setNext(shapes: string[]): void {
-    const key = shapes.join(',');
+  setNext(shapes: string[], brittle: boolean[] = []): void {
+    const key = shapes.map((k, i) => (brittle[i] ? `${k}!` : k)).join(',');
     if (key === this.nextKey) return;
     this.nextKey = key;
-    this.draw(this.next[0], shapes[0] ?? null);
-    this.draw(this.next[1], shapes[1] ?? null, true);
+    this.draw(this.next[0], shapes[0] ?? null, false, !!brittle[0]);
+    this.draw(this.next[1], shapes[1] ?? null, true, !!brittle[1]);
   }
 
   /** The Hold card shows a padlock until level 2 (gameplay.md §10.3). */
   lockHold(locked: boolean): void { this.holdCard.classList.toggle('locked', locked); }
 
-  setHold(shape: string | null, used: boolean): void {
-    const key = `${shape}|${used}`;
+  setHold(shape: string | null, used: boolean, brittle = false): void {
+    const key = `${shape}|${used}|${brittle}`;
     if (key === this.holdKey) return;
     this.holdKey = key;
-    this.draw(this.holdCanvas, shape);
+    this.draw(this.holdCanvas, shape, false, brittle);
     this.holdCard.style.opacity = used ? '0.55' : '1';
   }
 
@@ -287,6 +306,31 @@ export class Hud {
     if (span.textContent !== text) span.textContent = text;
     this.bricks.classList.toggle('warn', !infinite && left <= 5 && left > 1);
     this.bricks.classList.toggle('danger', !infinite && left <= 1);
+  }
+
+  /**
+   * The set streak (gameplay.md §9.1): a pip per Clean or Perfect placement in a row, out of `need`.
+   * Full, it glows: the next full row turns to stone. Hidden where rows set at once (need 0).
+   */
+  setStreak(count: number, need: number): void {
+    const key = `${count}/${need}`;
+    if (key === this.setKey) return;
+    this.setKey = key;
+    this.setEl.hidden = need <= 0;
+    if (need <= 0) return;
+    const pips = [...this.setEl.querySelectorAll('i')];
+    for (let i = pips.length; i < need; i++) this.setEl.appendChild(document.createElement('i'));
+    for (let i = need; i < pips.length; i++) pips[i].remove();
+    this.setEl.querySelectorAll('i').forEach((el, i) => el.classList.toggle('on', i < count));
+    this.setEl.classList.toggle('ready', count >= need);
+    this.setEl.setAttribute('aria-label', count >= need ? 'Set streak ready: the next full row turns to stone' : `Set streak ${count} of ${need}`);
+  }
+
+  /** A full row is waiting for the streak. */
+  pulseSet(): void {
+    this.setEl.classList.remove('pulse');
+    void this.setEl.offsetWidth;
+    this.setEl.classList.add('pulse');
   }
 
   pulseBricks(): void {
@@ -388,6 +432,19 @@ export class Hud {
     this.root.appendChild(hazardCard(type, { still }));
   }
 
+  /** The first brittle shape a player sees gets a card like a hazard's (gameplay.md §4.3). */
+  brittleCard(shape: string, still = false): void {
+    const el = document.createElement('div');
+    el.className = `ui ui-hcard${still ? ' ui-still' : ''}`;
+    el.setAttribute('role', 'status');
+    const icon = this.preview(shape, true).toDataURL();
+    el.innerHTML = `<div class="ui-hc-title"><img alt="" src="${icon}" style="object-fit:contain"><span>Brittle shape!</span></div>`
+      + '<span class="ui-chip amber">Breaks under 3 shapes</span><span class="ui-chip amber">Set it in stone, or toss it free</span>';
+    el.addEventListener('animationend', e => { if (e.animationName.startsWith('ui-hc')) el.remove(); });
+    setTimeout(() => el.remove(), 5000);
+    this.root.appendChild(el);
+  }
+
   flash(alpha = 0.2): void {
     this.flashEl.style.opacity = String(alpha);
     setTimeout(() => (this.flashEl.style.opacity = '0'), 60);
@@ -486,6 +543,7 @@ export class Hud {
 
   reset(): void {
     this.powerKey = '';
+    this.setKey = '';
     this.chips.clear();
     this.root.querySelectorAll('.ui-hazard, .ui-hcard, .ui-btitle').forEach(e => e.remove());
     this.setGauges(null, null);

@@ -19,6 +19,7 @@ export interface Profile {
   player: string;      // a random id made once per install, so QA can group runs by player
   seenGusts: boolean;  // the first gust of a player's first Treetops is half strength, with a card (§8.3)
   seenHazards: string[]; // the later hazards met so far (crosswind, junk, meteor, dust, sway): the same first-time rule
+  seenBrittle: boolean; // the first brittle shape shows a card (§4.3)
   postcards: (string | null)[]; // per biome (1 to 10), the local date it was first reached
   avatar: AvatarSpec;   // the player's Blockling on the menu and profile: shape, face and hat
   achievements: Record<string, AchievementState>; // earned achievements by id: the local date, and whether its XP is paid (§18)
@@ -58,7 +59,7 @@ export const DEFAULT_AVATAR: AvatarSpec = { shape: 'O', face: 'idle', hat: 'part
 
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, achievements: {}, achCounts: freshCounts() });
+const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], seenBrittle: false, postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, achievements: {}, achCounts: freshCounts() });
 
 export function loadProfile(): Profile {
   try {
