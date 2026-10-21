@@ -9,6 +9,7 @@ import { FONT_BODY, FONT_DISPLAY, INK, PAPER, SIGNAL } from './config.ts';
 import { BIOMES } from './biomes.ts';
 import { cloud } from './meadow.ts';
 import { drawPiece } from './piece.ts';
+import { bakePanorama, type PanoramaData } from './panorama.ts';
 import { pose } from './shapes.ts';
 import { part, rrPath, twinkle } from './sticker.ts';
 import { type Ctx, TAU, ctx2d, hash, makeCanvas } from './util.ts';
@@ -118,8 +119,36 @@ export interface ShareCardData {
   name?: string;
   level?: number;
   score?: number;
-  /** The money shot (a capture of the whole tower). Without one, the biome's postcard fills the frame. */
+  /** The tower at the end of the run: the frame shows its panorama (bakePanorama). */
+  tower?: PanoramaData;
+  /** The run's date for the postmark on the frame, e.g. "21 OCT 2026". Omit for none. */
+  date?: string;
+  /** A picture to frame instead (cover-fitted). Without `tower` or `shot`, the biome's postcard fills the frame. */
   shot?: CanvasImageSource & { width: number; height: number };
+}
+
+/** An ink postmark: two rings with the date inside and wavy cancel lines to the left, over a white halo. */
+function postmark(c: Ctx, x: number, y: number, r: number, date: string): void {
+  const cut = date.lastIndexOf(' '), lines = cut > 0 ? [date.slice(0, cut), date.slice(cut + 1)] : [date];
+  c.save(); c.translate(x, y); c.rotate(-0.22); c.lineCap = 'round';
+  for (const [col, extra] of [['rgba(255,255,255,0.7)', r * 0.09], ['rgba(34,24,58,0.85)', 0]] as const) {
+    c.strokeStyle = col;
+    c.lineWidth = r * 0.075 + extra; c.beginPath(); c.arc(0, 0, r, 0, TAU); c.stroke();
+    c.lineWidth = r * 0.04 + extra; c.beginPath(); c.arc(0, 0, r * 0.76, 0, TAU); c.stroke();
+    c.lineWidth = r * 0.06 + extra;
+    for (const dy of [-0.42, 0, 0.42]) {
+      c.beginPath(); c.moveTo(-r * 2.5, dy * r);
+      for (let i = 1; i <= 24; i++) { const t = i / 24; c.lineTo(-r * 2.5 + t * r * 1.4, dy * r + Math.sin(t * TAU * 1.5) * r * 0.1); }
+      c.stroke();
+    }
+  }
+  c.font = `700 ${r * 0.3}px ${FONT_DISPLAY}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineJoin = 'round';
+  lines.forEach((t, i) => {
+    const ty = (i - (lines.length - 1) / 2) * r * 0.36;
+    c.lineWidth = r * 0.08; c.strokeStyle = 'rgba(255,255,255,0.75)'; c.strokeText(t, 0, ty);
+    c.fillStyle = 'rgba(34,24,58,0.85)'; c.fillText(t, 0, ty);
+  });
+  c.restore();
 }
 
 /** The share card, 1080 × 1350 by default (4:5, fits every feed): the shot in a sticker frame, the height, biome, badge and logo. */
@@ -138,12 +167,13 @@ export function bakeShareCard(d: ShareCardData, w = 1080, h = 1350): HTMLCanvasE
   c.lineWidth = 7 * u; c.strokeStyle = INK; c.stroke(rrPath(-fw / 2, -fh / 2, fw, fh, 26 * u));
   const iw = fw - 36 * u, ih = fh - 110 * u;
   c.save(); c.beginPath(); c.roundRect(-iw / 2, -fh / 2 + 18 * u, iw, ih, 14 * u); c.clip();
-  const img = d.shot ?? bakePostcard(d.biome, Math.round(iw / 2), Math.round(ih / 2), 2);
+  const img = d.shot ?? (d.tower ? bakePanorama(d.tower, Math.round(iw), Math.round(ih)) : bakePostcard(d.biome, Math.round(iw / 2), Math.round(ih / 2), 2));
   const sc = Math.max(iw / img.width, ih / img.height);
   c.drawImage(img, -img.width * sc / 2, -fh / 2 + 18 * u + ih / 2 - img.height * sc / 2, img.width * sc, img.height * sc);
   c.restore();
   c.font = `700 ${46 * u}px ${FONT_DISPLAY}`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = INK;
   c.fillText(b.name, 0, fh / 2 - 46 * u);
+  if (d.date) postmark(c, fw / 2 - 118 * u, -fh / 2 + 112 * u, 72 * u, d.date);
   c.restore();
 
   // The height, big, on a gold sticker that overlaps the frame's corner.

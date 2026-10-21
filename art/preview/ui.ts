@@ -5,10 +5,11 @@
 // &rail=1 shows the altitude rail climbing through a few biomes, with the off-screen checkpoint and lost-piece chips.
 // &top=<blocks> starts it there, &hold=1 stops the climb, &span=<blocks> shows a scrolling window instead of the whole run.
 
+import { demoTower } from './tower.ts';
 import {
-  bakeAppIcon, bakeShareCard, bakeSplash,
+  bakeAppIcon, bakePanorama, bakeShareCard, bakeSplash, panoramaBiome,
   altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail,
-  BADGE_TIERS, BIOMES, INK, UI_ICONS, avatarUrl, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
+  BADGE_TIERS, BIOMES, INK, UI_ICONS, avatarUrl, biomeCard, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
   postcardElement, profilePanel, readSettings, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, titleFor, uiIconUrl, xpBar,
   type SettingValue, type XpState,
 } from '../src/index.ts';
@@ -49,6 +50,9 @@ export function openScreen(name: string): void {
   } else if (name === 'settings') {
     const s = mount(settingsPanel(settings));
     onAction(s, a => { if (a === 'close') { settings = readSettings(s); s.remove(); } });
+  } else if (name === 'btitle') {
+    const freeze = qs.has('bt'), el = mount(biomeCard(Number(qs.get('b') ?? 2), { newPostcard: !qs.has('seen'), stay: freeze }));
+    if (freeze) for (const a of el.getAnimations({ subtree: true })) { a.pause(); a.currentTime = Number(qs.get('bt')); }
   } else sheet(name);
 }
 
@@ -82,6 +86,8 @@ const SHEET_CSS = `
 .pv-cell img { width: 36px; height: 36px; }
 .pv-wrap { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .pv-dark { background: #22183A; border-radius: 14px; padding: 10px; }
+.pv-titles { display: flex; flex-direction: column; gap: 14px; align-items: stretch; padding: 4px 0 8px; border-radius: 14px; background: linear-gradient(#6EC3FF, #162452 60%, #1C0A38); }
+.pv-titles .ui-btitle { position: relative; top: auto; }
 `;
 
 function sheet(name: string): void {
@@ -138,22 +144,35 @@ function sheet(name: string): void {
     const big = root.querySelector('.pv-big')!;
     big.append(img(bakeSplash(390 * 2, 844 * 2), 150, '12px'), img(bakeShareCard({ height: 63.4, biome: 3, newBest: true, name: 'Blake', level: 7, score: 18240 }), 200, '12px'));
     if (qs.has('share')) { root.innerHTML = ''; root.append(img(bakeShareCard({ height: 63.4, biome: 3, newBest: true, name: 'Blake', level: 7, score: 18240 }), 360, '12px'), img(bakeSplash(390 * 2, 844 * 2), 360, '12px')); }
+  } else if (name === 'pano') {
+    const t = demoTower(Number(qs.get('ph') ?? 63.4)), biome = panoramaBiome(t);
+    root.innerHTML = `<h3>Run-over panorama (${t.top} blocks, ${t.slabs.length - 1} checkpoints) and its share card</h3><div class="pv-wrap pv-pano"></div>`;
+    const t0 = performance.now(), pano = bakePanorama(t, 720, 1080), ms = Math.round(performance.now() - t0);
+    const card = bakeShareCard({ height: t.top, biome, newBest: true, name: 'Blake', level: 7, score: 18240, tower: t, date: '21 OCT 2026' });
+    const img = (cv: HTMLCanvasElement) => { const i = document.createElement('img'); i.src = cv.toDataURL(); i.style.cssText = `width:min(360px,100%);border-radius:12px;box-shadow:0 3px 0 ${INK}`; return i; };
+    root.querySelector('.pv-pano')!.append(...(qs.has('card') ? [img(card), img(pano)] : [img(pano), img(card)]));
+    root.querySelector('h3')!.textContent += ` (baked in ${ms} ms)`;
+  } else if (name === 'titles') {
+    root.innerHTML = `<h3>Biome title cards (the first visit adds the New postcard chip)</h3><div class="pv-titles"></div>`;
+    const list = root.querySelector('.pv-titles')!;
+    BIOMES.forEach((_, i) => list.appendChild(biomeCard(i, { stay: true, newPostcard: i === 2 })));
   }
   mount(root);
+  if (name === 'titles') for (const a of root.getAnimations({ subtree: true })) a.finish();
 }
 
 /** The Screens row above the biome picker, for browsing the kit without a query string. */
 export function screensBar(): void {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 62px);display:flex;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;z-index:3;font:600 11px Fredoka,Nunito,system-ui,sans-serif';
-  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon']]) {
+  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama']]) {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = `background:#FFC23D;color:${INK};border:2px solid ${INK};border-radius:10px;box-shadow:0 2px 0 ${INK};padding:2px 8px;font:inherit;cursor:pointer`;
     b.onclick = () => {
       document.querySelectorAll('.pv-sheet').forEach(e => e.remove());
       openScreen(k);
-      if (k === 'icons' || k === 'badges' || k === 'logo' || k === 'brand') {
+      if (k === 'icons' || k === 'badges' || k === 'logo' || k === 'brand' || k === 'titles' || k === 'pano') {
         const x = document.createElement('button');
         x.className = 'ui-btn icon sm'; x.style.cssText = 'position:fixed;top:10px;right:10px;z-index:41';
         x.innerHTML = `<img alt="Close" src="${uiIconUrl('close', 20)}">`;

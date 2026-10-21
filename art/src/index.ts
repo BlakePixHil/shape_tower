@@ -21,6 +21,7 @@ export { POWER, POWER_COLORS, POWER_ICON_NAMES, POWER_KINDS, bakeBubble, bakeBub
 export { BUNTING_KEYS, CHECKPOINT, bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from './checkpoint.ts';
 export { WIND, WIND_VARIANTS, bakeWind, windDrifters, type WindKind, type WindTex } from './wind.ts';
 export { bakeAppIcon, bakeShareCard, bakeSplash, type IconLayer, type ShareCardData } from './brand.ts';
+export { bakePanorama, panoramaBiome, type PanoramaData, type TowerPiece, type TowerSlab } from './panorama.ts';
 export { hexNum, labToHex, oklab } from './util.ts';
 export { BIOME_BAKERS, type BiomeBaker } from './backdrops.ts';
 
@@ -32,6 +33,7 @@ export { LOGO_ROWS, bakeLogo, logoElement, logoPeekerUrl, logoTileUrl } from './
 export { bakePostcard, postcardElement, postcardUrl, type PostcardOptions } from './ui/postcard.ts';
 export { RAIL_COLORS, altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail, type OffscreenChipOptions, type RailState } from './ui/rail.ts';
 export { HAZARDS, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, type HazardChipOptions, type HazardType } from './ui/hazard.ts';
+export { biomeCard, type BiomeCardOptions } from './ui/biomecard.ts';
 export {
   MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarUrl, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel, readSettings,
   rewardAt, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, xpBar,

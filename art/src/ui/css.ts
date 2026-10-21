@@ -281,6 +281,26 @@ export function uiCss(): string {
 .ui-hc-title img { width: 40px; height: 40px; }
 .ui-hcard .ui-chip { font-size: 16px; padding: 5px 12px; }
 
+/* Biome title card: a banner in the biome's color with its postcard, postmarked as it lands */
+.ui-btitle { position: fixed; left: 0; right: 0; top: var(--top, calc(env(safe-area-inset-top, 0px) + 84px)); z-index: 16; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  animation: ui-btc 2.3s cubic-bezier(.3,1.5,.5,1) both; }
+.ui-btitle.stay { animation-name: ui-btc-in; animation-duration: 420ms; }
+.ui-bt-card { position: relative; display: flex; align-items: center; gap: 14px; max-width: calc(100% - 24px); padding: 7px 18px 7px 10px;
+  background: linear-gradient(rgba(255,255,255,0.3), rgba(255,255,255,0) 55%), var(--bc); border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 4px 0 var(--ink);
+  animation: ui-bt-thunk 240ms ease-out 760ms both; }
+.ui-bt-shine { position: absolute; inset: 0; border-radius: 13px; overflow: hidden; }
+.ui-bt-shine::after { content: ''; position: absolute; top: -20%; bottom: -20%; left: 0; width: 34px; background: rgba(255,255,255,0.5); transform: translateX(-60px) skewX(-18deg);
+  animation: ui-bt-glint 700ms ease-in-out 360ms both; }
+.ui-bt-pc { position: relative; flex: none; width: 46px; transform: rotate(-6deg); animation: ui-bt-pc 420ms cubic-bezier(.3,1.8,.5,1) 200ms both; }
+.ui-bt-pc img { display: block; width: 46px; height: 58px; border: 3px solid #fff; outline: 2.5px solid var(--ink); border-radius: 4px; background: #fff; }
+.ui-bt-mark { position: absolute; right: -13px; top: -13px; width: 54px; height: 39px; color: rgba(34,24,58,0.88); transform: rotate(-16deg);
+  animation: ui-bt-stamp 300ms cubic-bezier(.2,.9,.4,1.2) 580ms both; }
+.ui-bt-mark text { font: 700 15px/1 var(--display); fill: currentColor; stroke: rgba(255,255,255,0.75); stroke-width: 3px; paint-order: stroke fill; }
+.ui-bt-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ui-bt-kick { font: 700 11px/1 var(--display); letter-spacing: 0.16em; text-transform: uppercase; color: #fff; -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; }
+.ui-bt-name { font: 700 clamp(22px, 7.4vw, 30px)/1.05 var(--display); text-transform: uppercase; letter-spacing: 0.03em; color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; white-space: nowrap; }
+.ui-bt-new { animation: ui-pop 320ms cubic-bezier(.3,1.8,.5,1) 800ms both; }
+
 @keyframes ui-fade { from { opacity: 0; } }
 @keyframes ui-pop { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.04); opacity: 1; } 100% { transform: scale(1); } }
 @keyframes ui-rise { 0% { transform: translateY(40px); opacity: 0; } 100% { transform: none; opacity: 1; } }
@@ -303,15 +323,27 @@ export function uiCss(): string {
 @keyframes ui-oc-bob { 0%, 100% { transform: none; } 50% { transform: translateY(-3px); } }
 @keyframes ui-oc-drop { 0%, 100% { transform: none; } 50% { transform: translateY(3px); } }
 @keyframes ui-hc-fade { 0%, 100% { opacity: 0; } 8%, 88% { opacity: 1; } }
+@keyframes ui-btc { 0% { opacity: 0; transform: translateY(-36px) scale(0.85); } 15% { opacity: 1; transform: none; }
+  82% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(.5,0,.8,.4); } 100% { opacity: 0; transform: translateY(-40px) scale(0.92); } }
+@keyframes ui-btc-in { 0% { opacity: 0; transform: translateY(-36px) scale(0.85); } 100% { opacity: 1; transform: none; } }
+@keyframes ui-btc-fade { 0%, 100% { opacity: 0; } 10%, 84% { opacity: 1; } }
+@keyframes ui-bt-pc { 0% { transform: translateY(14px) rotate(8deg) scale(0.4); opacity: 0; } 100% { transform: rotate(-6deg); opacity: 1; } }
+@keyframes ui-bt-stamp { 0% { transform: rotate(-16deg) scale(2.3); opacity: 0; } 60% { transform: rotate(-16deg) scale(0.9); opacity: 1; } 100% { transform: rotate(-16deg); opacity: 1; } }
+@keyframes ui-bt-thunk { 0%, 100% { transform: none; } 35% { transform: translateY(2px) scale(1.02, 0.95); } }
+@keyframes ui-bt-glint { from { transform: translateX(-60px) skewX(-18deg); } to { transform: translateX(420px) skewX(-18deg); } }
 
-/* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard card fades in and out. */
-.ui-still:not(.ui-hcard), .ui-still *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+/* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard and biome cards fade in and out. */
+.ui-still:not(.ui-hcard):not(.ui-btitle), .ui-still *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 .ui-still .ui-confetti, .ui-still .ui-rays { display: none; }
 .ui-hcard.ui-still { animation-name: ui-hc-fade; }
+.ui-btitle.ui-still { animation-name: ui-btc-fade; }
+.ui-btitle.ui-still.stay { animation-name: ui-fade; animation-duration: 300ms; }
 @media (prefers-reduced-motion: reduce) {
-  .ui:not(.ui-hcard), .ui *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .ui:not(.ui-hcard):not(.ui-btitle), .ui *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
   .ui .ui-confetti, .ui .ui-rays { display: none; }
   .ui-hcard { animation-name: ui-hc-fade; }
+  .ui-btitle { animation-name: ui-btc-fade; }
+  .ui-btitle.stay { animation-name: ui-fade; animation-duration: 300ms; }
 }
 `;
 }

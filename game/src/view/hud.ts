@@ -1,7 +1,10 @@
 // The in-game HUD and screens as DOM over the canvas (art-direction.md §8: "sticker toy" UI).
 // Screen space only: camera shake never moves it.
 
-import { bakePiece, powerBarCss, powerIconUrl } from '@art/index.ts';
+import {
+  altitudeRail, bakePiece, checkpointChip, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, injectUiCss, offscreenChip, powerBarCss,
+  powerIconUrl, setOffscreenChip, setRail, type HazardType,
+} from '@art/index.ts';
 import type { PowerKind, SecondWindState } from '../sim/sim.ts';
 import { INK } from './palette.ts';
 
@@ -43,27 +46,8 @@ const CSS = `
 .st-pill span { position: relative; }
 .st-title { position: absolute; left: 50%; top: 22%; transform: translate(-50%, -40px); opacity: 0; font: 700 34px 'Fredoka', sans-serif; color: #fff; -webkit-text-stroke: 4px ${INK}; paint-order: stroke fill; letter-spacing: 0.05em; transition: transform 500ms cubic-bezier(.2,1.6,.4,1), opacity 300ms; white-space: nowrap; }
 .st-title.show { transform: translate(-50%, 0); opacity: 1; }
-.st-hazard { position: absolute; top: 52%; display: flex; align-items: center; gap: 4px; background: #FFF7E8; border: 3px solid ${INK}; border-radius: 12px; box-shadow: 0 3px 0 ${INK}; font: 700 15px 'Fredoka', sans-serif; padding: 3px 9px; opacity: 0; transition: opacity 200ms; }
-.st-hazard.left { left: 8px; }
-.st-hazard.right { right: 8px; }
-.st-hazard.warn { opacity: 1; animation: st-pulse 500ms infinite; background: #FFAA2B; }
-.st-hazard.blow { opacity: 1; }
-.st-hcard { position: absolute; left: 50%; top: 30%; transform: translate(-50%, -20px) scale(0.9); opacity: 0; background: #FFF7E8; border: 3px solid ${INK}; border-radius: 14px; box-shadow: 0 4px 0 ${INK}; font: 700 18px 'Fredoka', sans-serif; padding: 8px 14px; white-space: nowrap; transition: transform 400ms cubic-bezier(.2,1.6,.4,1), opacity 250ms; }
-.st-hcard.show { transform: translate(-50%, 0) scale(1); opacity: 1; }
-.st-rail { position: absolute; right: 41px; top: calc(env(safe-area-inset-top, 0px) + 148px); width: 10px; height: min(200px, 26vh); border: 2px solid ${INK}; border-radius: 6px; background: #FFF7E8; box-shadow: 0 2px 0 ${INK}; overflow: visible; }
-.st-rail .st-band { position: absolute; left: 0; right: 0; transition: bottom 600ms, height 600ms; }
-.st-rail .st-band:first-child { border-radius: 0 0 4px 4px; }
-.st-rail .st-band:nth-child(even) { opacity: 0.6; }
-.st-rail .st-tick { position: absolute; left: -5px; right: -5px; height: 3px; margin-bottom: -1.5px; background: ${INK}; border-radius: 2px; transition: bottom 600ms; }
-.st-rail .st-tick.next { background: #FFC23D; box-shadow: 0 0 0 1.5px ${INK}; }
-.st-rail .st-pb { position: absolute; right: 12px; margin-bottom: -7px; font: 700 9px 'Fredoka', sans-serif; background: #FFC23D; border: 2px solid ${INK}; border-radius: 5px; padding: 0 3px; line-height: 10px; transition: bottom 600ms; }
-.st-rail .st-pb::after { content: ''; position: absolute; right: -6px; top: 2px; border: 3px solid transparent; border-left-color: ${INK}; }
-.st-rail .st-me { position: absolute; left: 50%; width: 16px; height: 14px; margin: 0 0 -7px -8px; background: #FFAA2B; border: 2px solid ${INK}; border-radius: 5px; }
-.st-rail .st-me::before, .st-rail .st-me::after { content: ''; position: absolute; top: 3px; width: 3px; height: 4px; background: ${INK}; border-radius: 2px; }
-.st-rail .st-me::before { left: 3px; } .st-rail .st-me::after { right: 3px; }
-.st-cpchip { position: absolute; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 84px); transform: translate(-50%, -8px); opacity: 0; background: #FFC23D; border: 3px solid ${INK}; border-radius: 12px; box-shadow: 0 3px 0 ${INK}; font: 700 16px 'Fredoka', sans-serif; padding: 1px 10px; transition: opacity 200ms, transform 200ms; }
-.st-cpchip.show { opacity: 1; transform: translate(-50%, 0); animation: st-bob 900ms ease-in-out infinite alternate; }
-@keyframes st-bob { to { transform: translate(-50%, -4px); } }
+.st-hud .ui-rail { top: calc(env(safe-area-inset-top, 0px) + 148px); right: 23px; } /* centred under the Next column */
+.st-hud .ui-offchip.up { --top: 84px; } /* under the checkpoint pill */
 .st-vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px 30px rgba(255,77,109,0.85); opacity: 0; z-index: 4; }
 .st-flash { position: fixed; inset: 0; pointer-events: none; background: #fff; opacity: 0; z-index: 4; transition: opacity 60ms; }
 .st-overlay { position: fixed; inset: 0; display: none; place-items: center; background: rgba(34,24,58,0.55); pointer-events: auto; z-index: 8; padding: 16px; }
@@ -95,7 +79,6 @@ const CSS = `
 .st-wind.hide, .st-slot.hide { display: none; }
 .st-active { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
 .st-active .st-chip { font-size: 13px; padding: 1px 7px; }
-.st-arrow { position: absolute; bottom: 8px; font: 700 26px 'Fredoka', sans-serif; color: #FF4D6D; -webkit-text-stroke: 2px ${INK}; paint-order: stroke fill; opacity: 0; transition: opacity 200ms; }
 `;
 
 const HEART = (fill: string) => `<svg viewBox="0 0 24 24" class="st-heart"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.7 4.5c2.1 0 3.6 1.2 4.3 2.5h2c.7-1.3 2.2-2.5 4.3-2.5 3.7 0 5.8 3.9 4.3 7.3C19.5 16.4 12 21 12 21z" fill="${fill}" stroke="${INK}" stroke-width="2.2" stroke-linejoin="round"/></svg>`;
@@ -118,14 +101,13 @@ export class Hud {
   private flashEl: HTMLDivElement;
   private overlay: HTMLDivElement;
   private hint: HTMLDivElement;
-  private arrow: HTMLDivElement;
-  private hazardEl: HTMLDivElement;
-  private hcard: HTMLDivElement;
+  private hazardChipEl: HTMLElement | null = null;
   private hazardKey = '';
-  private rail: HTMLDivElement;
-  private railKey = '';
-  private cpChip: HTMLDivElement;
+  private rail: HTMLElement;
+  private cpChip: HTMLElement;
   private cpChipKey = '';
+  private lostChip: HTMLElement;
+  private lostTimer = 0;
   readonly pauseBtn: HTMLButtonElement;
   readonly labBtn: HTMLButtonElement;
   private slotBtns: HTMLButtonElement[];
@@ -150,6 +132,7 @@ export class Hud {
 
   constructor(parent: HTMLElement) {
     const style = document.createElement('style');
+    injectUiCss(); // Art's kit: the rail, chips and hazard telegraphs need it
     style.textContent = CSS + powerBarCss(); // Art's power bar styles go on top of ours
     document.head.appendChild(style);
     this.root = document.createElement('div');
@@ -170,13 +153,8 @@ export class Hud {
         <div class="st-height" data-id="height">0<small> m</small></div>
         <div class="st-pill" data-id="pill"><div class="st-fill"></div><span>CP 1</span></div>
       </div>
-      <div class="st-rail" data-id="rail"><div data-id="bands"></div><div class="st-pb" data-id="pb">PB</div><div class="st-me" data-id="me"></div></div>
-      <div class="st-cpchip" data-id="cpchip">▲ 2</div>
       <div class="st-title" data-id="title"></div>
-      <div class="st-hazard left" data-id="hazard"></div>
-      <div class="st-hcard" data-id="hcard"></div>
       <div class="st-hint" data-id="hint"><span>drag ↔ move</span><span>tap ⟳ rotate</span><span>drag ↓ faster</span><span>flick ↓ drop</span><span>flick ↑ hold</span></div>
-      <div class="st-arrow" data-id="arrow">▼</div>
       <div class="st-powers">
         <button class="st-btn st-slot empty" data-id="slot0" aria-label="Power-up 1"></button>
         <button class="st-btn st-slot empty" data-id="slot1" aria-label="Power-up 2"></button>
@@ -197,11 +175,10 @@ export class Hud {
     this.holdCard = q('holdcard');
     this.title = q('title');
     this.hint = q('hint');
-    this.arrow = q('arrow');
-    this.hazardEl = q('hazard');
-    this.hcard = q('hcard');
-    this.rail = q('rail');
-    this.cpChip = q('cpchip');
+    // Art's HUD pieces (art/src/ui/rail.ts, hazard.ts): the rail, the off-screen chips, the hazard chip.
+    this.rail = this.root.appendChild(altitudeRail(Math.round(Math.min(200, window.innerHeight * 0.26))));
+    this.cpChip = this.root.appendChild(checkpointChip(1));
+    this.lostChip = this.root.appendChild(offscreenChip({ dir: 'down', label: '' }));
     this.pauseBtn = q('pause');
     this.labBtn = q('lab');
     this.slotBtns = [q('slot0'), q('slot1')];
@@ -331,24 +308,12 @@ export class Hud {
   }
 
   /**
-   * The altitude rail (art-direction.md §8.2): the whole run from the ground up, a band per
-   * checkpoint stretch in its biome's colour, a tick at each checkpoint (gold for the one being
-   * climbed to), the best height and a Blockling head at the tower top. Heights are in blocks.
+   * The altitude rail (art-direction.md §8.2), Art's canvas: the whole run from the ground up in
+   * biome colours, checkpoint ticks (gold for the next), the best height and the tower top. Heights
+   * in blocks above the plinth; ticks end with the checkpoint being climbed to. Cheap every frame.
    */
-  setRail(r: { stretches: { from: number; to: number; color: string }[]; ticks: number[]; best: number; top: number }): void {
-    const max = Math.max(1, ...r.ticks, r.best, r.top) * 1.08;
-    const pct = (h: number) => `${(Math.max(0, Math.min(1, h / max)) * 100).toFixed(2)}%`;
-    const key = `${r.stretches.length}|${r.ticks.length}|${max.toFixed(1)}`;
-    if (key !== this.railKey) {
-      this.railKey = key;
-      const bands = this.rail.querySelector<HTMLDivElement>('[data-id="bands"]')!;
-      bands.innerHTML = r.stretches.map(b => `<div class="st-band" style="bottom:${pct(b.from)};height:${pct(b.to - b.from)};background:${b.color}"></div>`).join('')
-        + r.ticks.map((t, i) => `<div class="st-tick${i === r.ticks.length - 1 ? ' next' : ''}" style="bottom:${pct(t)}"></div>`).join('');
-    }
-    const pb = this.rail.querySelector<HTMLDivElement>('[data-id="pb"]')!;
-    pb.style.display = r.best > 1 ? '' : 'none';
-    pb.style.bottom = pct(r.best);
-    this.rail.querySelector<HTMLDivElement>('[data-id="me"]')!.style.bottom = pct(r.top);
+  setRail(r: { ticks: number[]; best: number; top: number }): void {
+    setRail(this.rail, { top: r.top, cps: r.ticks, claimed: r.ticks.length - 1, pb: r.best > 1 ? r.best : undefined });
   }
 
   /** The gold chip at the top edge while the checkpoint line is off-screen above ("▲ 4"). */
@@ -356,7 +321,7 @@ export class Hud {
     const key = String(n);
     if (key === this.cpChipKey) return;
     this.cpChipKey = key;
-    if (n !== null) this.cpChip.textContent = `▲ ${n}`;
+    if (n !== null) setOffscreenChip(this.cpChip, String(n));
     this.cpChip.classList.toggle('show', n !== null);
   }
 
@@ -367,27 +332,29 @@ export class Hud {
   }
 
   /**
-   * The hazard chip (gameplay.md §8.3), on the side the push comes from, with an arrow the way it
-   * pushes: it pulses during the 2 s warning and stays while the gust blows.
+   * The hazard chip (gameplay.md §8.3, Art's telegraph): it appears at the upwind edge when a gust
+   * is warned, its ring filling over the 2 s, pushes while the gust blows, and slides out when it
+   * ends or a hold calls it off.
    */
-  setHazard(phase: 'idle' | 'warn' | 'blow', dir: number): void {
+  setHazard(phase: 'idle' | 'warn' | 'blow', dir: number, eta = 2): void {
     const key = `${phase}|${dir}`;
     if (key === this.hazardKey) return;
+    const was = this.hazardKey.split('|')[0];
     this.hazardKey = key;
-    const el = this.hazardEl;
-    el.classList.toggle('warn', phase === 'warn');
-    el.classList.toggle('blow', phase === 'blow');
-    if (phase === 'idle') return;
-    el.classList.toggle('left', dir > 0);
-    el.classList.toggle('right', dir < 0);
-    el.textContent = dir > 0 ? (phase === 'warn' ? '💨 GUST →' : '💨 →') : (phase === 'warn' ? '← GUST 💨' : '← 💨');
+    if (phase === 'warn' || (phase === 'blow' && !this.hazardChipEl)) {
+      if (this.hazardChipEl) hazardChipEnd(this.hazardChipEl);
+      this.hazardChipEl = this.root.appendChild(hazardChip({ type: 'gust', dir: dir > 0 ? 1 : -1, eta, y: '52%', elapsed: phase === 'blow' ? eta : 0 }));
+    }
+    if (phase === 'blow' && this.hazardChipEl) hazardChipGo(this.hazardChipEl);
+    if (phase === 'idle' && was !== 'idle' && this.hazardChipEl) { hazardChipEnd(this.hazardChipEl); this.hazardChipEl = null; }
   }
 
-  /** A hazard's first appearance: one line, for about 3 s ("Gusts ahead! Keep it wide."). */
-  hazardCard(text: string): void {
-    this.hcard.textContent = text;
-    this.hcard.classList.add('show');
-    setTimeout(() => this.hcard.classList.remove('show'), 3000);
+  /** Holds the hazard chip's countdown while the game is paused. */
+  pauseHazard(paused: boolean): void { this.hazardChipEl?.classList.toggle('paused', paused); }
+
+  /** A hazard's first appearance: Art's one-line card ("Gusts ahead! Keep it wide."), about 3 s. */
+  hazardCard(type: HazardType = 'gust', still = false): void {
+    this.root.appendChild(hazardCard(type, { still }));
   }
 
   flash(alpha = 0.2): void {
@@ -400,10 +367,12 @@ export class Hud {
     this.vignette.style.opacity = (v * (0.75 + 0.25 * Math.sin(performance.now() / 160))).toFixed(3);
   }
 
+  /** The red ▼ at the bottom edge where a piece fell out of view. */
   lostArrow(xFrac: number): void {
-    this.arrow.style.left = `${Math.max(4, Math.min(96, xFrac * 100))}%`;
-    this.arrow.style.opacity = '1';
-    setTimeout(() => (this.arrow.style.opacity = '0'), 700);
+    this.lostChip.style.setProperty('--x', `${Math.max(6, Math.min(94, xFrac * 100))}%`);
+    this.lostChip.classList.add('show');
+    clearTimeout(this.lostTimer);
+    this.lostTimer = window.setTimeout(() => this.lostChip.classList.remove('show'), 900);
   }
 
   /**
@@ -487,9 +456,9 @@ export class Hud {
   reset(): void {
     this.powerKey = '';
     this.setHazard('idle', 0);
-    this.hcard.classList.remove('show');
+    this.root.querySelectorAll('.ui-hazard, .ui-hcard').forEach(e => e.remove());
+    this.hazardChipEl = null;
     this.setCheckpointChip(null);
-    this.railKey = '';
     this.windArmedUntil = 0;
     this.windSpentAt = 0;
     this.lastWind = 'earn';
