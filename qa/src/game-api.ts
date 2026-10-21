@@ -18,7 +18,16 @@ export interface GameApi {
 export async function loadGameApi(sut: SimUnderTest): Promise<GameApi | null> {
   if (sut.kind !== 'game') return null;
   const path = gameSimPath();
-  const api = await import(pathToFileURL(path).href);
+  const raw = await import(pathToFileURL(path).href);
+  // Suites build the game's Sim and replay runs directly, so both follow QA_ENGINE as the adapter
+  // does. Without this they quietly ran Box2D under QA_ENGINE=rapier.
+  const engine = sut.engine === 'rapier' ? { engine: 'rapier' } : {};
+  class Sim extends raw.Sim {
+    constructor(o: Record<string, unknown> = {}) {
+      super({ ...engine, ...o });
+    }
+  }
+  const api = { ...raw, Sim, replay: (r: Record<string, unknown>) => raw.replay({ ...engine, ...r }) };
   const shapes = await import(pathToFileURL(resolve(dirname(path), 'shapes.ts')).href);
   const probe = new api.Sim({ seed: 1, autoSpawn: false });
   const powers = Array.isArray(probe.slots);
