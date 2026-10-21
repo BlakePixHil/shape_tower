@@ -8,6 +8,7 @@ import { INK } from '../config.ts';
 import { ART_SHAPES } from '../shapes.ts';
 import { part, rrPath } from '../sticker.ts';
 import { type Ctx, TAU, ctx2d, makeCanvas } from '../util.ts';
+import { canvasUrl } from '../urls.ts';
 
 interface Tile { ch: string; key: string; deg: number }
 
@@ -70,14 +71,9 @@ function bake(w: number, h: number, draw: (c: Ctx) => void): HTMLCanvasElement {
   const cv = makeCanvas(w, h); draw(ctx2d(cv)); return cv;
 }
 
-const urls = new Map<string, string>();
-function cached(key: string, make: () => HTMLCanvasElement): string {
-  let u = urls.get(key);
-  if (!u) { u = make().toDataURL('image/png'); urls.set(key, u); }
-  return u;
-}
+const cached = (key: string, make: () => HTMLCanvasElement): string => canvasUrl(`logo:${key}`, make);
 
-/** A letter tile as a PNG data URL, `cssPx` square. Row r, column i of LOGO_ROWS. */
+/** A letter tile as a PNG URL, `cssPx` square. Row r, column i of LOGO_ROWS. */
 export function logoTileUrl(r: number, i: number, cssPx: number, dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1): string {
   const px = Math.round(cssPx * dpr), t = LOGO_ROWS[r][i];
   return cached(`${r}${i}:${px}`, () => bake(px, px, c => { c.translate(px / 2, px / 2); drawTile(c, t, px); }));

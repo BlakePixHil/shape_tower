@@ -103,7 +103,7 @@ if (bubble.done) bubble.destroy();                  // after 0.6 s (collect) or 
 
 The power bar is DOM, so the kit gives it images and CSS:
 
-- `powerIconUrl(kind, cssPx)` is a cached PNG data URL at the device's resolution. Put `<img class="st-icon" src=...>` in a slot (54 px slot: `powerIconUrl(kind, 40)`; 62 px Second Wind: `powerIconUrl('wind', 46)`; a 16 px one fits the Glue and Slow-Mo chips).
+- `powerIconUrl(kind, cssPx)` is a cached PNG URL at the device's resolution (`prewarmUi()` bakes the HUD's sizes ahead; see Screens). Put `<img class="st-icon" src=...>` in a slot (54 px slot: `powerIconUrl(kind, 40)`; 62 px Second Wind: `powerIconUrl('wind', 46)`; a 16 px one fits the Glue and Slow-Mo chips).
 - `powerBarCss()` is CSS to add after the HUD's own. It washes each slot in its power's color (set `data-kind="glue"` on the button) and draws Second Wind's states as classes on `.st-wind`: `earn` (greyed and dashed, tag "CP 2"), no class (ready, the icon breathes), `armed` (gold, pulsing, tag "TAP AGAIN"), `glow` (ready while the run is in trouble: a pulsing sky halo and a nudge), and `spent` (it blows away up and to the right over 450 ms; hide it after). Under `prefers-reduced-motion` the button keeps its colors and drops the motion.
 
 Effects, as particle textures (`tex.vfx(name)`):
@@ -284,6 +284,8 @@ The run summary's tally: the XP lines start hidden. Call `showXpLine(card, i)` f
 Parts for your own screens: `xpBar(state)`, `badgeUrl(level, px)`, `titleFor(level)`, `newTitleAt(level)`, `rewardAt(level)` and `UNLOCKS` (what each level gives, gameplay.md §10.3), `uiIconUrl(name, px)` for any of `UI_ICONS`, `avatarUrl({ shape, face, hat }, px)`, `postcardElement({ biome, width, date, locked })`, `logoElement()` and `bakeLogo(width)` for a still canvas. Control glyphs (pause, close, arrows) are Ink, for Paper buttons.
 
 Add `.ui-still` to a screen (or turn on the OS's Reduce Motion) to stop its animations; pass `still: true` to `mainMenu` to skip the logo's drop-in.
+
+The `*Url` helpers (`powerIconUrl`, `uiIconUrl`, `badgeUrl`, `postcardUrl`, the logo's) bake and PNG-encode an image the first time it's asked for. They bake on the CPU (`cpuBaked` in util.ts), so the encode doesn't wait on the GPU, but a postcard still takes a few ms. Call `prewarmUi()` once when the menu first shows: in idle slices it bakes what the in-run HUD shows (the power icons at the HUD's sizes, the biome card's postcards and star, the hazard icons) and encodes them with `toBlob`, off the main thread, so they come back as `blob:` URLs. `prewarmUi({ also: () => { uiIconUrl('trophy', 32); } })` warms your own the same way, and `warmUrls(ask)` does it for any list. Anything asked for before it's warm is baked on the spot, as before.
 
 ### Avatar and hats
 

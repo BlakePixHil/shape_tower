@@ -6,6 +6,7 @@
 import { INK, INK_SOFT, PAPER, SIGNAL } from './config.ts';
 import { O, circlePath, heart, ink, part, rrPath, turn, twinkle } from './sticker.ts';
 import { type Ctx, TAU, ctx2d, labToHex, makeCanvas, mixLab, oklab, rgba } from './util.ts';
+import { canvasUrl } from './urls.ts';
 
 export const POWER_KINDS = ['clean', 'quickset', 'undo', 'glue', 'slowmo'] as const;
 export type PowerKind = (typeof POWER_KINDS)[number];
@@ -185,17 +186,14 @@ export function bakePowerIcon(kind: PowerIcon, px: number): HTMLCanvasElement {
   return cv;
 }
 
-const urls = new Map<string, string>();
-
 /**
- * A PNG data URL of icon `kind` for the DOM HUD, `cssPx` CSS px square at the device's resolution.
- * Cached, so it's cheap to call on every HUD update. Show it with `<img class="st-icon">`.
+ * A PNG URL of icon `kind` for the DOM HUD, `cssPx` CSS px square at the device's resolution.
+ * Cached, so it's cheap to call on every HUD update (prewarmUi bakes the HUD's ahead). Show it with
+ * `<img class="st-icon">`.
  */
 export function powerIconUrl(kind: PowerIcon, cssPx: number, dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1): string {
-  const key = `${kind}:${Math.round(cssPx * dpr)}`;
-  let u = urls.get(key);
-  if (!u) { u = bakePowerIcon(kind, Math.round(cssPx * dpr)).toDataURL('image/png'); urls.set(key, u); }
-  return u;
+  const px = Math.round(cssPx * dpr);
+  return canvasUrl(`picon:${kind}:${px}`, () => bakePowerIcon(kind, px));
 }
 
 // ---- the bubble ----

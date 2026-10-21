@@ -7,6 +7,7 @@ import { INK, PAPER, SIGNAL } from '../config.ts';
 import { ART_SHAPES } from '../shapes.ts';
 import { O, circlePath, heart, ink, part, rrPath, turn, twinkle } from '../sticker.ts';
 import { type Ctx, TAU, ctx2d, makeCanvas } from '../util.ts';
+import { canvasUrl } from '../urls.ts';
 
 export const UI_ICONS = [
   'pause', 'play', 'settings', 'sound', 'mute', 'music', 'haptics', 'close', 'back', 'share', 'info', 'home', 'restart',
@@ -353,12 +354,8 @@ export function bakeUiIcon(name: UiIcon, px: number): HTMLCanvasElement {
   return cv;
 }
 
-const urls = new Map<string, string>();
-
-/** A PNG data URL of icon `name`, `cssPx` CSS px square at the device's resolution. Cached. */
+/** A PNG URL of icon `name`, `cssPx` CSS px square at the device's resolution. Cached. */
 export function uiIconUrl(name: UiIcon, cssPx: number, dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1): string {
-  const key = `${name}:${Math.round(cssPx * dpr)}`;
-  let u = urls.get(key);
-  if (!u) { u = bakeUiIcon(name, Math.round(cssPx * dpr)).toDataURL('image/png'); urls.set(key, u); }
-  return u;
+  const px = Math.round(cssPx * dpr);
+  return canvasUrl(`uiicon:${name}:${px}`, () => bakeUiIcon(name, px));
 }
