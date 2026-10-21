@@ -6,6 +6,7 @@
 import {
   ACHIEVEMENTS, BY_ID, RunTracker, TIER_POINTS, TIER_XP, freshCounts, grantHistory, grantStreaks, payAchievements, progress,
 } from '../src/meta/achievements.ts';
+import { readFileSync } from 'node:fs';
 import type { BusEvent } from '../src/sim/bus.ts';
 import type { Sim } from '../src/sim/sim.ts';
 import { createSim } from '../src/sim/testApi.ts';
@@ -77,6 +78,13 @@ function climb(to: number, from = 1): [string, Record<string, unknown>?][] {
   const pts = ACHIEVEMENTS.reduce((s, a) => s + TIER_POINTS[a.tier], 0);
   check('All XP adds up to 2,820 (§18.1)', xp === 2820, String(xp));
   check('Console points 935, under 1,000, each a multiple of 5 and at most 100 (§18.5)', pts === 935 && Object.values(TIER_POINTS).every(v => v % 5 === 0 && v <= 100), String(pts));
+  // Read as text: Art's icon module needs a canvas to load.
+  const kit = readFileSync(new URL('../../art/src/ui/icons.ts', import.meta.url).pathname, 'utf8');
+  const icons = new Set([...(/UI_ICONS = \[([^\]]*)\]/.exec(kit)?.[1] ?? '').matchAll(/'(\w+)'/g)].map(m => m[1]));
+  const bad = ACHIEVEMENTS.filter(a => !icons.has(a.icon)).map(a => `${a.id}:${a.icon}`);
+  check("Every badge's glyph is in Art's UI_ICONS", icons.size > 40 && bad.length === 0, bad.join(', ') || `${icons.size} icons`);
+  const biomes = ACHIEVEMENTS.filter(a => a.biome !== undefined).map(a => a.biome!);
+  check('Biome badges name biomes 2 to 10 (1 = Meadow; Art counts from 0)', biomes.join() === '2,3,4,5,6,7,8,9,10', biomes.join());
 }
 
 // ---------------------------------------------------------------- climb

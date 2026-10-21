@@ -54,8 +54,8 @@ export const ACHIEVEMENTS: Achievement[] = [
   A('climb', 'pb', 'New Heights', 'Beat your best height', 'bronze', 'tower'),
 
   A('craft', 'perfect', 'Pixel Perfect', 'Place a Perfect', 'bronze', 'perfect'),
-  A('craft', 'combo_5', 'In the Zone', 'Place 5 Perfects in a row', 'silver', 'perfect'),
-  A('craft', 'combo_7', 'Seventh Heaven', 'Place 7 Perfects in a row (the ×4 combo)', 'gold', 'perfect'),
+  A('craft', 'combo_5', 'In the Zone', 'Place 5 Perfects in a row', 'silver', 'combo'),
+  A('craft', 'combo_7', 'Seventh Heaven', 'Place 7 Perfects in a row (the ×4 combo)', 'gold', 'combo'),
   A('craft', 'row', 'Solid Ground', 'Make a Solid Row', 'bronze', 'row'),
   A('craft', 'row_2', 'Double!', 'Make 2 Solid Rows with one shape', 'silver', 'row'),
   A('craft', 'row_3', 'Triple!', 'Make 3 Solid Rows with one shape', 'gold', 'row'),
@@ -75,9 +75,9 @@ export const ACHIEVEMENTS: Achievement[] = [
   A('survive', 'calm_7', 'Meteor Proof', 'Get through the Moon without losing a heart', 'gold', 'meteor'),
 
   A('powers', 'bubble', 'Bubble Pop', 'Steer through a power bubble', 'bronze', 'gift'),
-  A('powers', 'toolbox', 'Toolbox', 'Use all five power-ups', 'silver', 'gift', { goal: 5 }),
+  A('powers', 'toolbox', 'Toolbox', 'Use all five power-ups', 'silver', 'toolbox', { goal: 5 }),
   A('powers', 'comeback', 'Comeback Kid', 'Use Second Wind, then claim 3 more checkpoints in the same run', 'silver', 'restart'),
-  A('powers', 'purist', 'No Help Needed', 'Reach the Storm Belt without using a power-up or Second Wind', 'gold', 'check'),
+  A('powers', 'purist', 'No Help Needed', 'Reach the Storm Belt without using a power-up or Second Wind', 'gold', 'purist'),
   A('powers', 'bubbles_50', 'Bubble Wrap', 'Collect 50 power bubbles', 'silver', 'gift', { goal: 50 }),
 
   A('lifetime', 'bricks_1k', 'Brick by Brick', 'Place 1,000 bricks', 'bronze', 'brick', { goal: 1000 }),
@@ -88,10 +88,10 @@ export const ACHIEVEMENTS: Achievement[] = [
   A('lifetime', 'streak_3', 'Hooked', 'Play 3 days in a row', 'bronze', 'streak', { goal: 3 }),
   A('lifetime', 'streak_7', 'Creature of Habit', 'Play 7 days in a row', 'silver', 'streak', { goal: 7 }),
 
-  A('secret', 'avalanche', 'Avalanche!', 'Lose 5 pieces in one tumble', 'bronze', 'junk', { secret: true }),
+  A('secret', 'avalanche', 'Avalanche!', 'Lose 5 pieces in one tumble', 'bronze', 'avalanche', { secret: true }),
   A('secret', 'so_close', 'So Close!', 'Run out of bricks within a block of the line', 'bronze', 'flag', { secret: true }),
-  A('secret', 'do_over', 'Do-Over', 'Undo a shape, then place it again as a Perfect', 'bronze', 'restart', { secret: true }),
-  A('secret', 'needle', 'Needle Threader', 'Claim a checkpoint with a tower so thin it gets the smallest foundation', 'bronze', 'tower', { secret: true }),
+  A('secret', 'do_over', 'Do-Over', 'Undo a shape, then place it again as a Perfect', 'bronze', 'undo', { secret: true }),
+  A('secret', 'needle', 'Needle Threader', 'Claim a checkpoint with a tower so thin it gets the smallest foundation', 'bronze', 'needle', { secret: true }),
 ];
 
 export const BY_ID = new Map(ACHIEVEMENTS.map(a => [a.id, a]));

@@ -37,36 +37,38 @@ const granted = await page.evaluate(() => Object.keys(window.__wobble.profile.ac
 step('history grant: first checkpoint, Treetops, Cloudlands, first Perfect', JSON.stringify(granted) === JSON.stringify(['biome_2', 'biome_3', 'cp_first', 'perfect']), granted.join(', '));
 
 await page.click('[data-action="profile"]');
-await page.waitForSelector('.tr-row');
+await page.waitForSelector('.ui-achrow');
 await page.waitForTimeout(400);
 await shot('01-profile');
-const row = await page.evaluate(() => document.querySelector('.tr-row')?.textContent?.replace(/\s+/g, ' ').trim());
+const row = await page.evaluate(() => document.querySelector('.ui-achrow')?.textContent?.replace(/\s+/g, ' ').trim());
 step('profile row counts 4 of 47', /Achievements\s*4 \/ 47/.test(row ?? ''), row);
 
-await page.click('.tr-row');
-await page.waitForSelector('.tr-panel');
+await page.click('.ui-achrow');
+await page.waitForSelector('.ui-achs');
 await page.waitForTimeout(300);
 await shot('02-panel');
 const panel = await page.evaluate(secrets => {
-  const p = document.querySelector('.tr-panel');
+  const p = document.querySelector('.ui-achs');
   const text = p.textContent ?? '';
   return {
-    items: p.querySelectorAll('.tr-item').length, earned: p.querySelectorAll('.tr-item:not(.locked)').length,
-    leaked: secrets.filter(s => text.includes(s)), hidden: (text.match(/Secret: keep playing/g) ?? []).length,
-    bricks: [...p.querySelectorAll('.tr-item')].find(i => i.textContent.includes('Brick by Brick'))?.querySelector('.tr-meta')?.textContent,
-    groups: [...p.querySelectorAll('h3')].map(h => h.firstChild.textContent),
+    items: p.querySelectorAll('.ui-ach').length, earned: p.querySelectorAll('.ui-ach.got').length,
+    leaked: secrets.filter(s => text.includes(s)), hidden: (text.match(/Keep playing to find this one\./g) ?? []).length,
+    bricks: [...p.querySelectorAll('.ui-ach')].find(i => i.textContent.includes('Brick by Brick'))?.querySelector('.ui-ach-bar em')?.textContent,
+    badges: [...p.querySelectorAll('.ui-ach > img')].filter(i => i.src.startsWith('data:image/png') && i.naturalWidth > 0).length,
+    groups: [...p.querySelectorAll('h2.ui-h2')].map(h => h.firstChild.textContent),
     overflowX: document.documentElement.scrollWidth > window.innerWidth,
   };
 }, SECRETS);
 step('panel lists 47, 4 earned, in six groups', panel.items === 47 && panel.earned === 4 && panel.groups.join() === 'Climb,Craft,Survive,Power-ups,Lifetime,Secret', JSON.stringify(panel.groups));
 step('secret names and texts stay out of the page', panel.leaked.length === 0 && panel.hidden === 4, `leaked ${panel.leaked}`);
 step('counted ones show progress (Brick by Brick 310 / 1,000)', /310 \/ 1,000/.test(panel.bricks ?? ''), panel.bricks);
+step('every row has a baked badge', panel.badges === 47, `${panel.badges} / 47`);
 step('no sideways scroll at 390 px', !panel.overflowX);
-await page.evaluate(() => document.querySelector('.tr-panel').parentElement.scrollTo(0, 99999));
+await page.evaluate(() => document.querySelector('.ui-achs').scrollTo(0, 99999));
 await page.waitForTimeout(200);
 await shot('03-panel-secret');
-await page.click('.tr-panel [data-action="close"]');
-await page.waitForSelector('.tr-row');
+await page.click('.ui-achs [data-action="close"]');
+await page.waitForSelector('.ui-achrow');
 step('closing the panel goes back to the profile', await page.evaluate(() => !!document.querySelector('.ui-profile')));
 await page.click('.ui-profile [data-action="close"]');
 await page.waitForTimeout(300);
@@ -76,23 +78,35 @@ await page.click('[data-action="play"]');
 await page.waitForFunction(() => !!window.__wobble.trophies.tracker, null, { timeout: 5000 });
 await page.waitForTimeout(2600); // the Meadow's title card holds the toast's spot first
 await page.evaluate(() => window.__wobble.trophies.tracker.handle({ name: 'clutch', step: 1, payload: {} }));
-await page.waitForSelector('.tr-toast.in', { timeout: 4000 });
+await page.waitForSelector('.ui-achtoast', { timeout: 4000 });
 await page.waitForTimeout(400);
 await shot('04-toast');
-const toast = await page.evaluate(() => ({ text: document.querySelector('.tr-toast')?.textContent?.replace(/\s+/g, ' ').trim(), touch: getComputedStyle(document.querySelector('.tr-toast')).pointerEvents, saved: JSON.parse(localStorage.getItem('shape-tower-profile-v1')).achievements?.clutch }));
+const toast = await page.evaluate(() => ({ text: document.querySelector('.ui-achtoast')?.textContent?.replace(/\s+/g, ' ').trim(), touch: getComputedStyle(document.querySelector('.ui-achtoast')).pointerEvents, saved: JSON.parse(localStorage.getItem('shape-tower-profile-v1')).achievements?.clutch }));
 step('toast says Achievement! Clutch!, ignores touches, already saved', /Achievement!\s*Clutch!/.test(toast.text ?? '') && toast.touch === 'none' && !!toast.saved && toast.saved.paid === false, JSON.stringify(toast));
-await page.waitForFunction(() => !document.querySelector('.tr-toast'), null, { timeout: 5000 }).catch(() => {});
-step('the toast leaves by itself', await page.evaluate(() => !document.querySelector('.tr-toast')));
+await page.waitForFunction(() => !document.querySelector('.ui-achtoast'), null, { timeout: 5000 }).catch(() => {});
+step('the toast leaves by itself', await page.evaluate(() => !document.querySelector('.ui-achtoast')));
+
+// A burst of four: one toast at a time, and the third says "+1 more" instead of showing a fourth.
+const seen = await page.evaluate(async () => {
+  const names = ['One', 'Two', 'Three', 'Four'], seen = [];
+  const watch = new MutationObserver(() => { const t = document.querySelector('.ui-achtoast'); const s = t?.textContent.replace(/\s+/g, ' ').trim(); if (s && !seen.includes(s)) seen.push(s); });
+  watch.observe(document.body, { childList: true });
+  for (const n of names) window.__wobble.trophies.toasts.push({ id: n, name: n, text: '', tier: 'silver', group: 'craft', icon: 'combo' });
+  await new Promise(r => setTimeout(r, 9000));
+  watch.disconnect();
+  return { seen, many: document.querySelectorAll('.ui-achtoast').length };
+});
+step('a burst of four shows three, the last with "+1 more"', seen.seen.length === 3 && /Three\s*\+1 more/.test(seen.seen[2] ?? '') && seen.many === 0, JSON.stringify(seen.seen));
 
 // Quit: the summary strip shows all five unpaid ones, and the tally pays them as flat lines.
 await page.evaluate(() => window.__wobble.scene.sim.quit());
 await page.waitForFunction(() => document.querySelector('.sc-root.show .ui-summary'), null, { timeout: 30000 }).catch(() => {});
 await page.evaluate(() => window.__wobble.scene.skipPanorama?.());
-await page.waitForSelector('.tr-strip', { timeout: 30000 });
+await page.waitForSelector('.ui-achstrip', { timeout: 30000 });
 await page.waitForTimeout(3200);
 await shot('05-summary');
 const sum = await page.evaluate(() => ({
-  strip: [...document.querySelectorAll('.tr-strip .tr-chip')].map(c => c.textContent.trim()),
+  strip: [...document.querySelectorAll('.ui-achstrip img')].map(c => c.alt),
   lines: [...document.querySelectorAll('.ui-line')].map(l => l.textContent.replace(/\s+/g, ' ').trim()),
   paid: Object.values(window.__wobble.profile.achievements).every(s => s.paid),
 }));
