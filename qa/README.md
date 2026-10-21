@@ -17,6 +17,8 @@ npm run typecheck
 
 Each run writes a JSON and a Markdown report per suite to `qa/reports/` (not committed).
 
+The merge gate is `qa/scripts/gate.sh [checkout]`: every module's own checks (game install, typecheck, sim smoke, gesture check and build; art typecheck; audio tests) plus this fast set, on one checkout such as a PR head, a trial merge or main. A thread merges its PR once QA has run the gate on it and posted the go.
+
 | Variable | Meaning |
 |---|---|
 | `QA_SIM` | `game` (default when `game/src/sim/testApi.ts` exists) or `reference` |
@@ -46,6 +48,7 @@ Each run writes a JSON and a Markdown report per suite to `qa/reports/` (not com
 | `scripts/run-story.ts` | Replays a run record from a phone, checks its digests against Node, and prints each landing with the ghost the player saw, losses, hearts, bond breaks, power-ups and Second Wind |
 | `scripts/cross-build.ts` | Records bot runs on one build and replays them on another, to check that a change leaves earlier runs step for step the same |
 | `scripts/replay-child.ts` | Replays run records in a fresh process (F18.13) |
+| `scripts/gate.sh` | The merge gate: every module's checks plus the fast set on one checkout |
 
 ## Conventions
 

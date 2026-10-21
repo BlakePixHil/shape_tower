@@ -16,7 +16,6 @@ import { CORE_SHAPES } from '../src/shapes';
 const sut = await loadSim();
 const game = await loadGameApi(sut);
 const glueBug = knownIssue('F18.4 glue without Mortar', sut);
-const halfBug = knownIssue('F18.8 halving', sut);
 
 type Ev = { name: string; step: number; payload: Record<string, any> };
 type T = Record<string, any>;
@@ -207,38 +206,62 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     expect(problems).toEqual([]);
   });
 
-  for (const mortar of [true, false]) {
-    const bug = mortar ? undefined : glueBug;
-    (bug ? it.fails : it)(`F18.4 Glue bonds the next 3 shapes on touch at ×2 strength, Mortar ${mortar ? 'on' : 'off'}; refused while running${bug ? ` (known bug ${bug.id})` : ''}`, () => {
-      const t = make({ mortar });
-      const problems: string[] = [];
-      const log: Ev[] = [];
-      t.spawnControlled({ shape: 'O', x: -2 });
-      give(t, 0, 'glue');
-      use(t, 0, log);
-      if (S(t).glueLeft !== 3) problems.push(`Glue should run for 3 shapes, glueLeft ${S(t).glueLeft}`);
-      give(t, 1, 'glue');
-      if (!named(use(t, 1), 'power_refused').length || S(t).slots[1] !== 'glue') problems.push('a second Glue while running was not refused, or it left the slot');
-      t.intent({ type: 'hardDrop' });
-      for (let i = 0; i < 600 && S(t).ctrl; i++) t.step();
-      const landing = drain(t, log);
-      const first = named(landing, 'piece_landed')[0];
-      t.step(18); // 0.3 s
-      const bonds = named([...landing, ...drain(t, log)], 'bond_formed').filter((e) => e.payload.glue);
-      if (!first?.payload.glue) problems.push('the shape in hand did not land glued');
-      if (!bonds.length) problems.push('the glued shape did not bond within 0.3 s of landing');
-      const welds = [...S(t).welds.values()] as { a: number; k: number }[];
-      if (bonds.length && !welds.some((w) => w.k === 2)) problems.push(`glued bonds should be ×2, got ×${welds.map((w) => w.k).join(', ')}`);
-      drop(t, 'O', 0, 0, log);
-      drop(t, 'O', 2, 0, log);
-      if (!named(log, 'power_ended').some((e) => e.payload.kind === 'glue')) problems.push('Glue did not end after 3 shapes');
-      const fourth = drop(t, 'O', -2, 0, log);
-      const landed4 = log.filter((e) => e.name === 'piece_landed' && e.payload.id === fourth)[0];
-      if (landed4?.payload.glue) problems.push('the 4th shape was glued');
-      writeReport({ suite: `power-glue-mortar-${mortar ? 'on' : 'off'}`, sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', problems.length ? problems : ['Glue ran for 3 shapes, bonded the shape in hand within 0.3 s at ×2, was refused while running, and ended'], {});
-      expect(problems).toEqual([]);
-    });
-  }
+  it('F18.4 Glue bonds the next 3 shapes on touch at ×2 strength (Mortar on); refused while running', () => {
+    const t = make();
+    const problems: string[] = [];
+    const log: Ev[] = [];
+    t.spawnControlled({ shape: 'O', x: -2 });
+    give(t, 0, 'glue');
+    use(t, 0, log);
+    if (S(t).glueLeft !== 3) problems.push(`Glue should run for 3 shapes, glueLeft ${S(t).glueLeft}`);
+    give(t, 1, 'glue');
+    if (!named(use(t, 1), 'power_refused').length || S(t).slots[1] !== 'glue') problems.push('a second Glue while running was not refused, or it left the slot');
+    t.intent({ type: 'hardDrop' });
+    for (let i = 0; i < 600 && S(t).ctrl; i++) t.step();
+    const landing = drain(t, log);
+    const first = named(landing, 'piece_landed')[0];
+    t.step(18); // 0.3 s
+    const bonds = named([...landing, ...drain(t, log)], 'bond_formed').filter((e) => e.payload.glue);
+    if (!first?.payload.glue) problems.push('the shape in hand did not land glued');
+    if (!bonds.length) problems.push('the glued shape did not bond within 0.3 s of landing');
+    const welds = [...S(t).welds.values()] as { a: number; k: number }[];
+    if (bonds.length && !welds.some((w) => w.k === 2)) problems.push(`glued bonds should be ×2, got ×${welds.map((w) => w.k).join(', ')}`);
+    drop(t, 'O', 0, 0, log);
+    drop(t, 'O', 2, 0, log);
+    if (!named(log, 'power_ended').some((e) => e.payload.kind === 'glue')) problems.push('Glue did not end after 3 shapes');
+    const fourth = drop(t, 'O', -2, 0, log);
+    const landed4 = log.filter((e) => e.name === 'piece_landed' && e.payload.id === fourth)[0];
+    if (landed4?.payload.glue) problems.push('the 4th shape was glued');
+    writeReport({ suite: 'power-glue', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', problems.length ? problems : ['Glue ran for 3 shapes, bonded the shape in hand within 0.3 s at ×2, was refused while running, and ended'], {});
+    expect(problems).toEqual([]);
+  });
+
+  // Gameplay's call on QA-006: Glue only bonds through Mortar, so with Mortar off it is never
+  // offered, and one already in a slot is refused.
+  (glueBug ? it.fails : it)(`F18.4 with Mortar off Glue is never picked, and a Glue in a slot is refused${glueBug ? ` (known bug ${glueBug.id})` : ''}`, () => {
+    const t = make({ mortar: false, powerUps: true });
+    const s = S(t);
+    const problems: string[] = [];
+    s.tuning.infiniteBudget = false;
+    s.tuning.infiniteHearts = false;
+    let glue = 0;
+    // Calm, tense (glue boosted) and with the other slot taken.
+    for (const [tension, slots] of [[0, [null, null]], [0.6, [null, null]], [0.6, ['undo', null]]] as const) {
+      s.tensionValue = tension;
+      s.slots = [...slots];
+      for (let i = 0; i < 4000; i++) if (s.pickKind() === 'glue') glue++;
+    }
+    if (glue) problems.push(`Glue was picked ${glue} times in 12000 picks with Mortar off`);
+    s.slots = [null, null];
+    t.spawnControlled({ shape: 'O', x: 0 });
+    give(t, 0, 'glue');
+    const ev = use(t, 0);
+    if (!named(ev, 'power_refused').length) problems.push('a Glue in a slot was used with Mortar off');
+    if (s.slots[0] !== 'glue') problems.push('the refused Glue left its slot');
+    if (s.glueLeft) problems.push(`glueLeft ${s.glueLeft} after a refused Glue`);
+    writeReport({ suite: 'power-glue-mortar-off', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', problems.length ? [...(glueBug ? [`Known bug ${glueBug.id} (${glueBug.owner}, since ${glueBug.since}): ${glueBug.summary}`] : []), ...problems] : ['with Mortar off Glue was never picked in 12000 picks, and a Glue in a slot was refused and kept'], {});
+    expect(problems).toEqual([]);
+  });
 
   it('F18.5 Slow-Mo halves the fall of the next 3 shapes; soft drop still speeds them up, hard drop unchanged; refused while running', () => {
     const t = make();
@@ -463,14 +486,15 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     const t = make({ powerUps: true });
     const s = S(t);
     const kinds = ['clean', 'quickset', 'undo', 'glue', 'slowmo'];
-    // The rule as written: everything 2, then the boosts, and a kind already in a slot counts half.
+    // The rule as written: everything 2, then the boosts, and a kind already in a slot counts half,
+    // rounded down (QA-007, Gameplay's call).
     const expected = (c: { lastHeart: boolean; bricks: number; tension: number; cp: number; slots: (string | null)[] }) => {
       const w: Record<string, number> = { clean: 2, quickset: 2, undo: 2, glue: 2, slowmo: 2 };
       if (c.lastHeart) w.clean += 2;
       if (c.bricks <= 4) { w.clean += 2; w.undo += 1; }
       if (c.tension >= 0.5) { w.quickset += 2; w.glue += 1; }
       if (c.cp >= 4) w.slowmo += 1;
-      for (const k of c.slots) if (k) w[k] /= 2;
+      for (const k of c.slots) if (k) w[k] = Math.max(1, Math.floor(w[k] / 2));
       const sum = kinds.reduce((a, k) => a + w[k], 0);
       return Object.fromEntries(kinds.map((k) => [k, w[k] / sum]));
     };
@@ -520,14 +544,11 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     const sameBag = bag(true) === bag(false);
     lines.push(sameBag ? 'the first 60 shapes are the same with power-ups on and off' : 'FAIL the bag changes when power-ups are on');
     if (!sameBag) problems.push('power-ups change the bag');
-    const halving = problems.filter((p) => p.includes('in a slot'));
-    if (halfBug) lines.unshift(`Known bug ${halfBug.id} (${halfBug.owner}, since ${halfBug.since}): ${halfBug.summary}`);
     writeReport({ suite: 'power-picks', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', lines, {});
-    // The halving rule is reported separately so a rounding call doesn't hide a real weight bug.
-    expect(problems.filter((p) => !halving.includes(p))).toEqual([]);
+    expect(problems).toEqual([]);
   });
 
-  (halfBug ? it.fails : it)(`F18.8 a kind already in a slot counts half (odd weights too)${halfBug ? ` (known bug ${halfBug.id})` : ''}`, () => {
+  it('F18.8 a kind already in a slot counts half, odd weights rounded down', () => {
     const t = make({ powerUps: true });
     const s = S(t);
     s.tuning.infiniteBudget = false;
@@ -537,8 +558,8 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     const N = 12000;
     let undo = 0;
     for (let i = 0; i < N; i++) if (s.pickKind() === 'undo') undo++;
-    // clean 4, quickset 2, undo 3/2, glue 2, slowmo 2
-    const exp = 1.5 / 11.5;
+    // clean 4, quickset 2, undo 3 halved to 1, glue 2, slowmo 2
+    const exp = 1 / 11;
     expect(Math.abs(undo / N - exp)).toBeLessThan(4 * Math.sqrt((exp * (1 - exp)) / N) + 0.002);
   });
 
