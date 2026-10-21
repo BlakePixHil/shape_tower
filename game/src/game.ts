@@ -7,9 +7,11 @@ import { BY_ID, RunTracker, grantHistory, grantStreaks, payAchievements, type Ac
 import type { Sim } from './sim/sim.ts';
 import { biomeFor, type Tuning } from './sim/tuning.ts';
 import type { LabState } from './view/panel.ts';
+import type { RunOpts } from './view/scene.ts';
 import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, saveProfile, spendDailyWind, updateStreak } from './view/profile.ts';
 import { Screens, type UiSound } from './view/screens.ts';
 import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor } from './view/settings.ts';
+import { ENDLESS, type RunMode } from './view/modes.ts';
 import { BUILD, startShell } from './view/shell.ts';
 import { TrophyToasts } from './view/trophies.ts';
 import { setupNative } from './native.ts';
@@ -18,6 +20,11 @@ import { setupNative } from './native.ts';
 type Director = AudioDirector & { setJuice?(on: boolean): void; screen?(name: 'menu' | 'profile' | 'none'): void };
 
 const TIER_RANK = { bronze: 0, silver: 1, gold: 2, platinum: 3 };
+
+/** Zen's own best height: a Zen tower never moves Endless's records (QA F17.4). */
+const ZEN_BEST = 'shape-tower-best-zen';
+/** When the Zen card shows (ms into the run): once the biome title card has gone. */
+const ZEN_CARD_AFTER = 2600;
 
 async function boot(): Promise<void> {
   const settings = loadSettings();
@@ -28,6 +35,7 @@ async function boot(): Promise<void> {
   const firstOpen = profile.sliceRuns === 0;
   const state: LabState = { tuning: {}, view: viewFor(settings, juice) };
   let dailyWind = false;
+  let mode: RunMode = ENDLESS; // the run being played (or just played)
   let screens: Screens | null = null; // made once the shell is up; the audio can arrive first
   let skipTap: ((e: PointerEvent) => void) | null = null;
 
@@ -39,10 +47,26 @@ async function boot(): Promise<void> {
   const toasts = new TrophyToasts({ reducedMotion: () => settings.reduceMotion, juice: () => juice, sound: a => unlockSound(a, true) });
 
   /** The tuning a new run starts with. */
-  const runTuning = (): Partial<Tuning> => {
+  const runTuning = (m: RunMode): Partial<Tuning> => {
     const t: Partial<Tuning> = { ...tuningFor(settings), holdUnlocked: profile.level >= 2, startPower: profile.level >= 6, hazardIntro: !profile.seenGusts, seenHazards: [...profile.seenHazards] };
     if (profile.level <= 1) { t.mortarStrength = 1.2; t.rookieBricks = 4; } // gentle first runs
+    switch (m.id) {
+      case 'endless': break;
+      case 'daily': break;
+      case 'zen': t.zen = true; break; // no budget, no hearts to lose, no Second Wind, half XP (gameplay.md §12)
+    }
     return t;
+  };
+
+  /** What the scene fixes for a run: its seed, Second Wind, which best it climbs past, the record's mode. */
+  const runOpts = (m: RunMode): RunOpts => {
+    const o: RunOpts = { seed: m.seed, record: { mode: m.id } };
+    switch (m.id) {
+      case 'endless': break;
+      case 'daily': break;
+      case 'zen': o.secondWind = 'off'; o.bestKey = ZEN_BEST; break;
+    }
+    return o;
   };
 
   const shell = await startShell({
@@ -52,7 +76,7 @@ async function boot(): Promise<void> {
       dailyWind = dailyWindReady(profile);
       return dailyWind ? 'ready' : 'earn';
     },
-    newPostcard: b => profile.postcards[b] === null,
+    newPostcard: b => mode.id !== 'zen' && profile.postcards[b] === null, // postcards come from real climbs, like best biome
     brittleIntro: () => !profile.seenBrittle,
     onEvent(e, sim) {
       if (e.name === 'biome_entered') toasts.holdFor(2400); // its title card sits where the toast goes
@@ -105,7 +129,8 @@ async function boot(): Promise<void> {
     sc.menu({
       profile, build: BUILD,
       still: menuShown || settings.reduceMotion, // the logo drops in once per visit
-      onPlay: play,
+      onPlay: () => play(),
+      onMode: id => { if (id === 'zen') play({ id: 'zen' }); else play({ id: 'daily' }); },
       onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
       onSettings: () => { audio()?.screen?.('profile'); openSettings(home); },
       note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
@@ -113,12 +138,13 @@ async function boot(): Promise<void> {
     menuShown = true;
   }
 
-  function play(): void {
+  function play(m: RunMode = ENDLESS): void {
     stopSkip();
     shell.unlockAudio();
     sc.close();
+    mode = m;
     ({ juice, juiceRun } = nextJuice(profile));
-    state.tuning = runTuning();
+    state.tuning = runTuning(m);
     state.view = viewFor(settings, juice);
     scene.applyView(state.view);
     audio()?.setJuice?.(juice);
@@ -128,9 +154,15 @@ async function boot(): Promise<void> {
     toasts.clear();
     tracker = null;
     trackNext = true;
-    scene.newRun();
+    dailyWind = false; // set again only when the run asks for the day's free Second Wind
+    scene.newRun(false, runOpts(m));
     scene.paused = false;
     scene.start();
+    // Zen's card follows the run's biome title card, which sits in the same place.
+    if (m.id === 'zen') {
+      const sim = scene.sim;
+      setTimeout(() => { if (scene.sim === sim && sim.state === 'playing') hud.zenCard(settings.reduceMotion); }, ZEN_CARD_AFTER);
+    }
   }
 
   function openSettings(back: () => void): void {
@@ -149,10 +181,11 @@ async function boot(): Promise<void> {
     audio()?.handle('pause', {});
     const resume = () => { sc.close(); scene.paused = false; audio()?.handle('resume', {}); };
     sc.pause({
+      zen: mode.id === 'zen',
       onResume: resume,
       onRestart: () => {
         shell.record?.finish(scene.sim, { abandoned: true, juiceRun, player: profile.player });
-        play();
+        play(mode);
       },
       onSettings: () => openSettings(pause2),
       onQuit: () => { sc.close(); scene.paused = false; scene.sim.quit(); },
@@ -187,11 +220,14 @@ async function boot(): Promise<void> {
 
   function runOver(sim: Sim, p: Record<string, unknown>): void {
     const height = Number(p.height ?? 0) - sim.foundations[0].top;
-    const quit = sim.cause === 'quit';
+    // Quitting is how a Zen run ends, so it doesn't count as a quit: no halving, and the Daily Boost
+    // still applies (QA Q33, F11.7). Zen climbs past its own best, for show only: no XP and no records.
+    const zen = mode.id === 'zen';
+    const quit = sim.cause === 'quit' && !zen;
     const bestBefore = shell.bestBefore;
     const newBest = height > bestBefore + 0.05 && bestBefore > 0;
     const biome = biomeFor(sim.checkpoint).id;
-    addRunStats(profile, { height, biome, bricks: sim.stats.placed, perfects: sim.stats.perfects, rows: sim.stats.rows, checkpoints: sim.stats.checkpoints, clutches: sim.stats.clutches });
+    addRunStats(profile, { height, biome, bricks: sim.stats.placed, perfects: sim.stats.perfects, rows: sim.stats.rows, checkpoints: sim.stats.checkpoints, clutches: sim.stats.clutches }, undefined, !zen);
     // Achievements: streaks count once today is in the streak, then everything earned and not yet paid
     // goes into this tally as flat XP lines (gameplay.md §18.1).
     tracker = null;
@@ -200,7 +236,7 @@ async function boot(): Promise<void> {
     grantStreaks(profile);
     const paid = payAchievements(profile);
     const earned = paid.ids.map(id => BY_ID.get(id)!);
-    const a = award(profile, Number(p.xp ?? 0), { newBest, quit, extra: paid });
+    const a = award(profile, Number(p.xp ?? 0), { newBest: newBest && !zen, quit, mode: mode.id, extra: paid });
     const rec = shell.record;
     rec?.finish(sim, { xp: a.gained, xpBase: Number(p.xp ?? 0), level: profile.level, runNumber: profile.runs, newBest: a.lines.some(l => l[0] === 'New best'), view: { ...state.view }, juiceRun, player: profile.player, achievements: paid.ids });
     const questions: { id: string; text: string; kind?: 'yesno' | 'faces' }[] = [
@@ -222,14 +258,14 @@ async function boot(): Promise<void> {
       hud.clearAlerts(); // the "OUT OF SHAPES!" stamp, if a tap skipped the glide
       sc.summary({
         stats: {
-          cause: sim.cause ?? '', height, newBest: a.lines.some(l => l[0] === 'New best'), biome: biome - 1,
+          cause: zen ? 'zen' : sim.cause ?? '', height, newBest: zen ? newBest : a.lines.some(l => l[0] === 'New best'), bestLabel: zen ? 'New Zen best!' : undefined, biome: biome - 1,
           checkpoints: sim.stats.checkpoints, perfects: sim.stats.perfects, rows: sim.stats.rows, clutches: sim.stats.clutches, score: sim.score,
         },
         award: a,
         achievements: earned,
         questions,
         onAnswer: (id, answer) => rec?.answer(id, answer),
-        onAgain: () => { rec?.exit('again'); play(); },
+        onAgain: () => { rec?.exit('again'); play(mode); },
         onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
         onHome: () => { rec?.exit('menu'); home(); },
         reducedMotion: settings.reduceMotion,

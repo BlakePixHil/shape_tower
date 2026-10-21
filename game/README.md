@@ -17,6 +17,7 @@ npm run dev          # play it at http://localhost:5173 (also on your phone over
 
 node tests/play-check.mjs [outDir] [seconds]   # plays dist/ in headless Chromium at phone size, saves screenshots and a run record
 node tests/power-check.mjs [outDir]           # steers into power bubbles and taps every power and Second Wind through the HUD
+node tests/zen-check.mjs [outDir]             # plays Zen from the menu (npm run build:game first): no budget or hearts, Finish, half XP, records untouched
 node --experimental-strip-types tests/replay-record.ts run-record.json   # replays a run record, compares digests
 node scripts/artifact.mjs out.html             # turns dist/index.html into the body-only page the claude.ai Artifact tool publishes
 ```
