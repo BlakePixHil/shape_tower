@@ -5,6 +5,11 @@
 // Every biome has props, and the star field fades in from the Stratosphere up. A biome's props are
 // baked when the climb is about halfway through the biome before it, and freed two biomes later
 // (§9.7). Deep Cosmos is endless: its nebula changes palette every 6 checkpoints (setCosmos).
+//
+// The run-over panorama glides through every biome in a few seconds, and a biome takes 100 to 500 ms
+// to bake and upload, so baking on the way stutters. prepareTour bakes the path during a beat before
+// the glide instead (the ground's biome first, then from the top down, one per frame, smaller);
+// tourGlide stops baking as the glide starts, and a biome that wasn't ready shows just its sky.
 
 import { BIOME_BAKERS as BAKERS } from '../backdrops.ts';
 import { BIOMES, presence, skyColors, starAmount } from '../biomes.ts';
@@ -60,6 +65,9 @@ export class Backdrop {
   private skyKey: string;
   private lastSp = NaN;
   private biomes = new Map<number, Live[]>();
+  /** The texture scale each loaded biome was baked at (k, or smaller for a tour). */
+  private biomeK = new Map<number, number>();
+  private tour: { queue: { i: number; k: number }[] } | null = null;
   private entry = new Map<number, number>();
   private entryT = new Map<number, number>();
   private pal = { cur: 0, prev: 0, t: -99 };
@@ -91,6 +99,35 @@ export class Backdrop {
    * Giant's tidal sway: follow the gravity tilt, at most ±0.06 (about 3.4°). Off under reduceMotion.
    */
   setTilt(rad: number): void { this.tilt = clamp(rad, -0.06, 0.06); }
+
+  /**
+   * The run-over panorama: the sky will sweep from position `from` down to `to` (from > to). Bakes
+   * the biomes on that path one per update(): first the one at `to` at full scale (it stays behind
+   * the run summary), then the rest from the top down at `scale` × the texture scale. Nothing is
+   * freed until endTour(). Start the glide once `tourReady` is true, or when you can't wait longer.
+   */
+  prepareTour(from: number, to: number, scale = 0.5): void {
+    const end: { i: number; k: number }[] = [], path: { i: number; k: number }[] = [];
+    for (let i = BAKERS.length - 1; i >= 0; i--) {
+      const lo = i === 0 ? -Infinity : i - 0.75, hi = i === 0 ? 2.6 : i + 1.6;
+      if (hi <= to || lo >= from || this.biomes.has(i)) continue;
+      if (to > lo && to < hi) end.push({ i, k: this.k }); else path.push({ i, k: this.k * scale });
+    }
+    this.tour = { queue: [...end, ...path] };
+  }
+
+  /** True once every biome on the tour's path is baked. */
+  get tourReady(): boolean { return !this.tour || this.tour.queue.length === 0; }
+
+  /** The glide is starting: bake nothing more until endTour(), so it never stutters. */
+  tourGlide(): void { if (this.tour) this.tour.queue = []; }
+
+  /** The panorama is over: free the tour's smaller bakes and stream as usual again. */
+  endTour(): void {
+    if (!this.tour) return;
+    this.tour = null;
+    for (const [i, k] of [...this.biomeK]) if (k !== this.k) this.unload(i);
+  }
 
   /** Rebuild for a new view size. */
   resize(width: number, height: number): void {
@@ -138,7 +175,7 @@ export class Backdrop {
         }
         L.img.setVisible(alpha > 0.01).setAlpha(alpha);
         if (alpha <= 0.01) continue;
-        const r = this.k * (P.res ?? 1);
+        const r = (this.biomeK.get(bi) ?? this.k) * (P.res ?? 1);
         let x = P.x;
         if (P.drift && !still) {
           const half = L.img.width / r / 2, span = this.W + half * 2;
@@ -239,10 +276,16 @@ export class Backdrop {
 
   /** Keep the biomes near the sky position baked, free the rest, and note where each biome arrived. */
   private stream(sp: number, lift: number): void {
-    for (let i = 0; i < BAKERS.length; i++) {
-      const want = i === 0 ? sp < 2.6 : sp > i - 0.75 && sp < i + 1.6;
-      if (want && !this.biomes.has(i)) this.load(i);
-      else if (!want && this.biomes.has(i)) this.unload(i);
+    if (this.tour) {
+      // One bake per frame, in the order the glide reaches them; nothing is freed until it's over.
+      const next = this.tour.queue.shift();
+      if (next && !this.biomes.has(next.i)) this.load(next.i, next.k);
+    } else {
+      for (let i = 0; i < BAKERS.length; i++) {
+        const want = i === 0 ? sp < 2.6 : sp > i - 0.75 && sp < i + 1.6;
+        if (want && !this.biomes.has(i)) this.load(i);
+        else if (!want && this.biomes.has(i)) this.unload(i);
+      }
     }
     for (let i = 1; i < 10; i++) {
       if (presence(i, sp) > 0 && !this.entry.has(i)) { this.entry.set(i, lift); this.entryT.set(i, this.t); }
@@ -250,11 +293,11 @@ export class Backdrop {
     }
   }
 
-  private load(i: number): void {
+  private load(i: number, k = this.k): void {
     const bake = BAKERS[i];
     if (!bake || this.biomes.has(i)) return;
     const layers: Live[] = [];
-    for (const part of bake(this.W, this.H, this.k).sort((p, q) => p.z - q.z)) {
+    for (const part of bake(this.W, this.H, k).sort((p, q) => p.z - q.z)) {
       const key = `st:bg:${this.id}:${part.key}:${this.W}x${this.H}`;
       const keys = (part.frames ?? [part.canvas]).map((cv, n) => {
         const fk = n ? `${key}#${n}` : key;
@@ -267,11 +310,13 @@ export class Backdrop {
       layers.push({ part, img, key, keys, phase: hash(part.z * 13.7 + part.x) * 6.28 });
     }
     this.biomes.set(i, layers);
+    this.biomeK.set(i, k);
   }
 
   private unload(i: number): void {
     for (const L of this.biomes.get(i) ?? []) { L.img.destroy(); for (const k of L.keys) this.scene.textures.remove(k); }
     this.biomes.delete(i);
+    this.biomeK.delete(i);
   }
 
   private makeStars(): void {
