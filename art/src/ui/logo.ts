@@ -22,9 +22,13 @@ function drawTile(c: Ctx, t: Tile, u: number): void {
   c.save(); c.scale(u, u);
   part(c, rrPath(-0.46, -0.46, 0.92, 0.92, 0.2), s.base, s.light, s.shade, 0.08);
   c.fillStyle = 'rgba(255,255,255,0.5)'; c.fill(rrPath(-0.33, -0.33, 0.24, 0.1, 0.05));
-  c.font = `700 0.7px ${FONT_DISPLAY}`; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.lineJoin = 'round'; c.lineWidth = 0.12; c.strokeStyle = INK; c.strokeText(t.ch, 0, 0.05);
-  c.fillStyle = '#FFFFFF'; c.fillText(t.ch, 0, 0.05);
+  c.restore();
+  // The letter at its real pixel size, not a 0.7px font under a scale: WebKit can mis-draw sub-pixel
+  // font sizes, the likely cause of a missing W on Blake's phone (2026-10-21).
+  c.save();
+  c.font = `700 ${0.7 * u}px ${FONT_DISPLAY}`; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.lineJoin = 'round'; c.lineWidth = 0.12 * u; c.strokeStyle = INK; c.strokeText(t.ch, 0, 0.05 * u);
+  c.fillStyle = '#FFFFFF'; c.fillText(t.ch, 0, 0.05 * u);
   c.restore();
 }
 
