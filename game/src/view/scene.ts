@@ -9,11 +9,11 @@ import {
   ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, CheckpointLine, GuideView, PbMarker, SkyClock, VFX,
   biomeForCheckpoint, rimAmount, type Expression, type Finish, type GuideState, type TexRef, type VfxName,
 } from '@art/index.ts';
-import { DT, Sim, type PieceView, type Tint } from '../sim/sim.ts';
+import { DT, Sim, type Bubble, type PieceView, type PowerKind, type SecondWindMode, type Tint } from '../sim/sim.ts';
 import { SHAPES, extents } from '../sim/shapes.ts';
 import { biomeFor, type Tuning } from '../sim/tuning.ts';
 import { Particles, Shaker, TimeControl, easeElasticOut, type ParticleOpts } from './fx.ts';
-import { Hud } from './hud.ts';
+import { Hud, POWER_ICONS, POWER_NAMES } from './hud.ts';
 import { Gestures } from './input.ts';
 import type { LabState, ViewSettings } from './panel.ts';
 import type { RunStart } from './records.ts';
@@ -34,6 +34,8 @@ export interface SceneHooks {
   onFrame?(ms: number): void;
   /** View-side juice for Sound: hitstop, slowmo, pb_crossed (gameplay.md §11.1). */
   onJuice?(name: string, payload: Record<string, unknown>): void;
+  /** Whether the new run starts with Second Wind ready (the day's first run, or the upgrade). */
+  secondWind?(): SecondWindMode;
 }
 
 interface PieceSprite {
@@ -54,9 +56,12 @@ const ACROSS = 12;
 const ACROSS_MAX = 15;
 const TAU = Math.PI * 2;
 const PEDESTAL_LEGS = 0.4; // deck 0.6 + legs 0.4 = the sim's 1-block plinth
-const D = { slab: 5, line: 8, piece: 10, fx: 30, front: 35, guide: 40, ctrl: 50, text: 60 };
+const D = { slab: 5, line: 8, piece: 10, fx: 30, front: 35, guide: 40, bubble: 45, ctrl: 50, text: 60 };
 const ORBIT = ART_BIOMES.findIndex(b => b.id === 'orbit'); // landings throw stardust from here up
 const STONE_CHIP = 0xb9b1a6;
+/** Bubble rims and toasts per power (placeholders until Art's bubble art). */
+const POWER_COLORS: Record<PowerKind, string> = { clean: '#3EE6A8', quickset: '#B9B1A6', undo: '#B18CFF', glue: '#FFAA2B', slowmo: '#7FD8FF' };
+const WIND_BLUE = '#7FD8FF';
 
 export class PlayScene extends Phaser.Scene {
   sim!: Sim;
@@ -102,6 +107,8 @@ export class PlayScene extends Phaser.Scene {
   private overAt = -1;
   private slowOn = false;
   private overPayload: Record<string, unknown> | null = null;
+  private bubbleView: { id: number; c: Phaser.GameObjects.Container; born: number } | null = null;
+  private taughtBubble = false;
 
   constructor() { super('play'); }
 
@@ -169,6 +176,8 @@ export class PlayScene extends Phaser.Scene {
     for (const l of this.lines) l.destroy();
     this.lines = [];
     this.pb.hide();
+    this.bubbleView?.c.destroy();
+    this.bubbleView = null;
     this.prev.clear();
     this.cur.clear();
     this.views = [];
@@ -180,8 +189,8 @@ export class PlayScene extends Phaser.Scene {
     let first = false;
     try { first = !localStorage.getItem('shape-tower-played'); localStorage.setItem('shape-tower-played', '1'); } catch { /* none */ }
     const seed = (Math.random() * 0xffffffff) >>> 0;
-    const info: RunStart = { seed, tuning: { ...this.hooks.lab.tuning }, rookieOpening: first };
-    this.sim = new Sim({ seed, tuning: { ...info.tuning }, autoSpawn: true, rookieOpening: first });
+    const info: RunStart = { seed, tuning: { ...this.hooks.lab.tuning }, rookieOpening: first, secondWind: this.hooks.secondWind?.() ?? 'earn' };
+    this.sim = new Sim({ seed, tuning: { ...info.tuning }, autoSpawn: true, rookieOpening: first, secondWind: info.secondWind });
     this.cam.x = 0;
     this.cam.y = -1 + 0.3 * this.H / this.ppb;
     this.cam.across = ACROSS;
@@ -192,6 +201,10 @@ export class PlayScene extends Phaser.Scene {
   }
 
   start(): void { this.started = true; }
+
+  /** The HUD's power slots and Second Wind button. */
+  usePower(slot: number): void { this.intent({ type: 'power', slot }); }
+  useSecondWind(): void { this.intent({ type: 'secondWind' }); }
 
   retune(patch: Partial<Tuning>): void { this.sim.retune(patch); }
 
@@ -299,7 +312,8 @@ export class PlayScene extends Phaser.Scene {
       }
       case 'bond_formed': {
         const pos = p.pos as { x: number; y: number };
-        for (let i = 0; i < 3; i++) this.particles.spawn((pos.x + (i - 1) * 0.3) * this.ppb, -pos.y * this.ppb, 0, 0, this.fx('dot', 0.14, 0.02, { life: 0.25, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
+        const tint = p.glue ? num(POWER_COLORS.glue) : undefined;
+        for (let i = 0; i < 3; i++) this.particles.spawn((pos.x + (i - 1) * 0.3) * this.ppb, -pos.y * this.ppb, 0, 0, this.fx('dot', p.glue ? 0.24 : 0.14, 0.02, { tint, life: p.glue ? 0.5 : 0.25, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
         break;
       }
       case 'bond_broken': {
@@ -332,6 +346,31 @@ export class PlayScene extends Phaser.Scene {
         this.hooks.hud.titleCard(BIOME_TITLES[Number(p.id) - 1] ?? '');
         this.backdrop.arrival(Number(p.id) - 1); // birds for Treetops, the cloud punch-through for Cloudlands
         break;
+      case 'bubble_spawned': this.showBubble(now); break;
+      case 'bubble_expired': this.dropBubble(false, p); break;
+      case 'power_collected': this.dropBubble(true, p); this.hooks.hud.bumpPower(p.slot as number); break;
+      case 'power_granted': {
+        // An S grade or checkpoint 2 hands one over: it shows after the claim's own toasts.
+        const f = this.sim.foundation;
+        const kind = p.kind as PowerKind;
+        this.time.delayedCall(900, () => {
+          this.pop(`+ ${POWER_NAMES[kind].toUpperCase()}`, f.x, f.top + 3, POWER_COLORS[kind], 18);
+          this.hooks.hud.bumpPower(p.slot as number);
+        });
+        break;
+      }
+      case 'power_refused': this.hooks.hud.bumpPower(typeof p.slot === 'number' ? p.slot : -1, true); break;
+      case 'power_used': this.onPowerUsed(p, now); break;
+      case 'pieces_swept': {
+        for (const q of p.pieces as { x: number; y: number }[]) this.poof(q.x, q.y, POWER_COLORS.clean, 10);
+        break;
+      }
+      case 'second_wind_ready': {
+        this.hooks.hud.bumpPower(-1);
+        if (p.how === 'earned') this.time.delayedCall(1200, () => this.pop('SECOND WIND READY', this.sim.foundation.x, this.sim.foundation.top + 3.6, WIND_BLUE, 18));
+        break;
+      }
+      case 'second_wind': this.onSecondWind(now); break;
       case 'run_over': {
         this.slowmo(now, 0.4, 900);
         this.overAt = now + 1300;
@@ -416,6 +455,122 @@ export class PlayScene extends Phaser.Scene {
     const leftover = p.leftover as number;
     if (leftover > 0) this.time.delayedCall(400, () => this.pop(`+${leftover} bricks left`, f.x, lineY + 1.2, '#FFFFFF', 16));
     this.shaker.add(0.3);
+  }
+
+  // ---------------------------------------------------------------- power-ups
+
+  private showBubble(now: number): void {
+    const b = this.sim.bubble;
+    if (!b) return;
+    this.bubbleView?.c.destroy();
+    const u = this.ppb, r = b.r * u, col = num(POWER_COLORS[b.kind]);
+    const g = this.add.graphics();
+    g.fillStyle(col, 0.28).fillCircle(0, 0, r);
+    g.lineStyle(3 * this.dpr, 0xffffff, 0.95).strokeCircle(0, 0, r);
+    g.lineStyle(2 * this.dpr, col, 0.9).strokeCircle(0, 0, r - 3 * this.dpr);
+    g.fillStyle(0xffffff, 0.85).fillEllipse(-0.32 * r, -0.42 * r, 0.42 * r, 0.22 * r);
+    const icon = this.add.text(0, 0, POWER_ICONS[b.kind][0], { fontSize: `${Math.round(r * 1.05)}px`, fontFamily: 'system-ui, sans-serif' }).setOrigin(0.5);
+    const c = this.add.container(b.x * u, -b.y * u, [g, icon]).setDepth(D.bubble).setScale(0);
+    this.tweens.add({ targets: c, scale: 1, duration: 340, ease: 'Back.Out' });
+    this.bubbleView = { id: b.id, c, born: now };
+    if (!this.taughtBubble) { this.taughtBubble = true; this.pop('Steer through it!', b.x, b.y + 1.1, '#FFFFFF', 15); }
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * TAU, v = u * 1.5;
+      this.particles.spawn(b.x * u, -b.y * u, Math.cos(a) * v, Math.sin(a) * v, this.fx('sparkle', 0.3, 0.05, { tint: col, life: 0.4, drag: 3, blend: Phaser.BlendModes.ADD }));
+    }
+  }
+
+  private drawBubble(now: number): void {
+    const v = this.bubbleView, b: Bubble | null = this.sim.bubble;
+    if (!v || !b || v.id !== b.id) return;
+    // A gentle bob and sway; collection uses the sim's fixed circle, which is generous.
+    const t = (now - v.born) / 1000;
+    const bob = this.view.reducedMotion ? 0 : 0.08 * Math.sin(t * 3);
+    v.c.setPosition(b.x * this.ppb, -(b.y + bob) * this.ppb);
+    v.c.setRotation(this.view.reducedMotion ? 0 : 0.08 * Math.sin(t * 1.7));
+  }
+
+  /** The bubble pops into a slot (collected) or fades. */
+  private dropBubble(collected: boolean, p: Record<string, any>): void {
+    const v = this.bubbleView;
+    this.bubbleView = null;
+    if (!v) return;
+    const kind = p.kind as PowerKind;
+    if (!collected) {
+      this.tweens.add({ targets: v.c, alpha: 0, scale: 0.6, duration: 300, onComplete: () => v.c.destroy() });
+      return;
+    }
+    this.tweens.add({ targets: v.c, alpha: 0, scale: 1.6, duration: 180, ease: 'Quad.Out', onComplete: () => v.c.destroy() });
+    const u = this.ppb, x = (p.x as number) * u, y = -(p.y as number) * u, col = num(POWER_COLORS[kind]);
+    this.particles.spawn(x, y, 0, 0, this.fx('ring', 0.6, 2.2, { tint: col, life: 0.35, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * TAU, sp = u * (2 + Math.random() * 3);
+      this.particles.spawn(x, y, Math.cos(a) * sp, Math.sin(a) * sp, this.fx('sparkle', 0.4, 0.05, { tint: col, life: 0.55, drag: 3, spin: 4, blend: Phaser.BlendModes.ADD }));
+    }
+    this.pop(`${POWER_NAMES[kind].toUpperCase()}!`, p.x as number, (p.y as number) + 1, POWER_COLORS[kind], 18);
+    this.shaker.add(0.1);
+  }
+
+  private poof(x: number, y: number, color: string, n: number): void {
+    const u = this.ppb;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * TAU, v = u * (1 + Math.random() * 3);
+      this.particles.spawn((x + (Math.random() - 0.5)) * u, -(y + (Math.random() - 0.5)) * u, Math.cos(a) * v, Math.sin(a) * v - u, this.fx('puff', 0.45, 0.9, { tint: num(ART_BIOMES[this.biomeIndex()].dust), life: 0.5, drag: 3, alpha: 0.9 }));
+    }
+    this.particles.spawn(x * u, -y * u, 0, 0, this.fx('sparkle', 0.8, 0.1, { tint: num(color), life: 0.4, blend: Phaser.BlendModes.ADD }));
+  }
+
+  private onPowerUsed(p: Record<string, any>, now: number): void {
+    const kind = p.kind as PowerKind;
+    const f = this.sim.foundation;
+    const top = Math.max(this.sim.height().provisional, f.top);
+    const col = POWER_COLORS[kind];
+    switch (kind) {
+      case 'clean': {
+        // A broom-stroke of light across the stretch after the puffs.
+        const w = Math.max(8, f.width + 4), x0 = f.x - w / 2;
+        const bar = this.add.rectangle(x0 * this.ppb, -(f.top + 1.5) * this.ppb, this.ppb * 0.8, this.ppb * 3.5, num(col), 0.5).setBlendMode(Phaser.BlendModes.ADD).setDepth(D.fx);
+        this.tweens.add({ targets: bar, x: (x0 + w) * this.ppb, duration: 320, ease: 'Sine.InOut', onComplete: () => this.tweens.add({ targets: bar, alpha: 0, duration: 150, onComplete: () => bar.destroy() }) });
+        this.pop('CLEAN SLATE!', f.x, f.top + 3, col, 24);
+        this.shaker.add(0.2);
+        break;
+      }
+      case 'quickset':
+        // Stone washes down from the top, like a claim.
+        this.stoneWave = { top: top + 0.5, at: now };
+        this.hitstop(now, 60);
+        this.pop('QUICK-SET!', f.x, top + 1.5, '#FFFFFF', 24);
+        this.shaker.add(0.25);
+        break;
+      case 'undo':
+        this.poof(p.x as number, p.y as number, col, 8);
+        this.pop('UNDO!', p.x as number, (p.y as number) + 1.2, col, 22);
+        break;
+      case 'glue':
+      case 'slowmo':
+        this.pop(`${POWER_NAMES[kind].toUpperCase()} ×${p.shapes}`, f.x, top + 2.5, col, 22);
+        break;
+    }
+  }
+
+  private onSecondWind(now: number): void {
+    const u = this.ppb, f = this.sim.foundation;
+    const top = Math.max(this.sim.height().provisional, f.top);
+    if (!this.view.reducedMotion) this.hooks.hud.flash(0.35);
+    this.hitstop(now, 80);
+    this.pop('SECOND WIND!', f.x, top + 3, WIND_BLUE, 28);
+    // A gust blows across the screen.
+    const visH = this.H / (this.ppb * this.zoom);
+    const left = this.cam.x - this.cam.across / 2 - 1;
+    for (let i = 0; i < 36; i++) {
+      const y = this.cam.y + (Math.random() - 0.5) * visH * 0.8;
+      this.particles.spawn((left - Math.random() * 4) * u, -y * u, u * (18 + Math.random() * 10), 0, this.fx('speedline', 1.2, 0.8, { tint: 0xffffff, life: 0.9, alpha: 0.7, angle: Math.PI / 2 }));
+    }
+    for (let i = 0; i < 24; i++) {
+      const a = Math.random() * TAU, v = u * (3 + Math.random() * 5);
+      this.particles.spawn(f.x * u, -top * u, Math.cos(a) * v, Math.sin(a) * v, this.fx('sparkle', 0.5, 0.05, { tint: num(WIND_BLUE), life: 0.8, drag: 2, spin: 4, blend: Phaser.BlendModes.ADD }));
+    }
+    this.shaker.add(0.35);
   }
 
   // ---------------------------------------------------------------- sprites
@@ -516,6 +671,7 @@ export class PlayScene extends Phaser.Scene {
     this.drawPieces(dt, alpha, now, sp);
     this.drawCtrl(dt, alpha, now, sp);
     this.drawGuide(now);
+    this.drawBubble(now);
     this.particles.update(dt);
     this.updateHud(committed);
   }
@@ -724,6 +880,15 @@ export class PlayScene extends Phaser.Scene {
     const nope = this.ctrl.nopeAt > 0 && now - this.ctrl.nopeAt < 140 ? Math.sin(((now - this.ctrl.nopeAt) / 140) * Math.PI * 3) * 3 * this.dpr : 0;
     s.view.setRim(rimAmount(sp)).setPose(this.ctrl.x * u + nope, -y * u, this.ctrl.ang - this.ctrl.lean).setSquash(sx, sy);
     s.view.update(dt);
+    // Glue drips honey; Slow-Mo leaves a drift of sparkles.
+    if (this.sim.glueLeft > 0 && Math.random() < 0.12) {
+      const e = extents(c.shape, c.rot);
+      this.particles.spawn((c.x + e.minX + Math.random() * (e.maxX - e.minX)) * u, -(y + e.minY) * u, 0, u * 0.5, this.fx('dotHard', 0.16, 0.08, { tint: num(POWER_COLORS.glue), life: 0.7, gravity: u * 6 }));
+    }
+    if (this.sim.slowLeft > 0 && !c.hard && Math.random() < 0.2) {
+      const e = extents(c.shape, c.rot);
+      this.particles.spawn((c.x + e.minX + Math.random() * (e.maxX - e.minX)) * u, -(y + e.maxY) * u, 0, -u * 0.6, this.fx('stardust', 0.22, 0.05, { tint: num(POWER_COLORS.slowmo), life: 0.8, drag: 1, blend: Phaser.BlendModes.ADD }));
+    }
     // Speed lines trail a hard drop.
     if (c.hard && Math.random() < 0.6) {
       const e = extents(c.shape, c.rot);
@@ -780,6 +945,9 @@ export class PlayScene extends Phaser.Scene {
     hud.setNext(sim.queue.slice(0, 2));
     hud.setHold(sim.held, sim.holdUsed);
     hud.setTension(this.view.reducedMotion ? 0 : sim.tension());
+    const left = sim.budget - sim.used;
+    const trouble = (!t.infiniteHearts && sim.hearts <= 1) || (!t.infiniteBudget && left <= 3);
+    hud.setPowers(sim.slots, sim.secondWind, sim.glueLeft, sim.slowLeft, trouble);
   }
 
   /** Name of the biome the run is in (for the results card). */

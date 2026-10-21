@@ -2,7 +2,14 @@
 // Screen space only: camera shake never moves it.
 
 import { bakePiece } from '@art/index.ts';
+import type { PowerKind, SecondWindState } from '../sim/sim.ts';
 import { INK } from './palette.ts';
+
+/** Placeholder icons until Art's power-up icons land: [emoji, short label]. */
+export const POWER_ICONS: Record<PowerKind, [string, string]> = {
+  clean: ['🧹', 'SWEEP'], quickset: ['🪨', 'SET'], undo: ['↩️', 'UNDO'], glue: ['🍯', 'GLUE'], slowmo: ['🐌', 'SLOW'],
+};
+export const POWER_NAMES: Record<PowerKind, string> = { clean: 'Clean Slate', quickset: 'Quick-Set', undo: 'Undo', glue: 'Glue', slowmo: 'Slow-Mo' };
 
 const CSS = `
 .st-hud { position: fixed; inset: 0; pointer-events: none; font-family: 'Fredoka', 'Nunito', system-ui, sans-serif; color: ${INK}; user-select: none; -webkit-user-select: none; z-index: 5; }
@@ -49,9 +56,24 @@ const CSS = `
 .st-stats { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; text-align: left; margin: 8px 0; font-size: 15px; }
 .st-stats b { font-family: 'Fredoka', sans-serif; text-align: right; font-variant-numeric: tabular-nums; }
 .st-ask { margin-top: 10px; padding-top: 10px; border-top: 2px dashed rgba(34,24,58,0.25); }
-.st-hint { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 72px); display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 0 16px; opacity: 0.9; transition: opacity 600ms; }
+.st-hint { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 96px); display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 0 16px; opacity: 0.9; transition: opacity 600ms; }
 .st-hint span { background: rgba(255,247,232,0.9); border: 2px solid ${INK}; border-radius: 10px; font: 600 12px 'Fredoka', sans-serif; padding: 2px 8px; }
 .st-lab { position: absolute; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); }
+.st-powers { position: absolute; left: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); display: flex; gap: 8px; align-items: flex-end; }
+.st-slot { width: 54px; height: 54px; padding: 0; display: grid; place-items: center; font-size: 26px; line-height: 1; position: relative; }
+.st-slot.empty { background: rgba(255,247,232,0.35); border-style: dashed; box-shadow: none; pointer-events: none; }
+.st-slot.pop { animation: st-pop 320ms; }
+.st-slot.nope { animation: st-nope 300ms; }
+@keyframes st-nope { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+.st-tag { position: absolute; bottom: -9px; left: 50%; transform: translateX(-50%); font: 700 10px 'Fredoka', sans-serif; background: ${INK}; color: #FFF7E8; border-radius: 6px; padding: 0 5px; letter-spacing: 0.06em; white-space: nowrap; }
+.st-wind { width: 62px; height: 62px; font-size: 30px; background: linear-gradient(#BFF3FF, #7FD8FF); }
+.st-wind.earn { opacity: 0.55; filter: grayscale(0.8); pointer-events: none; }
+.st-wind.armed { background: linear-gradient(#FFF1A8, #FFC23D); animation: st-pulse 500ms infinite; }
+.st-wind.glow { animation: st-glow 900ms infinite; }
+@keyframes st-glow { 50% { box-shadow: 0 4px 0 ${INK}, 0 0 0 7px rgba(127,216,255,0.75); transform: scale(1.06); } }
+.st-wind.hide, .st-slot.hide { display: none; }
+.st-active { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.st-active .st-chip { font-size: 13px; padding: 1px 7px; }
 .st-arrow { position: absolute; bottom: 8px; font: 700 26px 'Fredoka', sans-serif; color: #FF4D6D; -webkit-text-stroke: 2px ${INK}; paint-order: stroke fill; opacity: 0; transition: opacity 200ms; }
 `;
 
@@ -78,6 +100,15 @@ export class Hud {
   private arrow: HTMLDivElement;
   readonly pauseBtn: HTMLButtonElement;
   readonly labBtn: HTMLButtonElement;
+  private slotBtns: HTMLButtonElement[];
+  private windBtn: HTMLButtonElement;
+  private activeEl: HTMLDivElement;
+  private powerKey = '';
+  private windArmedUntil = 0;
+  /** A power slot was tapped. */
+  onPower: (slot: number) => void = () => {};
+  /** Second Wind was tapped twice (the first tap arms it, so a stray tap can't spend it). */
+  onSecondWind: () => void = () => {};
   private lastHearts = -1;
   private lastHeight = 0;
   private nextKey = '';
@@ -110,6 +141,12 @@ export class Hud {
       <div class="st-title" data-id="title"></div>
       <div class="st-hint" data-id="hint"><span>drag ↔ move</span><span>tap ⟳ rotate</span><span>drag ↓ faster</span><span>flick ↓ drop</span><span>flick ↑ hold</span></div>
       <div class="st-arrow" data-id="arrow">▼</div>
+      <div class="st-powers">
+        <button class="st-btn st-slot empty" data-id="slot0" aria-label="Power-up 1"></button>
+        <button class="st-btn st-slot empty" data-id="slot1" aria-label="Power-up 2"></button>
+        <button class="st-btn st-slot st-wind earn" data-id="wind" aria-label="Second Wind">🌬️<span class="st-tag">CP 2</span></button>
+        <div class="st-active" data-id="active"></div>
+      </div>
       <button class="st-btn st-lab" data-id="lab">⚙ Lab</button>`;
     parent.appendChild(this.root);
     const q = <T extends HTMLElement>(id: string) => this.root.querySelector(`[data-id="${id}"]`) as T;
@@ -127,6 +164,16 @@ export class Hud {
     this.arrow = q('arrow');
     this.pauseBtn = q('pause');
     this.labBtn = q('lab');
+    this.slotBtns = [q('slot0'), q('slot1')];
+    this.windBtn = q('wind');
+    this.activeEl = q('active');
+    this.slotBtns.forEach((b, i) => { b.onclick = () => this.onPower(i); });
+    this.windBtn.onclick = () => {
+      const now = performance.now();
+      if (now < this.windArmedUntil) { this.windArmedUntil = 0; this.onSecondWind(); }
+      else this.windArmedUntil = now + 2500;
+      this.powerKey = '';
+    };
     this.vignette = document.createElement('div');
     this.vignette.className = 'st-vignette';
     this.flashEl = document.createElement('div');
@@ -259,6 +306,49 @@ export class Hud {
     setTimeout(() => (this.arrow.style.opacity = '0'), 700);
   }
 
+  /**
+   * The power bar: two slots, Second Wind (hidden when off or used, greyed until earned, glowing
+   * when the player is down to a last heart or 3 bricks) and chips for Glue or Slow-Mo running.
+   */
+  setPowers(slots: (PowerKind | null)[], wind: SecondWindState, glueLeft: number, slowLeft: number, trouble: boolean): void {
+    const armed = performance.now() < this.windArmedUntil && wind === 'ready';
+    const key = `${slots.join()}|${wind}|${glueLeft}|${slowLeft}|${trouble}|${armed}`;
+    if (key === this.powerKey) return;
+    this.powerKey = key;
+    slots.forEach((k, i) => {
+      const b = this.slotBtns[i];
+      b.classList.toggle('empty', !k);
+      b.innerHTML = k ? `${POWER_ICONS[k][0]}<span class="st-tag">${POWER_ICONS[k][1]}</span>` : '';
+      b.setAttribute('aria-label', k ? POWER_NAMES[k] : 'Empty power-up slot');
+    });
+    const w = this.windBtn;
+    w.classList.toggle('hide', wind === 'off' || wind === 'used');
+    w.classList.toggle('earn', wind === 'earn');
+    w.classList.toggle('armed', armed);
+    w.classList.toggle('glow', wind === 'ready' && trouble && !armed);
+    w.querySelector('.st-tag')!.textContent = wind === 'earn' ? 'CP 2' : armed ? 'TAP AGAIN' : '2ND WIND';
+    let chips = '';
+    if (glueLeft > 0) chips += `<div class="st-chip">🍯 ${glueLeft}</div>`;
+    if (slowLeft > 0) chips += `<div class="st-chip">🐌 ${slowLeft}</div>`;
+    this.activeEl.innerHTML = chips;
+  }
+
+  /** Bounces a slot (-1: Second Wind) when something arrives in it, or shakes it when refused. */
+  bumpPower(slot: number, refused = false): void {
+    const b = slot < 0 ? this.windBtn : this.slotBtns[slot];
+    if (!b) return;
+    const cls = refused ? 'nope' : 'pop';
+    b.classList.remove('pop', 'nope');
+    void b.offsetWidth;
+    b.classList.add(cls);
+  }
+
+  /** Screen position (CSS px) of a slot's centre, for effects that fly into it. */
+  slotCentre(slot: number): { x: number; y: number } {
+    const r = (slot < 0 ? this.windBtn : this.slotBtns[slot] ?? this.windBtn).getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+
   hideHint(): void { this.hint.style.opacity = '0'; }
   showHint(): void { this.hint.style.opacity = '0.9'; }
 
@@ -286,6 +376,8 @@ export class Hud {
   get cardOpen(): boolean { return this.overlay.classList.contains('show'); }
 
   reset(): void {
+    this.powerKey = '';
+    this.windArmedUntil = 0;
     this.lastHearts = -1;
     this.lastHeight = 0;
     this.nextKey = '';

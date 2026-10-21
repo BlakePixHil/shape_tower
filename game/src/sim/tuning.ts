@@ -70,6 +70,15 @@ export interface Tuning {
   cascadeCap: number;
   // Rows and grades
   rowCoverage: number;
+  // Power-ups (gameplay.md §13)
+  powerUps: boolean;
+  bubbleGap: number;          // shapes between power bubbles, on average
+  bubbleLife: number;         // shapes a bubble waits before it fades
+  bubbleRadius: number;       // blocks
+  glueShapes: number;
+  glueStrength: number;       // × break thresholds for glued bonds
+  slowShapes: number;
+  slowFactor: number;         // × fall speed
   // Debug
   wind: number;               // constant sideways push in g, lab only
   infiniteBudget: boolean;
@@ -135,6 +144,14 @@ export const DEFAULT_TUNING: Tuning = {
   cascadeWindow: 1.5,
   cascadeCap: 6,
   rowCoverage: 0.9,
+  powerUps: true,
+  bubbleGap: 6,
+  bubbleLife: 3,
+  bubbleRadius: 0.6,
+  glueShapes: 3,
+  glueStrength: 2,
+  slowShapes: 3,
+  slowFactor: 0.5,
   wind: 0,
   infiniteBudget: false,
   infiniteHearts: false,

@@ -21,12 +21,27 @@ export type Grade = 'perfect' | 'clean' | 'messy';
 export type RunState = 'playing' | 'over';
 
 export interface Intent {
-  type: 'moveTo' | 'move' | 'rotate' | 'softDrop' | 'hardDrop' | 'hold';
+  type: 'moveTo' | 'move' | 'rotate' | 'softDrop' | 'hardDrop' | 'hold' | 'power' | 'secondWind' | 'quit';
   x?: number;
   dir?: number;
   on?: boolean;
   lockX?: number;
+  slot?: number;
 }
+
+/** Power-ups (gameplay.md §13): Clean Slate, Quick-Set, Undo, Glue, Slow-Mo. */
+export type PowerKind = 'clean' | 'quickset' | 'undo' | 'glue' | 'slowmo';
+export const POWER_KINDS: PowerKind[] = ['clean', 'quickset', 'undo', 'glue', 'slowmo'];
+
+/**
+ * How a run starts for Second Wind: 'ready' (the day's first Endless run, or the v2 upgrade),
+ * 'earn' (ready once checkpoint 2 is claimed) or 'off' (scored Daily attempts).
+ */
+export type SecondWindMode = 'ready' | 'earn' | 'off';
+export type SecondWindState = 'off' | 'earn' | 'ready' | 'used';
+
+/** A power bubble floating above the tower. The steered shape collects it by passing through. */
+export interface Bubble { id: number; kind: PowerKind; x: number; y: number; r: number; shapesLeft: number }
 
 /** A lab slider change mid-run, logged with the intents so a replay applies it at the same step. */
 export interface Retune { type: 'retune'; patch: Partial<Tuning> }
@@ -76,6 +91,8 @@ interface Piece {
   bullet: boolean;
   bondCheckAt: number;
   lostTime: number;
+  glue: boolean;              // placed under Glue: bonds the moment it touches
+  points: number;             // its placement score, taken back by Undo
   top: number;
   bottom: number;
   cx: number;
@@ -90,7 +107,7 @@ interface Controlled {
 
 interface Foundation { id: number; x: number; width: number; top: number; thickness: number; grade?: FoundationGrade }
 
-interface Weld { a: number; b: number; x: number; y: number }
+interface Weld { a: number; b: number; x: number; y: number; k: number } // k: × break thresholds
 
 export interface SimOptions {
   engine?: 'box2d' | 'rapier';
@@ -100,6 +117,8 @@ export interface SimOptions {
   autoSpawn?: boolean;
   /** Use the fixed first-run opening sequence (gameplay.md §4.2). */
   rookieOpening?: boolean;
+  /** Second Wind at the start of the run (default 'earn'). Recorded with the run so replays match. */
+  secondWind?: SecondWindMode;
 }
 
 const ROOKIE_OPENING = ['O', 'I', 'L', 'O', 'J', 'T', 'I', 'O', 'L', 'J'];
@@ -131,13 +150,20 @@ export class Sim {
   hearts: number;
   score = 0;
   combo = 0;
-  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[] };
+  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false };
 
   // Steering
   ctrl: Controlled | null = null;
   queue: string[] = [];
   held: string | null = null;
   holdUsed = false;
+
+  // Power-ups and Second Wind (gameplay.md §13)
+  slots: (PowerKind | null)[] = [null, null];
+  bubble: Bubble | null = null;
+  secondWind: SecondWindState;
+  glueLeft = 0;                // shapes still to be placed under Glue
+  slowLeft = 0;                // shapes still to fall under Slow-Mo
 
   private pieces = new Map<number, Piece>();
   private welds = new Map<number, Weld>();
@@ -159,6 +185,9 @@ export class Sim {
   private swayValue = 0;
   private gravityScale = 1;
   private lastNear = -1;
+  private bubbleIn = 0;          // shapes until the next bubble
+  private bubbleSeq = 0;         // bubble ids (separate from body ids, so those match older builds)
+  private lastPlaced: number | null = null;
 
   constructor(opts: SimOptions = {}) {
     this.tuning = { ...DEFAULT_TUNING, ...(opts.tuning ?? {}) };
@@ -167,6 +196,8 @@ export class Sim {
     this.autoSpawn = opts.autoSpawn ?? true;
     this.opening = opts.rookieOpening === false ? [] : [...ROOKIE_OPENING];
     this.hearts = this.tuning.hearts;
+    this.secondWind = opts.secondWind === 'ready' ? 'ready' : opts.secondWind === 'off' ? 'off' : 'earn';
+    this.bubbleIn = this.bubbleGap();
     if (opts.engine === 'rapier') throw new Error('Rapier adapter is not built yet; use engine: "box2d"');
     this.engine = new Box2DEngine({ gravity: this.tuning.gravity, pushoutVelocity: this.tuning.pushoutVelocity, hitThreshold: 0.3 });
 
@@ -177,6 +208,7 @@ export class Sim {
     this.refillQueue();
     this.bus.emit('run_start', { seed: this.seed });
     this.bus.emit('biome_entered', { id: 1 });
+    if (this.secondWind === 'ready') this.bus.emit('second_wind_ready', { how: 'start' });
   }
 
   // ------------------------------------------------------------------ public API
@@ -190,11 +222,13 @@ export class Sim {
   intent(i: Intent): void {
     // Every intent is logged with the step it arrived before, so a run replays exactly.
     this.inputLog.push({ s: this.stepIndex, i: { ...i } });
+    if (this.state !== 'playing') return;
+    if (i.type === 'quit') { this.endRun('quit'); return; }
+    // Powers work with or without a shape in hand (between shapes, or out of bricks).
+    if (i.type === 'power') { this.usePower(i.slot ?? 0); this.lastGhost = null; return; }
+    if (i.type === 'secondWind') { this.useSecondWind(); this.lastGhost = null; return; }
     const c = this.ctrl;
-    if (!c || this.state !== 'playing') {
-      if (i.type === 'hold') return;
-      return;
-    }
+    if (!c) return;
     switch (i.type) {
       case 'moveTo': c.xTarget = this.clampX(c, snap(i.x ?? c.x, this.tuning.snapStep)); break;
       case 'move': c.xTarget = this.clampX(c, c.xTarget + (i.dir ?? 0) * this.tuning.snapStep); break;
@@ -390,15 +424,17 @@ export class Sim {
       if (Number.isNaN(ny)) { c.xTarget = c.x; break; }
       c.x = nx; c.y = ny; c.steerAt = this.time;
       this.bus.emit('piece_moved', { x: c.x, dx: dir });
+      this.touchBubble(c);
     }
     // Something toppled into the shape: it becomes physical right away.
     if (!this.free(c.shape, c.x, c.y, c.rot)) { this.land(c, c.y, c.speed, true); return; }
-    const fall = fallSpeedFor(t, this.checkpoint);
+    const fall = fallSpeedFor(t, this.checkpoint) * (this.slowLeft > 0 ? t.slowFactor : 1);
     c.speed = c.hard ? t.hardDropSpeed : fall * (c.soft ? t.softDropMult : 1);
     const ny = c.y - c.speed * DT;
     if (this.free(c.shape, c.x, ny, c.rot)) {
       c.y = ny;
       c.touchedAt = null;
+      this.touchBubble(c);
       // It missed the tower entirely: it becomes a real piece and is Lost (costs a heart).
       if (c.y + extents(c.shape, c.rot).maxY < this.foundation.top - 1) this.missed(c);
       return;
@@ -433,16 +469,19 @@ export class Sim {
     p.landTime = this.time;
     p.landX = c.x;
     p.tintAtDrop = knocked ? 'none' : ghost.tint;
+    p.glue = this.glueLeft > 0;
     this.ctrl = null;
     this.used++;
     this.stats.placed++;
+    this.lastPlaced = p.id;
     this.nextSpawnAt = this.time + t.spawnDelay;
     this.bus.emit('piece_landed', {
       id: p.id, shape: c.shape, impact: Math.min(1, speed / 12), x: c.x,
-      pose: { x: c.x, y, rot: c.rot }, touchedIds: touched, knocked,
+      pose: { x: c.x, y, rot: c.rot }, touchedIds: touched, knocked, glue: p.glue,
     });
     const left = this.budget - this.used;
     if (!t.infiniteBudget && (left === 5 || left === 3 || left === 1)) this.bus.emit('budget_low', { left });
+    this.afterPlacement();
   }
 
   private missed(c: Controlled): void {
@@ -450,8 +489,10 @@ export class Sim {
     this.ctrl = null;
     this.used++;
     this.stats.placed++;
+    this.lastPlaced = null;
     this.nextSpawnAt = this.time + this.tuning.spawnDelay;
     this.markLost(p);
+    this.afterPlacement();
   }
 
   private tryRotate(dir: number): void {
@@ -495,6 +536,7 @@ export class Sim {
     this.ctrl.x = this.ctrl.xTarget;
     this.holdUsed = false;
     this.bus.emit('piece_spawned', { shape, next: this.queue.slice(0, 2) });
+    if (this.tuning.powerUps && !this.bubble && this.bubbleIn <= 0 && this.slots.includes(null)) this.makeBubble(top);
   }
 
   private takeNext(): string {
@@ -544,7 +586,7 @@ export class Sim {
     const p: Piece = {
       id, shape, state: stone ? 'stone' : 'landing', segment: this.checkpoint, claimed: false,
       landTime: this.time, landX: x, restTime: 0, graded: false, tintAtDrop: 'none',
-      bonds: new Map(), bullet: false, bondCheckAt: 0, lostTime: 0, top: y, bottom: y, cx: x, cy: y,
+      bonds: new Map(), bullet: false, bondCheckAt: 0, lostTime: 0, glue: false, points: 0, top: y, bottom: y, cx: x, cy: y,
     };
     this.pieces.set(id, p);
     this.updateBounds(p);
@@ -608,7 +650,7 @@ export class Sim {
       if (this.isLostPosition(p)) { this.markLost(p); continue; }
 
       if (p.state === 'landing') {
-        if (t.squareUp) this.squareUp(p, v.w);
+        if (t.squareUp && !(p.glue && p.bonds.size)) this.squareUp(p, v.w);
         if (this.time - p.landTime >= t.squareUpWindow) p.state = 'settling';
       }
 
@@ -711,7 +753,8 @@ export class Sim {
     if (grade === 'messy') this.stats.messies++;
     if (clutch) { pts = 200; this.stats.clutches++; this.tensionSpike = Math.max(this.tensionSpike, 0.8); }
     else pts = grade === 'perfect' ? 150 * Math.min(1 + 0.5 * (this.combo - 1), 4) : grade === 'clean' ? 50 : 10;
-    this.addScore(pts * mult);
+    p.points = pts * mult;
+    this.addScore(p.points);
     this.bus.emit('piece_settled', { id: p.id, shape: p.shape, grade, support, clutch });
     if (grade === 'perfect') this.bus.emit('perfect', { combo: this.combo });
     if (clutch) this.bus.emit('clutch', {});
@@ -803,22 +846,28 @@ export class Sim {
     }
     const delay = bondDelayFor(t, this.checkpoint);
     for (const p of this.pieces.values()) {
-      if (p.state !== 'settled' || p.restTime < delay || p.bonds.size >= t.maxBonds || this.time < p.bondCheckAt) continue;
-      p.bondCheckAt = this.time + 0.5;
+      if (p.bonds.size >= t.maxBonds || this.time < p.bondCheckAt) continue;
+      // Glue (power-up): a glued shape bonds to anything it touches straight away.
+      const glued = p.glue && p.state !== 'stone' && p.state !== 'lost';
+      if (!glued && (p.state !== 'settled' || p.restTime < delay)) continue;
+      p.bondCheckAt = this.time + (glued ? 0.1 : 0.5);
       for (const c of this.engine.contacts(p.id)) {
         if (p.bonds.size >= t.maxBonds) break;
-        if (c.points.length < 2 || p.bonds.has(c.other)) continue;
+        if (c.points.length < (glued ? 1 : 2) || p.bonds.has(c.other)) continue;
         const o = this.pieces.get(c.other);
         const isF = this.isFoundation(c.other);
-        if (!isF && (!o || o.state === 'lost' || o.state === 'landing' || o.state === 'settling')) continue;
-        if (o && o.state === 'settled' && o.restTime < delay) continue;
-        const ax = (c.points[0][0] + c.points[1][0]) / 2, ay = (c.points[0][1] + c.points[1][1]) / 2;
+        if (!isF && (!o || o.state === 'lost')) continue;
+        if (!glued && o && (o.state === 'landing' || o.state === 'settling' || (o.state === 'settled' && o.restTime < delay))) continue;
+        const n = c.points.length;
+        const ax = n > 1 ? (c.points[0][0] + c.points[1][0]) / 2 : c.points[0][0];
+        const ay = n > 1 ? (c.points[0][1] + c.points[1][1]) / 2 : c.points[0][1];
         const jid = this.engine.addWeld(p.id, c.other, ax, ay, t.bondHertz, t.bondDamping);
         if (!jid) continue;
-        this.welds.set(jid, { a: p.id, b: c.other, x: ax, y: ay });
+        const k = p.glue || o?.glue ? t.glueStrength : 1;
+        this.welds.set(jid, { a: p.id, b: c.other, x: ax, y: ay, k });
         p.bonds.set(c.other, jid);
         o?.bonds.set(p.id, jid);
-        this.bus.emit('bond_formed', { pos: { x: ax, y: ay } });
+        this.bus.emit('bond_formed', { pos: { x: ax, y: ay }, glue: k !== 1 });
       }
     }
     // Break overloaded bonds.
@@ -831,7 +880,7 @@ export class Sim {
       const mb = this.pieces.get(w.b)?.state === 'stone' || this.isFoundation(w.b) ? Infinity : this.engine.mass(w.b) || Infinity;
       const weight = Math.min(ma, mb) * g;
       if (!isFinite(weight)) { this.removeWeld(jid); continue; }
-      if (load.force > t.breakForce * strength * weight || load.torque > t.breakTorque * strength * weight) {
+      if (load.force > t.breakForce * strength * w.k * weight || load.torque > t.breakTorque * strength * w.k * weight) {
         this.removeWeld(jid);
         this.bus.emit('bond_broken', { pos: { x: w.x, y: w.y }, force: load.force / weight });
       }
@@ -919,6 +968,13 @@ export class Sim {
     this.hearts = n === biome.lastCp ? t.hearts : Math.min(t.hearts, this.hearts + 1);
     if (this.hearts > before) this.bus.emit('heart_restored', { left: this.hearts });
     this.bus.emit('checkpoint_claimed', { n, grade, leftover, width, coverage });
+    // Second Wind is earned at checkpoint 2. A player who already has it (or has used it) gets a
+    // power-up instead, as does an S grade.
+    if (n === 2) {
+      if (this.secondWind === 'earn') { this.secondWind = 'ready'; this.bus.emit('second_wind_ready', { how: 'earned' }); }
+      else this.grantPower('second_wind');
+    }
+    if (grade === 'S') this.grantPower('grade');
 
     this.checkpoint = n + 1;
     const nb = biomeFor(this.checkpoint);
@@ -951,8 +1007,8 @@ export class Sim {
     if (this.time - this.outOfBricksAt >= t.budgetGrace) this.endRun('bricks');
   }
 
-  /** Ends the run from the pause menu (XP × 0.5). */
-  quit(): void { this.endRun('quit'); }
+  /** Ends the run from the pause menu (XP × 0.5). Logged like an intent, so replays end there too. */
+  quit(): void { this.intent({ type: 'quit' }); }
 
   private endRun(cause: string): void {
     if (this.state === 'over') return;
@@ -960,6 +1016,181 @@ export class Sim {
     this.cause = cause;
     this.ctrl = null;
     this.bus.emit('run_over', { cause, height: this.stats.maxHeight, checkpoints: this.stats.checkpoints, score: Math.round(this.score), xp: this.xp(cause === 'quit') });
+  }
+
+  // ------------------------------------------------------------------ power-ups (gameplay.md §13)
+
+  /** Shapes until the next bubble: bubbleGap − 1 to bubbleGap + 2. */
+  private bubbleGap(): number {
+    return Math.max(2, Math.round(this.tuning.bubbleGap) - 1 + this.rng.powers.int(4));
+  }
+
+  /** Bookkeeping after each shape is placed or missed: Glue and Slow-Mo counts, and the bubble. */
+  private afterPlacement(): void {
+    if (this.glueLeft > 0 && --this.glueLeft === 0) this.bus.emit('power_ended', { kind: 'glue' });
+    if (this.slowLeft > 0 && --this.slowLeft === 0) this.bus.emit('power_ended', { kind: 'slowmo' });
+    const b = this.bubble;
+    if (b) {
+      // It fades after bubbleLife shapes, or once the tower grows up into it.
+      if (--b.shapesLeft <= 0 || b.y - b.r < this.height().provisional) this.popBubble(false);
+    } else if (this.slots.includes(null)) this.bubbleIn--;
+  }
+
+  private makeBubble(top: number): void {
+    const f = this.foundation;
+    // On whole-block columns across the foundation, 2.2 to 4.2 blocks above the tower, so the
+    // falling shape can be steered through it.
+    const cols = Math.max(1, Math.floor(f.width) - 1);
+    const x = f.x - (cols - 1) / 2 + this.rng.powers.int(cols);
+    const y = top + 2.2 + 0.5 * this.rng.powers.int(5);
+    this.bubble = { id: ++this.bubbleSeq, kind: this.pickKind(), x, y, r: this.tuning.bubbleRadius, shapesLeft: Math.max(1, Math.round(this.tuning.bubbleLife)) };
+    this.bubbleIn = this.bubbleGap();
+    this.bus.emit('bubble_spawned', { id: this.bubble.id, kind: this.bubble.kind, x, y });
+  }
+
+  /** Removes the bubble: collected (the shape went through it) or faded. */
+  private popBubble(collected: boolean, slot = -1): void {
+    const b = this.bubble;
+    if (!b) return;
+    this.bubble = null;
+    if (collected) this.bus.emit('power_collected', { id: b.id, kind: b.kind, slot, x: b.x, y: b.y });
+    else this.bus.emit('bubble_expired', { id: b.id, kind: b.kind, x: b.x, y: b.y });
+  }
+
+  /** The steered shape collects the bubble when any of its cells reaches the bubble's circle. */
+  private touchBubble(c: Controlled): void {
+    const b = this.bubble;
+    if (!b) return;
+    const slot = this.slots.indexOf(null);
+    if (slot < 0) return;
+    const r = rotQ(c.rot);
+    for (const [cx, cy] of geometry(c.shape).cells) {
+      const [rx, ry] = rotate(r, cx, cy);
+      const dx = Math.max(0, Math.abs(b.x - c.x - rx) - 0.5);
+      const dy = Math.max(0, Math.abs(b.y - c.y - ry) - 0.5);
+      if (dx * dx + dy * dy <= b.r * b.r) {
+        this.slots[slot] = b.kind;
+        this.popBubble(true, slot);
+        return;
+      }
+    }
+  }
+
+  /** Picks a power, weighted towards what the tower needs right now. */
+  private pickKind(): PowerKind {
+    const t = this.tuning;
+    const w: Record<PowerKind, number> = { clean: 2, quickset: 2, undo: 2, glue: 2, slowmo: 2 };
+    const left = t.infiniteBudget ? Infinity : this.budget - this.used;
+    if (!t.infiniteHearts && this.hearts <= 1) w.clean += 2;
+    if (left <= 4) { w.clean += 2; w.undo += 1; }
+    if (this.tensionValue >= 0.5) { w.quickset += 2; w.glue += 1; }
+    if (this.checkpoint >= 4) w.slowmo += 1; // shapes fall faster from here
+    for (const k of this.slots) if (k) w[k] = Math.max(1, w[k] >> 1); // fewer doubles
+    let r = this.rng.powers.int(POWER_KINDS.reduce((a, k) => a + w[k], 0));
+    for (const k of POWER_KINDS) { r -= w[k]; if (r < 0) return k; }
+    return 'clean';
+  }
+
+  /** A power straight into a free slot (an S grade, or checkpoint 2 when Second Wind is taken). */
+  private grantPower(why: string): void {
+    const slot = this.slots.indexOf(null);
+    if (slot < 0 || !this.tuning.powerUps) return;
+    const kind = this.pickKind();
+    this.slots[slot] = kind;
+    this.bus.emit('power_granted', { kind, slot, why });
+  }
+
+  private usePower(slot: number): void {
+    const kind = this.slots[slot];
+    if (!kind) return;
+    let detail: Record<string, unknown> | null = null;
+    switch (kind) {
+      case 'clean': { const r = this.sweep(); if (r.pieces.length) detail = r; break; }
+      case 'quickset': detail = this.quickSet(); break;
+      case 'undo': detail = this.undo(); break;
+      case 'glue': if (!this.glueLeft) { this.glueLeft = Math.max(1, Math.round(this.tuning.glueShapes)); detail = { shapes: this.glueLeft }; } break;
+      case 'slowmo': if (!this.slowLeft) { this.slowLeft = Math.max(1, Math.round(this.tuning.slowShapes)); detail = { shapes: this.slowLeft }; } break;
+    }
+    // Nothing for it to do (no loose pieces, nothing to take back, already running): it stays.
+    if (!detail) { this.bus.emit('power_refused', { kind, slot }); return; }
+    this.slots[slot] = null;
+    this.stats.powers++;
+    this.bus.emit('power_used', { kind, slot, ...detail });
+  }
+
+  private removePiece(p: Piece): void {
+    for (const [, jid] of [...p.bonds]) this.removeWeld(jid);
+    this.engine.removeBody(p.id);
+    this.pieces.delete(p.id);
+    if (this.lastPlaced === p.id) this.lastPlaced = null;
+  }
+
+  /**
+   * Clean Slate (and Second Wind): every loose piece of this stretch leaves the tower and its
+   * bricks come back. Stone (Solid Rows) and pieces from claimed stretches stay.
+   */
+  private sweep(): { pieces: { id: number; shape: string; x: number; y: number }[]; refund: number } {
+    const pieces: { id: number; shape: string; x: number; y: number }[] = [];
+    for (const p of [...this.pieces.values()]) {
+      if (p.claimed || p.state === 'stone' || p.state === 'lost') continue;
+      pieces.push({ id: p.id, shape: p.shape, x: p.cx, y: p.cy });
+      this.removePiece(p);
+    }
+    const refund = Math.min(pieces.length, this.used);
+    this.used -= refund;
+    this.outOfBricksAt = null;
+    if (pieces.length) this.bus.emit('pieces_swept', { pieces });
+    return { pieces, refund };
+  }
+
+  /** Quick-Set: everything resting on something turns to stone now. Shapes in free fall stay. */
+  private quickSet(): { ids: number[] } | null {
+    const set: Piece[] = [];
+    for (const p of this.pieces.values()) {
+      if (p.state === 'stone' || p.state === 'lost') continue;
+      if (p.state !== 'settled' && this.engine.contacts(p.id).length === 0) continue;
+      p.graded = true;
+      this.toStone(p);
+      set.push(p);
+    }
+    if (!set.length) return null;
+    set.sort((a, b) => a.bottom - b.bottom || a.id - b.id);
+    for (const p of set) this.checkRows(p);
+    return { ids: set.map(p => p.id) };
+  }
+
+  /** Undo: the last shape placed comes back to the player's hand, with its brick and points. */
+  private undo(): { id: number; shape: string; x: number; y: number } | null {
+    const p = this.lastPlaced === null ? undefined : this.pieces.get(this.lastPlaced);
+    if (!p || p.claimed || p.state === 'stone' || p.state === 'lost') return null;
+    const out = { id: p.id, shape: p.shape, x: p.cx, y: p.cy };
+    this.removePiece(p);
+    this.used = Math.max(0, this.used - 1);
+    this.stats.placed = Math.max(0, this.stats.placed - 1);
+    this.score -= p.points;
+    this.outOfBricksAt = null;
+    // The shape already falling goes back to the front of the queue.
+    if (this.ctrl) { this.queue.unshift(this.ctrl.shape); this.ctrl = null; }
+    this.spawn(p.shape, undefined, 0);
+    return out;
+  }
+
+  /**
+   * Second Wind, once per run when the player chooses: Clean Slate, hearts back to full and this
+   * stretch's bricks back to full.
+   */
+  private useSecondWind(): void {
+    if (this.secondWind !== 'ready') { this.bus.emit('power_refused', { kind: 'secondWind' }); return; }
+    const { pieces, refund } = this.sweep();
+    const before = this.hearts;
+    this.secondWind = 'used';
+    this.stats.secondWind = true;
+    this.hearts = Math.max(this.hearts, this.tuning.hearts);
+    this.used = 0;
+    this.outOfBricksAt = null;
+    this.cascade = null;
+    this.bus.emit('second_wind', { pieces: pieces.length, refund, hearts: this.hearts, restored: this.hearts - before, bricks: this.budget });
+    if (this.hearts > before) this.bus.emit('heart_restored', { left: this.hearts });
   }
 
   // ------------------------------------------------------------------ hits, tension, signals

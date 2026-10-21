@@ -11,6 +11,7 @@ export interface Profile {
   lastDay: string;     // local date of the last finished run
   boostDay: string;    // local date the Daily Boost was used
   askedGhost: boolean; // the one-time "did the ghost show where shapes would land?" prompt
+  windDay: string;     // local date the day's free Second Wind was spent
 }
 
 export interface Award {
@@ -23,7 +24,7 @@ export interface Award {
 
 const KEY = 'shape-tower-profile-v1';
 
-const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false });
+const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '' });
 
 export function loadProfile(): Profile {
   try {
@@ -39,6 +40,15 @@ export function saveProfile(p: Profile): void {
 
 function day(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** The day's first Endless run starts with Second Wind ready (monetisation plan, "Second chance"). */
+export function dailyWindReady(p: Profile, now = new Date()): boolean { return p.windDay !== day(now); }
+
+/** Spends the day's free Second Wind: called once that run has placed a shape. */
+export function spendDailyWind(p: Profile, now = new Date()): void {
+  p.windDay = day(now);
+  saveProfile(p);
 }
 
 /**

@@ -6,13 +6,18 @@ import BakeWorker from '@audio/bake/worker?worker&inline';
 import type { Sim } from './sim/sim.ts';
 import { Hud } from './view/hud.ts';
 import { LabPanel, loadLab } from './view/panel.ts';
-import { award, loadProfile, saveProfile } from './view/profile.ts';
+import { award, dailyWindReady, loadProfile, saveProfile, spendDailyWind } from './view/profile.ts';
 import { showResults } from './view/results.ts';
 import { RunRecorder, benchOnce } from './view/records.ts';
 import { PlayScene, type SceneHooks } from './view/scene.ts';
 import BenchWorker from './bench.worker.ts?worker&inline';
 
 const BUILD = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
+
+// Stand-in sounds for the power-up events until Sound's own land.
+const POWER_SOUNDS: Record<string, Parameters<AudioDirector['ui']>[0]> = {
+  power_collected: 'badge', power_granted: 'badge', power_used: 'toggleOn', power_refused: 'error', second_wind_ready: 'badge', second_wind: 'unlock',
+};
 
 async function loadFonts(): Promise<void> {
   const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -37,11 +42,21 @@ async function boot(): Promise<void> {
   let unhook: (() => void) | null = null;
   let bestBefore = 0;
   let record: RunRecorder | null = null;
+  let dailyWind = false; // this run's Second Wind is the day's free one, not spent until it places a shape
   const audioContext = () => (game.sound as Phaser.Sound.WebAudioSoundManager).context ?? null;
 
   const hooks: SceneHooks = {
     hud,
     lab,
+    secondWind() {
+      dailyWind = !lab.windAlways && dailyWindReady(profile);
+      return lab.windAlways || dailyWind ? 'ready' : 'earn';
+    },
+    onEvent(e) {
+      const ui = POWER_SOUNDS[e.name];
+      if (ui) audio?.ui(ui);
+      if (dailyWind && e.name === 'piece_landed') { dailyWind = false; spendDailyWind(profile); }
+    },
     onRunStart(sim, info) {
       bestBefore = scene.bestHeight;
       record = new RunRecorder(info, BUILD, audioContext);
@@ -107,7 +122,8 @@ async function boot(): Promise<void> {
   // Start card.
   hud.card(
     `<h1>Shape Tower</h1><p><b>Wobble Lab</b> · Level ${profile.level}</p>
-     <p>Stack shapes up to each gold line. Hold it steady to claim the checkpoint and earn more bricks.</p>`,
+     <p>Stack shapes up to each gold line. Hold it steady to claim the checkpoint and earn more bricks.</p>
+     <p>Steer through bubbles for power-ups. 🌬️ Second Wind clears a messy tower once per run.</p>`,
     [['Play', () => { unlockAudio(); audio?.ui('start'); hud.closeCard(); scene.start(); }, true]],
   );
 
@@ -121,6 +137,8 @@ async function boot(): Promise<void> {
     ]);
   };
   hud.pauseBtn.onclick = pause;
+  hud.onPower = slot => scene.usePower(slot);
+  hud.onSecondWind = () => scene.useSecondWind();
   hud.labBtn.onclick = () => panel.toggle();
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   window.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p') pause(); });

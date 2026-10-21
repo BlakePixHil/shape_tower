@@ -13,7 +13,12 @@ export interface ViewSettings {
 
 export const DEFAULT_VIEW: ViewSettings = { reducedMotion: false, shake: 1, faces: true, splitTap: false, ghostTint: true };
 
-export interface LabState { tuning: Partial<Tuning>; view: ViewSettings }
+export interface LabState {
+  tuning: Partial<Tuning>;
+  view: ViewSettings;
+  /** Second Wind ready at the start of every run: stands in for the v2 upgrade. */
+  windAlways?: boolean;
+}
 
 type NumKey = { [K in keyof Tuning]: Tuning[K] extends number ? K : never }[keyof Tuning];
 type BoolKey = { [K in keyof Tuning]: Tuning[K] extends boolean ? K : never }[keyof Tuning];
@@ -53,6 +58,12 @@ const GROUPS: [string, [NumKey, string, number, number, number, boolean?][]][] =
     ['rowCoverage', 'Solid Row coverage', 0.7, 1, 0.01],
     ['wind', 'Wind (g, + is right)', -0.3, 0.3, 0.01],
   ]],
+  ['Power-ups', [
+    ['bubbleGap', 'Shapes between bubbles', 2, 12, 1],
+    ['bubbleLife', 'Bubble lasts (shapes)', 1, 6, 1],
+    ['glueStrength', 'Glue strength ×', 1, 4, 0.25],
+    ['slowFactor', 'Slow-Mo fall speed ×', 0.25, 1, 0.05],
+  ]],
 ];
 
 const TOGGLES: [BoolKey, string][] = [
@@ -60,6 +71,7 @@ const TOGGLES: [BoolKey, string][] = [
   ['squareUp', 'Square-up assist on landing'],
   ['infiniteBudget', 'Infinite bricks'],
   ['infiniteHearts', 'Infinite hearts'],
+  ['powerUps', 'Power-up bubbles and grants'],
 ];
 
 const VIEW_TOGGLES: [keyof ViewSettings, string][] = [
@@ -92,7 +104,7 @@ export function loadLab(): LabState {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const s = JSON.parse(raw) as LabState;
-      return { tuning: s.tuning ?? {}, view: { ...DEFAULT_VIEW, reducedMotion: prefersReducedMotion(), ...((s.view ?? {}) as Partial<ViewSettings>) } };
+      return { tuning: s.tuning ?? {}, windAlways: !!s.windAlways, view: { ...DEFAULT_VIEW, reducedMotion: prefersReducedMotion(), ...((s.view ?? {}) as Partial<ViewSettings>) } };
     }
   } catch { /* storage unavailable: defaults */ }
   return { tuning: {}, view: { ...DEFAULT_VIEW, reducedMotion: prefersReducedMotion() } };
@@ -152,6 +164,7 @@ export class LabPanel {
     }
     html += `<h3>Switches</h3>`;
     for (const [k, label] of TOGGLES) html += `<label class="st-lab-check"><input type="checkbox" data-b="${k}" ${this.value(k) ? 'checked' : ''}>${label}</label>`;
+    html += `<label class="st-lab-check"><input type="checkbox" data-wind ${t.windAlways ? 'checked' : ''}>Second Wind ready every run (the v2 upgrade) ↻</label>`;
     for (const [k, label] of VIEW_TOGGLES) html += `<label class="st-lab-check"><input type="checkbox" data-v="${k}" ${t.view[k] ? 'checked' : ''}>${label}</label>`;
     html += `<label class="st-lab-row"><span>Screen shake</span><output>${['Off', 'Low', 'Full'][Math.round(t.view.shake * 2)]}</output><input type="range" data-shake min="0" max="1" step="0.5" value="${t.view.shake}"></label>`;
     html += `<div class="st-lab-note">Changes apply to the next shape. ↻ needs a restart. Settings stay on this device.</div>
@@ -185,6 +198,8 @@ export class LabPanel {
         saveLab(this.state);
       };
     });
+    const wind = this.el.querySelector<HTMLInputElement>('input[data-wind]')!;
+    wind.onchange = () => { this.state.windAlways = wind.checked; saveLab(this.state); };
     const shake = this.el.querySelector<HTMLInputElement>('input[data-shake]')!;
     shake.oninput = () => {
       this.state.view.shake = Number(shake.value);
@@ -199,6 +214,7 @@ export class LabPanel {
       for (const k of Object.keys(this.state.tuning) as (keyof Tuning)[]) (patch as Record<string, unknown>)[k] = DEFAULT_TUNING[k];
       this.state.tuning = {};
       this.state.view = { ...DEFAULT_VIEW };
+      this.state.windAlways = false;
       saveLab(this.state);
       this.hooks.retune(patch);
       this.hooks.view(this.state.view);

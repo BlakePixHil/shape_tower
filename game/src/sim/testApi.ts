@@ -1,7 +1,7 @@
 // QA's headless contract (agreed with the QA thread). Pure TypeScript, no Phaser.
 // Units: blocks, y up, rot in quarter turns. Angles reported here are radians, for tests only.
 
-import { Sim, type Ghost, type Intent, type LoggedInput, type PieceState, type SimOptions } from './sim.ts';
+import { Sim, type Ghost, type Intent, type LoggedInput, type PieceState, type SecondWindMode, type SimOptions } from './sim.ts';
 import type { Tuning } from './tuning.ts';
 
 export interface CreateSimOptions {
@@ -11,6 +11,7 @@ export interface CreateSimOptions {
   /** Defaults to false for tests: nothing spawns unless you ask. */
   autoSpawn?: boolean;
   rookieOpening?: boolean;
+  secondWind?: SecondWindMode;
 }
 
 export interface TestPiece { id: number; shape: string; state: PieceState; x: number; y: number; angle: number; vx: number; vy: number; w: number; bonds: number }
@@ -71,6 +72,7 @@ export function createSim(opts: CreateSimOptions = {}): TestSim {
     tuning: opts.tuning,
     autoSpawn: opts.autoSpawn ?? false,
     rookieOpening: opts.rookieOpening ?? false,
+    secondWind: opts.secondWind,
   };
   const sim = new Sim(simOpts);
   const ops: Op[] = [];
@@ -101,14 +103,14 @@ export function createSim(opts: CreateSimOptions = {}): TestSim {
   };
 }
 
-export interface ReplayInput { seed: number; tuning?: Partial<Tuning>; rookieOpening?: boolean; inputs: LoggedInput[]; steps: number }
+export interface ReplayInput { seed: number; tuning?: Partial<Tuning>; rookieOpening?: boolean; secondWind?: SecondWindMode; inputs: LoggedInput[]; steps: number }
 
 /**
  * Replays a recorded run (auto spawn on, as in the game) and returns the digest every 60 steps,
  * for comparing with the digests in a run record.
  */
 export function replay(rec: ReplayInput): { digests: string[]; sim: Sim } {
-  const sim = new Sim({ seed: rec.seed, tuning: rec.tuning, autoSpawn: true, rookieOpening: rec.rookieOpening ?? false });
+  const sim = new Sim({ seed: rec.seed, tuning: rec.tuning, autoSpawn: true, rookieOpening: rec.rookieOpening ?? false, secondWind: rec.secondWind });
   const digests: string[] = [];
   let k = 0;
   while (sim.stepIndex < rec.steps) {

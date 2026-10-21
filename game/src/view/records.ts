@@ -3,7 +3,7 @@
 // published page's own database (collections `runs` and `bench`), so Blake never reports anything.
 // Outside claude.ai there is no database and nothing is sent.
 
-import type { Sim } from '../sim/sim.ts';
+import type { SecondWindMode, Sim } from '../sim/sim.ts';
 import type { Tuning } from '../sim/tuning.ts';
 
 interface DocRef { set(d: Record<string, unknown>): Promise<void>; update(d: Record<string, unknown>): Promise<void> }
@@ -29,7 +29,7 @@ export function device(): Record<string, unknown> {
   };
 }
 
-export interface RunStart { seed: number; tuning: Partial<Tuning>; rookieOpening: boolean }
+export interface RunStart { seed: number; tuning: Partial<Tuning>; rookieOpening: boolean; secondWind: SecondWindMode }
 
 /** Collects one run. Frame times go into 1 ms buckets (0 to 100, the last is 100+). */
 export class RunRecorder {
@@ -77,6 +77,7 @@ export class RunRecorder {
       kind: 'run', build: this.build, engine: 'box2d', startedAt: this.startedAt,
       wallSeconds: Math.round((performance.now() - this.t0) / 100) / 10,
       seed: this.start.seed, tuning: this.start.tuning, tuningHash: hash(JSON.stringify(sim.tuning)), rookieOpening: this.start.rookieOpening,
+      secondWind: this.start.secondWind,
       steps: sim.stepIndex, simSeconds: Math.round(sim.time * 10) / 10, finalDigest: sim.digest(), digests: [...this.digests],
       inputs: sim.inputLog.map(i => ({ ...i })),
       cause: sim.cause, maxHeight: round(sim.stats.maxHeight - sim.foundations[0].top), checkpoints: sim.stats.checkpoints,

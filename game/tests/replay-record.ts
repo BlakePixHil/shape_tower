@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { replay } from '../src/sim/testApi.ts';
 
 const rec = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const { digests, sim } = replay({ seed: rec.seed, tuning: rec.tuning, rookieOpening: rec.rookieOpening, inputs: rec.inputs, steps: rec.steps });
+const { digests, sim } = replay({ seed: rec.seed, tuning: rec.tuning, rookieOpening: rec.rookieOpening, secondWind: rec.secondWind, inputs: rec.inputs, steps: rec.steps });
 let first = -1;
 for (let i = 0; i < rec.digests.length; i++) if (digests[i] !== rec.digests[i]) { first = i; break; }
 const final = sim.digest() === rec.finalDigest;

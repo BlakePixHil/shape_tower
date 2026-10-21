@@ -325,5 +325,225 @@ for (const [shape, x] of [['Domino', -2], ['O', 2.5], ['Plank', -1.5]] as const)
   t.dispose();
 }
 
+// ---- Power-ups and Second Wind (gameplay.md §13) ----
+
+/** Steps until an event fires (or `max` steps pass); returns its payload. */
+function stepUntil(t: ReturnType<typeof createSim>, name: string, max = 600): Record<string, any> | null {
+  for (let i = 0; i < max; i++) {
+    t.step();
+    const e = t.drainEvents().find(ev => ev.name === name);
+    if (e) return e.payload as Record<string, any>;
+  }
+  return null;
+}
+const loose = (t: ReturnType<typeof createSim>) => t.pieces().filter(p => p.state !== 'stone' && p.state !== 'lost');
+
+// Bubbles turn up every few shapes in a real run, and a shape steered through one collects it.
+{
+  const t = createSim({ autoSpawn: true, seed: 5, tuning: { infiniteBudget: true, infiniteHearts: true } });
+  let spawned = 0, collected = 0, landed = 0;
+  for (let i = 0; i < 60 * 90; i++) {
+    const c = t.sim.ctrl, b = t.sim.bubble;
+    if (c && !c.hard && c.speed > 0) {
+      // Head for the bubble when there is one, otherwise a column; drop once the bubble is gone.
+      const x = b ? b.x : -2 + (landed % 5);
+      if (Math.abs(c.xTarget - x) > 0.01) t.intent({ type: 'moveTo', x });
+      else if (!b) t.intent({ type: 'hardDrop' });
+    }
+    t.step();
+    for (const e of t.drainEvents()) {
+      if (e.name === 'bubble_spawned') spawned++;
+      if (e.name === 'power_collected') collected++;
+      if (e.name === 'piece_landed') landed++;
+    }
+    // Spend powers as they arrive so slots stay free.
+    for (let s = 0; s < 2; s++) if (t.sim.slots[s] === 'glue' || t.sim.slots[s] === 'slowmo') t.intent({ type: 'power', slot: s });
+    if (t.sim.slots[0] && t.sim.slots[1]) t.sim.slots[1] = null;
+  }
+  check('Power bubbles turn up and steering through one collects it', spawned >= 3 && collected >= 2, `${landed} landed, ${spawned} bubbles, ${collected} collected`);
+  t.dispose();
+}
+
+// A shape falling through a bubble fills the first free slot; a full pair of slots leaves it.
+{
+  const t = createSim({});
+  t.sim.bubble = { id: 1, kind: 'glue', x: 0.5, y: 4, r: 0.6, shapesLeft: 3 };
+  t.spawnControlled({ shape: 'O', x: 0 });
+  const got = stepUntil(t, 'power_collected');
+  const t2 = createSim({});
+  t2.sim.slots = ['clean', 'undo'];
+  t2.sim.bubble = { id: 1, kind: 'glue', x: 0.5, y: 4, r: 0.6, shapesLeft: 3 };
+  t2.spawnControlled({ shape: 'O', x: 0 });
+  const missed = stepUntil(t2, 'power_collected');
+  check('A shape through a bubble fills a free slot, not a full pair', got?.kind === 'glue' && t.sim.slots[0] === 'glue' && !missed && t2.sim.bubble !== null, `slots ${t.sim.slots}; full pair kept bubble ${t2.sim.bubble !== null}`);
+  t.dispose(); t2.dispose();
+}
+
+// Clean Slate: every loose piece of the stretch goes and its bricks come back; stone stays.
+{
+  const t = createSim({});
+  t.placePiece({ shape: 'I', x: 0, y: 0.5, as: 'stone' });
+  for (const x of [-2, 0, 2]) t.placePiece({ shape: 'O', x, y: 2.01 });
+  t.step(120);
+  t.sim.used = 5;
+  t.sim.slots = ['clean', null];
+  t.drainEvents();
+  t.intent({ type: 'power', slot: 0 });
+  const used = t.drainEvents().find(e => e.name === 'power_used')?.payload as any;
+  t.step(30);
+  const left = t.pieces();
+  check('Clean Slate sweeps loose pieces and refunds their bricks', loose(t).length === 0 && left.length === 1 && left[0].state === 'stone' && t.sim.used === 2 && used?.refund === 3 && t.sim.slots[0] === null,
+    `left ${left.map(p => p.state)}, used ${t.sim.used}, refund ${used?.refund}`);
+  t.intent({ type: 'power', slot: 0 });
+  t.sim.slots = ['clean', null];
+  t.drainEvents();
+  t.intent({ type: 'power', slot: 0 });
+  const refused = t.drainEvents().some(e => e.name === 'power_refused');
+  check('Clean Slate with nothing loose stays in its slot', refused && t.sim.slots[0] === 'clean');
+  t.dispose();
+}
+
+// Quick-Set: a needle that falls in a 0.12 g gust stands once it is stone.
+{
+  const t = createSim({ tuning: { firstGap: 20 } });
+  for (let k = 0; k < 4; k++) t.placePiece({ shape: 'I', x: 0, y: 2 + 4 * k + 0.001 * k, rot: 1 });
+  t.step(90);
+  t.sim.slots = ['quickset', null];
+  t.intent({ type: 'power', slot: 0 });
+  const stone = t.pieces().every(p => p.state === 'stone');
+  const before = t.pieces().map(p => [p.x, p.y]);
+  t.retune({ wind: 0.12 });
+  t.step(600);
+  const drift = Math.max(...t.pieces().map((p, k) => Math.hypot(p.x - before[k][0], p.y - before[k][1])));
+  check('Quick-Set turns the stretch to stone and a 0.12 g gust cannot move it', stone && drift < 1e-6, `all stone ${stone}, drift ${drift.toExponential(1)}`);
+  t.dispose();
+}
+
+// Undo: the last shape comes back to hand with its brick; the shape in hand goes back to the queue.
+{
+  const t = createSim({});
+  t.spawnControlled({ shape: 'L', x: 0 });
+  t.intent({ type: 'hardDrop' });
+  stepUntil(t, 'piece_landed');
+  t.step(90);
+  t.spawnControlled({ shape: 'I', x: 0 });
+  const usedBefore = t.sim.used, scoreBefore = t.sim.score;
+  t.sim.slots = [null, 'undo'];
+  t.intent({ type: 'power', slot: 1 });
+  const c = t.controlled();
+  check('Undo takes back the last shape: brick, points and all', t.pieces().length === 0 && c?.shape === 'L' && t.sim.queue[0] === 'I' && t.sim.used === usedBefore - 1 && t.sim.score < scoreBefore,
+    `pieces ${t.pieces().length}, in hand ${c?.shape}, next ${t.sim.queue[0]}, used ${usedBefore}→${t.sim.used}, score ${scoreBefore}→${t.sim.score}`);
+  t.dispose();
+}
+
+// Glue: a glued O hanging 1.5 off the plinth sticks where it lands; without Glue it falls.
+{
+  const result: Record<string, string> = {};
+  for (const glue of [false, true]) {
+    const t = createSim({});
+    t.spawnControlled({ shape: 'O', x: 4.5 });
+    if (glue) { t.sim.slots = ['glue', null]; t.intent({ type: 'power', slot: 0 }); }
+    t.intent({ type: 'hardDrop' });
+    const landed = stepUntil(t, 'piece_landed');
+    t.step(12);
+    const bondsEarly = t.pieces()[0]?.bonds ?? 0;
+    t.step(240);
+    const p = t.pieces()[0];
+    result[glue ? 'glue' : 'plain'] = `${p?.state ?? 'gone'}, bonds at 0.2 s ${bondsEarly}, glueLeft ${t.sim.glueLeft}`;
+    if (glue) check('Glue: a glued O off the edge bonds at once and stays; a plain one falls', !!landed?.glue && bondsEarly > 0 && !!p && p.state !== 'lost' && t.sim.glueLeft === 2 && /^(lost|gone)/.test(result.plain), JSON.stringify(result));
+    t.dispose();
+  }
+}
+
+// Slow-Mo: the next shapes fall at half speed.
+{
+  const speeds: number[] = [];
+  for (const slow of [false, true]) {
+    const t = createSim({});
+    t.spawnControlled({ shape: 'O', x: 0 });
+    if (slow) { t.sim.slots = ['slowmo', null]; t.intent({ type: 'power', slot: 0 }); }
+    t.step(2);
+    const y0 = t.controlled()!.y;
+    t.step(30);
+    speeds.push((y0 - t.controlled()!.y) / (30 / 60));
+    t.dispose();
+  }
+  check('Slow-Mo halves the fall speed', Math.abs(speeds[1] / speeds[0] - 0.5) < 1e-6, `${speeds[0].toFixed(3)} → ${speeds[1].toFixed(3)} blocks/s`);
+}
+
+/** Builds two short stretches (2-block gaps) out of O walls, claiming checkpoints 1 and 2. */
+function twoClaims(t: ReturnType<typeof createSim>): Record<string, any>[] {
+  const out: Record<string, any>[] = [];
+  for (let n = 0; n < 2; n++) {
+    const top = t.sim.foundation.top;
+    for (const x of [-3, -1, 1, 3]) t.placePiece({ shape: 'O', x, y: top + 1.001 });
+    const e = stepUntil(t, 'checkpoint_claimed', 900);
+    if (e) out.push(e);
+    t.step(100);
+  }
+  return out;
+}
+
+// Second Wind: earned at checkpoint 2, then once per run it sweeps the stretch and refills
+// hearts and bricks. Already ready (the day's first run, or the upgrade): a power-up instead.
+{
+  const tune = { firstGap: 2, gapGrowth: 0 };
+  const t = createSim({ tuning: tune });
+  const claims = twoClaims(t);
+  const earned = t.sim.secondWind;
+  for (const x of [-1, 1]) t.placePiece({ shape: 'O', x, y: t.sim.foundation.top + 1.001 });
+  t.step(60);
+  t.sim.hearts = 1;
+  t.sim.used = t.sim.budget;
+  t.drainEvents();
+  t.intent({ type: 'secondWind' });
+  const sw = t.drainEvents().find(e => e.name === 'second_wind')?.payload as any;
+  const after = { hearts: t.sim.hearts, used: t.sim.used, loose: loose(t).length, state: t.sim.secondWind };
+  t.intent({ type: 'secondWind' });
+  const again = t.drainEvents().some(e => e.name === 'power_refused');
+  check('Second Wind: earned at CP2, sweeps, refills hearts and bricks, once per run',
+    claims.length === 2 && earned === 'ready' && !!sw && after.hearts === 3 && after.used === 0 && after.loose === 0 && after.state === 'used' && again,
+    `claims ${claims.length}, after CP2 ${earned}, ${JSON.stringify(after)}, second try refused ${again}`);
+  t.dispose();
+
+  const r = createSim({ tuning: tune, secondWind: 'ready' });
+  const startReady = r.sim.secondWind === 'ready';
+  r.drainEvents();
+  twoClaims(r);
+  const off = createSim({ tuning: tune, secondWind: 'off' });
+  twoClaims(off);
+  // Both claims are grade S (one power each), plus one for CP2 in place of Second Wind.
+  const filled = (x: typeof r) => x.sim.slots.filter(Boolean).length;
+  check('Second Wind starting ready (or off) gives a power-up at CP2 instead', startReady && r.sim.secondWind === 'ready' && filled(r) === 2 && off.sim.secondWind === 'off' && filled(off) === 2,
+    `ready run: ${r.sim.secondWind}, slots ${r.sim.slots}; off run: ${off.sim.secondWind}, slots ${off.sim.slots}`);
+  r.dispose(); off.dispose();
+}
+
+// A run that uses powers and Second Wind replays to the same digests.
+{
+  const t = createSim({ autoSpawn: true, seed: 9, secondWind: 'ready', tuning: { bubbleGap: 3 } });
+  const digests: string[] = [];
+  let landed = 0, wind = false;
+  for (let i = 0; i < 60 * 60; i++) {
+    const c = t.sim.ctrl, b = t.sim.bubble;
+    if (c && !c.hard && c.speed > 0) {
+      const x = b ? b.x : -2 + (landed % 5);
+      if (Math.abs(c.xTarget - x) > 0.01) t.intent({ type: 'moveTo', x });
+      else if (!b || c.y < b.y - 1) t.intent({ type: 'hardDrop' });
+    }
+    t.step();
+    if (t.stepIndex % 60 === 0) digests.push(t.digest()); // before this step's intents, as replay() does
+    for (const e of t.drainEvents()) if (e.name === 'piece_landed') landed++;
+    for (let s = 0; s < 2; s++) if (t.sim.slots[s] && t.stepIndex % 50 === 0) t.intent({ type: 'power', slot: s });
+    if (!wind && t.sim.hearts <= 1) { t.intent({ type: 'secondWind' }); wind = true; }
+    if (t.sim.state === 'over') break;
+  }
+  const r = replay({ seed: 9, secondWind: 'ready', tuning: { bubbleGap: 3 }, inputs: t.sim.inputLog, steps: t.stepIndex });
+  const firstDiff = digests.findIndex((d, k) => d !== r.digests[k]);
+  check('A run using powers and Second Wind replays exactly', firstDiff === -1 && r.digests.length === digests.length && t.sim.stats.powers > 0,
+    `${digests.length} digests, ${landed} landed, ${t.sim.stats.powers} powers used, second wind ${t.sim.stats.secondWind}, first mismatch ${firstDiff === -1 ? 'none' : 'at second ' + (firstDiff + 1)}`);
+  t.dispose();
+}
+
 console.log(failures ? `\n${failures} failing` : '\nall passing');
 (globalThis as any).process.exitCode = failures ? 1 : 0;
