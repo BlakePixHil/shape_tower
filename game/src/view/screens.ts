@@ -5,7 +5,7 @@
 
 import {
   MENU_MODES, avatarPanel, injectUiCss, levelUp, mainMenu, onAction, pauseCard, prewarmUi, profilePanel, readAvatar, readSettings, rewardAt, setXpBar, settingsPanel,
-  showAllXpLines, showXpLine, summaryCard, type SettingGroup, type SettingValue,
+  showAllXpLines, showXpLine, summaryCard, uiIconUrl, type SettingGroup, type SettingValue,
 } from '@art/index.ts';
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
@@ -24,7 +24,7 @@ export interface ScreenSounds {
 
 /** The sound each kit action makes; anything else is a plain tap. */
 const ACTION_SOUND: Record<string, UiSound> = {
-  play: 'start', again: 'start', resume: 'resume', profile: 'open', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
+  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap',
 };
 
@@ -62,14 +62,17 @@ const LAYOUT: SettingGroup[] = [
   ] },
 ];
 
-const CAUSES: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit' };
+const CAUSES: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit', zen: 'Nicely built!' };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const xpOf = (p: Profile) => ({ level: p.level, into: p.xp, need: levelStep(p.level) });
 
 export interface SummaryStats {
+  /** Why it ended: bricks, hearts, quit, or zen (a finished Zen tower). */
   cause: string;
   height: number;
   newBest: boolean;
+  /** The "New best!" chip's text when it isn't Endless's best (Zen keeps its own). */
+  bestLabel?: string;
   /** Highest biome reached, 0 = Meadow (its postcard goes on the card). */
   biome: number;
   checkpoints: number;
@@ -143,21 +146,37 @@ export class Screens {
 
   // ---------------------------------------------------------------- main menu
 
-  menu(o: { profile: Profile; build: string; note?: string; still?: boolean; onPlay(): void; onProfile(): void; onSettings(): void }): void {
+  /**
+   * The main menu: Play is Endless, and the Daily Tower and Zen buttons open at their levels
+   * (gameplay.md §10.3, §12). `subs` replaces a mode's second line (the Daily's state today).
+   */
+  menu(o: {
+    profile: Profile; build: string; note?: string; still?: boolean; subs?: Partial<Record<'daily' | 'zen', string>>;
+    onPlay(): void; onMode(id: 'daily' | 'zen'): void; onProfile(): void; onSettings(): void;
+  }): void {
     const p = o.profile;
-    // Daily Tower and Zen open at their levels but aren't built yet.
-    const modes = MENU_MODES.map(m => (p.level >= (m.unlockAt ?? 0) ? { ...m, sub: 'Coming in the next build' } : m));
+    const modes = MENU_MODES.map(m => {
+      const sub = o.subs?.[m.id as 'daily' | 'zen'];
+      return sub && p.level >= (m.unlockAt ?? 0) ? { ...m, sub } : m;
+    });
     const el = mainMenu({ name: this.playerName, ...xpOf(p), avatar: p.avatar, modes, still: o.still });
     const bottom = el.querySelector('.ui-menu-bottom')!;
     if (o.note) bottom.insertAdjacentHTML('afterbegin', `<div class="sc-testing">${esc(o.note)}</div>`);
     bottom.insertAdjacentHTML('beforeend', `<div class="sc-build">build ${esc(o.build)}</div>`);
-    this.open('menu', el, { play: o.onPlay, profile: o.onProfile, settings: o.onSettings });
+    this.open('menu', el, { play: o.onPlay, daily: () => o.onMode('daily'), zen: () => o.onMode('zen'), profile: o.onProfile, settings: o.onSettings });
   }
 
   // ---------------------------------------------------------------- pause
 
-  pause(o: { onResume(): void; onRestart(): void; onSettings(): void; onQuit(): void }): void {
-    this.open('pause', pauseCard(), { resume: o.onResume, restart: o.onRestart, settings: o.onSettings, quit: o.onQuit });
+  /** The pause card. In Zen, Quit is Finish: it's how a Zen run ends, and it doesn't halve XP (gameplay.md §12). */
+  pause(o: { zen?: boolean; onResume(): void; onRestart(): void; onSettings(): void; onQuit(): void }): void {
+    const el = pauseCard({ quitHalves: !o.zen });
+    if (o.zen) {
+      const quit = el.querySelector('[data-action="quit"]')!;
+      quit.innerHTML = `<img alt="" src="${uiIconUrl('flag', 24)}">Finish`;
+      quit.insertAdjacentHTML('afterend', `<p class="ui-note"><img alt="" src="${uiIconUrl('zen', 16)}">Finish to see your tower and bank its XP</p>`);
+    }
+    this.open('pause', el, { resume: o.onResume, restart: o.onRestart, settings: o.onSettings, quit: o.onQuit });
   }
 
   // ---------------------------------------------------------------- settings
@@ -216,6 +235,8 @@ export class Screens {
     });
     // There's no share sheet yet, so the share button stays out.
     el.querySelector('[data-action="share"]')?.remove();
+    const chip = el.querySelector('.ui-best');
+    if (chip && s.bestLabel) chip.lastChild!.textContent = s.bestLabel;
     this.open('summary', el, { again: o.onAgain, profile: o.onProfile, home: o.onHome });
     const extra = el.querySelector<HTMLElement>('.ui-sum-extra')!;
     if (o.achievements?.length) extra.appendChild(summaryStrip(o.achievements));

@@ -456,6 +456,19 @@ export class Hud {
     this.root.appendChild(hazardCard(type, { still }));
   }
 
+  /** A Zen run starts with a card like a hazard's: what Zen is, and how it ends (gameplay.md §12). */
+  zenCard(still = false): void {
+    const el = document.createElement('div');
+    el.className = `ui ui-hcard${still ? ' ui-still' : ''}`;
+    el.dataset.id = 'zen';
+    el.setAttribute('role', 'status');
+    el.innerHTML = `<div class="ui-hc-title"><img alt="" src="${uiIconUrl('zen', 40)}"><span>Zen mode</span></div>`
+      + '<span class="ui-chip mint">No shapes to count, no hearts to lose</span><span class="ui-chip mint">Pause and tap Finish when you\'re done</span>';
+    el.addEventListener('animationend', e => { if (e.animationName.startsWith('ui-hc')) el.remove(); });
+    setTimeout(() => el.remove(), 5000);
+    this.root.appendChild(el);
+  }
+
   /** The first brittle shape a player sees gets a card like a hazard's (gameplay.md §4.3). */
   brittleCard(shape: string, still = false): void {
     const el = document.createElement('div');
