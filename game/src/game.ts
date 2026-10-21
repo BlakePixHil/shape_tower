@@ -10,6 +10,7 @@ import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, saveProfile
 import { Screens, type UiSound } from './view/screens.ts';
 import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor } from './view/settings.ts';
 import { BUILD, startShell } from './view/shell.ts';
+import { setupNative } from './native.ts';
 
 /** Calls Sound adds in its next module version, made safe until then. */
 type Director = AudioDirector & { setJuice?(on: boolean): void; screen?(name: 'menu' | 'profile' | 'none'): void };
@@ -135,6 +136,18 @@ async function boot(): Promise<void> {
   hud.onHold = () => scene.hold();
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   window.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p') pause(); });
+  // Android's back button: a card's own way back, else pause a run; on the menu the app minimizes.
+  setupNative({
+    onBack() {
+      if (sc.current === 'menu') return false;
+      if (sc.current) {
+        document.querySelector<HTMLElement>(['close', 'resume', 'continue', 'home'].map(a => `.sc-root [data-action="${a}"]`).join(', '))?.click();
+        return true;
+      }
+      pause();
+      return true;
+    },
+  });
 
   function stopSkip(): void {
     if (skipTap) document.removeEventListener('pointerdown', skipTap);

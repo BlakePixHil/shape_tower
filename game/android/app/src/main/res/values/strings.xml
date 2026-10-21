@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Shape Tower</string>
+    <string name="title_activity_main">Shape Tower</string>
+    <string name="package_name">com.blakepixhil.shapetower</string>
+    <string name="custom_url_scheme">com.blakepixhil.shapetower</string>
+</resources>
