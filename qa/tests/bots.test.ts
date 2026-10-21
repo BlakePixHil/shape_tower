@@ -1,4 +1,4 @@
-// Bot soak, qa-section.md F3.9: stacking bots play whole runs of the real game (auto spawn, real
+// Bot soak, qa-section.md F3.11: stacking bots play whole runs of the real game (auto spawn, real
 // rules, Mortar on and off). The sim must never throw, and every run ends by the rules.
 import { describe, expect, it } from 'vitest';
 import { FULL, loadSim } from '../src/adapters/index';
@@ -9,10 +9,10 @@ import { writeReport } from '../src/report';
 
 const sut = await loadSim();
 const game = await loadGameApi(sut);
-const soakBug = knownIssue('F3.9 bots', sut);
+const soakBug = knownIssue('F3.11 bots', sut);
 
 describe.runIf(game)(`bots on ${sut.kind} (${sut.engine})`, () => {
-  (soakBug ? it.fails : it)(`F3.9 bots play whole runs with Mortar on and off and the sim never throws${soakBug ? ` (known bug ${soakBug.id})` : ''}`, () => {
+  (soakBug ? it.fails : it)(`F3.11 bots play whole runs with Mortar on and off and the sim never throws${soakBug ? ` (known bug ${soakBug.id})` : ''}`, () => {
     const { api, shapes } = game!;
     // The fast set runs past the first Solid Rows and claim of two runs; the full set plays 16
     // runs to the end (or 5 minutes).

@@ -42,13 +42,14 @@ The merge gate is `qa/scripts/gate.sh [checkout]`: every module's own checks (ga
 | `src/game-api.ts` | Direct access to the game's own modules, for suites that test game rules rather than the physics contract |
 | `tests/guide.test.ts` | G1 to G6, G8 and G11 |
 | `tests/physics.test.ts` | F3.1 to F3.8: towers, creep, tunnelling, explosions, sleeping, determinism, stone |
-| `tests/bots.test.ts` | F3.9: bots play whole runs, Mortar on and off, and the sim never throws |
+| `tests/bots.test.ts` | F3.11: bots play whole runs, Mortar on and off, and the sim never throws |
 | `tests/powers.test.ts` | F18: each power-up and its refusal, bubbles, picks, grants, Second Wind, physics under powers, rule checks over bot runs, replays with powers |
 | `tests/harness.test.ts` | Proves the harness catches a lying guide, a falling tower and a nondeterministic sim |
 | `scripts/run-story.ts` | Replays a run record from a phone, checks its digests against Node, and prints each landing with the ghost the player saw, losses, hearts, bond breaks, power-ups and Second Wind |
 | `scripts/cross-build.ts` | Records bot runs on one build and replays them on another, to check that a change leaves earlier runs step for step the same |
 | `scripts/replay-child.ts` | Replays run records in a fresh process (F18.13) |
 | `scripts/gate.sh` | The merge gate: every module's checks plus the fast set on one checkout |
+| `scripts/ui-second-wind.mjs` | Drives a built game in headless Chromium and checks Second Wind in the HUD: two-tap arming, the glow, no pop-up at pause or game over, the greyed state, the day's free one |
 
 ## Conventions
 
