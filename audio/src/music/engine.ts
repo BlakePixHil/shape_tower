@@ -491,17 +491,20 @@ export class MusicEngine {
     if (!band) return;
     const next = this.nextStop();
     const nb = this.bandFor(next.biome, next.checkpoint);
-    this.warmBand(band);
-    this.warm(`${band.id}>${nb.theme.style.lead}`, () => risers(band.theme, nb.theme.style));
+    // The playing band and its riser are asked for every time, even once baked: that marks their notes as
+    // recently used, so the next band baking can't evict the ones not played yet (a busier groove's percussion).
+    this.warmBand(band, true);
+    this.warm(`${band.id}>${nb.theme.style.lead}`, () => risers(band.theme, nb.theme.style), true);
     if (nb.id !== band.id) this.warmBand(nb);
   }
 
-  private warmBand(b: Band): void {
-    this.warm(b.id, () => [...b.theme.notes(), ...risers(b.theme, b.theme.style)]);
+  private warmBand(b: Band, again = false): void {
+    this.warm(b.id, () => [...b.theme.notes(), ...risers(b.theme, b.theme.style)], again);
   }
 
-  private warm(id: string, items: () => NoteRequest[]): void {
-    if (this.warmed.has(id)) return;
+  private warm(id: string, items: () => NoteRequest[], again = false): void {
+    if (this.warmed.has(id) && !again) return;
+    this.warmed.delete(id);
     this.warmed.add(id);
     // forget old bands, so one evicted from the note cache gets baked again on its return
     if (this.warmed.size > 6) this.warmed.delete(this.warmed.values().next().value!);
