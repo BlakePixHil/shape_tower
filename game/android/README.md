@@ -27,5 +27,9 @@ an upload key made when the Play developer account exists.
 - `src/native.ts` (game side): hides the status bar and maps the back button to pause, close a card,
   or minimize from the main menu.
 - Haptics come from `@capacitor/haptics`, which Sound's haptics module picks up on its own.
-- Icons and splash screens are baked from Art's brand art: `node scripts/bake-native-assets.mjs`.
+- Icons and the launch screen are baked from Art's brand art: `node scripts/bake-native-assets.mjs`.
+  The launch screen (`res/drawable/splash.xml`, written by that script) is the same picture as the game
+  page's loading splash (`assets/splash/layout.css`): the Meadow sky, clouds, hills and the menu's logo.
+  `MainActivity` keeps it behind a see-through web view until the page's splash has painted over it,
+  then `LaunchSplashPlugin.hide()` (called from `src/native.ts`) clears it, so there's never a blank frame.
 - Portrait only.

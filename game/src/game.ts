@@ -15,6 +15,7 @@ import { ENDLESS, type RunMode } from './view/modes.ts';
 import { BUILD, startShell } from './view/shell.ts';
 import { TrophyToasts } from './view/trophies.ts';
 import { setupNative } from './native.ts';
+import { splashDone, splashFailed } from './view/splash.ts';
 
 /** Calls Sound adds in its next module version, made safe until then. */
 type Director = AudioDirector & { setJuice?(on: boolean): void; screen?(name: 'menu' | 'profile' | 'none'): void };
@@ -278,4 +279,4 @@ async function boot(): Promise<void> {
   home();
 }
 
-void boot();
+boot().then(splashDone, splashFailed);

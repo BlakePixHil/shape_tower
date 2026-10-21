@@ -1,0 +1,12 @@
+/* The web splash's layout, made by scripts/bake-native-assets.mjs: don't edit. android/.../drawable/splash.xml is its twin. */
+#splash .sp-sky { background: linear-gradient(#6EC3FF, #A9DEFF 60%, #E4F7FF); }
+#splash .sp-logo { left: calc(50% - 163px); top: calc(50% - 121px); width: 326px; height: 130px; }
+#splash .sp-cloud-0 { left: 20px; top: 140px; width: 100px; height: 59.1px; }
+#splash .sp-cloud-1 { right: 22px; top: 236px; width: 70px; height: 41.4px; }
+#splash .sp-cloud-2 { right: 48px; bottom: 196px; width: 86px; height: 50.8px; }
+#splash .sp-hills { height: 150px; }
+#splash .sp-stack { left: calc(50% - 50px); top: calc(50% + 190px - 140px); width: 100px; height: 140px; }
+#splash .sp-p0 { left: -2.4px; bottom: -2.4px; width: 104.8px; height: 24.8px; }
+#splash .sp-p1 { left: 27.6px; bottom: 17.6px; width: 44.8px; height: 44.8px; }
+#splash .sp-p2 { left: 17.6px; bottom: 57.6px; width: 64.8px; height: 44.8px; }
+#splash .sp-p3 { left: 37.6px; bottom: 97.6px; width: 24.8px; height: 44.8px; }

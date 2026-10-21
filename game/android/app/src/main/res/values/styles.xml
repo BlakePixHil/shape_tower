@@ -17,8 +17,10 @@
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
-        <!-- Android 12 and later show the icon on the Meadow sky instead of the full splash. -->
+        <!-- The launch screen (drawable/splash, made by scripts/bake-native-assets.mjs) is the window's
+             background; MainActivity keeps it up until the game's splash has painted the same picture. -->
+        <item name="android:windowBackground">@drawable/splash</item>
+        <!-- Android 12 and later show the icon on the Meadow sky first. -->
         <item name="windowSplashScreenBackground">#8EC8FF</item>
         <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
     </style>

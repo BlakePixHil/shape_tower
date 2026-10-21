@@ -1,0 +1,83 @@
+/* The loading splash (game.html #splash, handed over to the menu by splash.ts). Its layout and art
+   are baked from Art's kit by scripts/bake-native-assets.mjs, together with the phone app's launch
+   screen, which shows the same picture until this one paints. Every motion here is transform or
+   opacity, so it keeps moving on the compositor while the game's first bakes hold the main thread. */
+@import '../../assets/splash/layout.css';
+
+#splash { position: fixed; inset: 0; z-index: 1000; overflow: hidden; }
+#splash.out { pointer-events: none; }
+#splash .sp-sky { position: absolute; inset: 0; }
+#splash img, #splash .sp-logo, #splash .sp-stack { position: absolute; display: block; -webkit-user-drag: none; }
+#splash .sp-hills { left: 0; bottom: 0; width: 100%; }
+#splash .sp-logo img { position: static; width: 100%; height: 100%; }
+/* Unseen words in the game's fonts, so they start loading with the first paint, not once the script runs. */
+#splash .sp-fonts { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; }
+#splash .sp-fonts b { font: 700 12px Fredoka, sans-serif; }
+#splash .sp-fonts i { font: 600 12px Fredoka, sans-serif; }
+#splash .sp-fonts u { font: 700 12px Nunito, sans-serif; }
+
+/* Alive while it waits: the logo bobs, the clouds drift, and Blocklings stack up on a plank, hop, pop
+   and start again (one round is 2.4 s). The first frame is the launch screen's picture. */
+#splash .sp-logo img { animation: sp-bob 2.4s ease-in-out infinite; }
+#splash .sp-cloud { animation: sp-drift 9s ease-in-out infinite; }
+#splash .sp-cloud-1 { animation-duration: 12s; animation-direction: reverse; }
+#splash .sp-cloud-2 { animation-duration: 10s; }
+#splash .sp-p0 { transform-origin: 50% 90%; animation: sp-plank 420ms cubic-bezier(.3,1.8,.5,1) both; }
+#splash .sp-p1, #splash .sp-p2, #splash .sp-p3 { opacity: 0; transform-origin: 50% 94%; }
+#splash .sp-p1 { animation: sp-drop1 2.4s linear infinite both; }
+#splash .sp-p2 { animation: sp-drop2 2.4s linear infinite both; }
+#splash .sp-p3 { animation: sp-drop3 2.4s linear infinite both; }
+
+@keyframes sp-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes sp-drift { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(16px); } }
+@keyframes sp-plank { 0% { transform: scale(0.3, 0.2); opacity: 0; } 100% { transform: none; opacity: 1; } }
+
+/* Each piece: appears above its spot, falls (ease-in), squashes on landing, settles; then the stack
+   hops together at 74% and pops away by 96%. Only the fall's start and landing differ. */
+@keyframes sp-drop1 {
+  0%, 4% { opacity: 0; transform: translateY(-48px); animation-timing-function: linear; }
+  6% { opacity: 1; transform: translateY(-46px); animation-timing-function: cubic-bezier(.5,0,1,.6); }
+  14% { opacity: 1; transform: translateY(0) scale(1.18, 0.78); animation-timing-function: ease-out; }
+  18% { transform: translateY(-2px) scale(0.94, 1.07); }
+  22%, 74% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(.3,0,.5,1); }
+  79% { transform: translateY(-10px) scale(0.95, 1.06); animation-timing-function: cubic-bezier(.5,0,1,.6); }
+  84% { transform: translateY(0) scale(1.1, 0.9); }
+  88% { opacity: 1; transform: scale(1.14); animation-timing-function: ease-in; }
+  95%, 100% { opacity: 0; transform: scale(0); }
+}
+@keyframes sp-drop2 {
+  0%, 24% { opacity: 0; transform: translateY(-48px); animation-timing-function: linear; }
+  26% { opacity: 1; transform: translateY(-46px); animation-timing-function: cubic-bezier(.5,0,1,.6); }
+  34% { opacity: 1; transform: translateY(0) scale(1.18, 0.78); animation-timing-function: ease-out; }
+  38% { transform: translateY(-2px) scale(0.94, 1.07); }
+  42%, 74% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(.3,0,.5,1); }
+  79% { transform: translateY(-10px) scale(0.95, 1.06); animation-timing-function: cubic-bezier(.5,0,1,.6); }
+  84% { transform: translateY(0) scale(1.1, 0.9); }
+  88% { opacity: 1; transform: scale(1.14); animation-timing-function: ease-in; }
+  95%, 100% { opacity: 0; transform: scale(0); }
+}
+@keyframes sp-drop3 {
+  0%, 44% { opacity: 0; transform: translateY(-48px); animation-timing-function: linear; }
+  46% { opacity: 1; transform: translateY(-46px); animation-timing-function: cubic-bezier(.5,0,1,.6); }
+  54% { opacity: 1; transform: translateY(0) scale(1.18, 0.78); animation-timing-function: ease-out; }
+  58% { transform: translateY(-2px) scale(0.94, 1.07); }
+  62%, 74% { opacity: 1; transform: none; animation-timing-function: cubic-bezier(.3,0,.5,1); }
+  79% { transform: translateY(-10px) scale(0.95, 1.06); animation-timing-function: cubic-bezier(.5,0,1,.6); }
+  84% { transform: translateY(0) scale(1.1, 0.9); }
+  88% { opacity: 1; transform: scale(1.14); animation-timing-function: ease-in; }
+  95%, 100% { opacity: 0; transform: scale(0); }
+}
+
+/* Leaving (splash.ts glides the logo and fades the sky): the stack pops. */
+#splash.out .sp-stack { transform-origin: 50% 100%; animation: sp-stack-out 220ms ease-in both; }
+@keyframes sp-stack-out { 0% { transform: none; } 40% { transform: scale(1.12); } 100% { transform: scale(0); opacity: 0; } }
+
+/* Reduce Motion: a built tower and still clouds; splash.ts fades it out without the glide. */
+@media (prefers-reduced-motion: reduce) {
+  #splash *, #splash.out .sp-stack { animation: none !important; }
+  #splash .sp-p1, #splash .sp-p2, #splash .sp-p3 { opacity: 1; }
+}
+
+/* The game didn't start: say so, and a tap tries again. */
+#splash .sp-retry { position: absolute; left: 50%; top: calc(50% + 200px); transform: translateX(-50%); padding: 10px 18px; border: 3px solid var(--ink);
+  border-radius: 14px; background: #FFF7E8; box-shadow: 0 4px 0 var(--ink); color: var(--ink); font: 700 16px/1.2 Fredoka, system-ui, sans-serif; white-space: nowrap; }
