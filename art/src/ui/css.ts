@@ -389,6 +389,54 @@ export function uiCss(): string {
 .ui-ach-tier.bronze { background: #F2B98A; } .ui-ach-tier.silver { background: #E6EBF3; } .ui-ach-tier.gold { background: var(--gold); }
 .ui-ach-tier.platinum { background: linear-gradient(90deg, #FFD3F1, #D2F8FF); }
 
+/* The bag (replaces the Hold card): the game's preview canvas sits in .ui-bag-slot, between the sack's back and front */
+.ui-bag { position: relative; width: var(--s, 64px); height: var(--s, 64px); padding: 0; margin: 0; border: 0; background: none; cursor: pointer; touch-action: manipulation;
+  filter: drop-shadow(0 3px 0 rgba(34,24,58,0.35)); transition: transform 90ms, opacity 200ms, filter 200ms; }
+.ui-bag:active { transform: translateY(2px) scale(0.97); }
+.ui-bag > img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.ui-bag-slot { position: absolute; left: 8%; top: 1%; width: 84%; height: 66%; pointer-events: none; }
+.ui-bag-slot > canvas, .ui-bag-slot > img { position: absolute; inset: 0; width: 100% !important; height: 100% !important; object-fit: contain; }
+.ui-bag.empty .ui-bag-slot { visibility: hidden; }
+.ui-bag.used { opacity: 0.55; filter: grayscale(0.6); }
+.ui-bag.locked { filter: grayscale(1) opacity(0.65); cursor: default; }
+.ui-bag-lock { display: none; position: absolute; left: 50%; top: 22%; transform: translateX(-50%); align-items: center; gap: 2px; background: var(--paper);
+  border: 2px solid var(--ink); border-radius: 8px; padding: 1px 5px 1px 3px; font: 700 12px/1 var(--display); white-space: nowrap; }
+.ui-bag.locked .ui-bag-lock { display: inline-flex; }
+.ui-bag-lock img { width: 14px; height: 14px; }
+.ui-bag.swap .ui-bag-back, .ui-bag.swap .ui-bag-front { animation: ui-bag-squash 380ms ease-out; transform-origin: 50% 95%; }
+.ui-bag.swap .ui-bag-slot { animation: ui-bag-in 380ms cubic-bezier(.3,1.6,.5,1); }
+
+/* Shapes left: the counter, the banners and the red edge */
+.ui-shapes { display: inline-flex; align-items: center; gap: 4px; font: 700 16px/1 var(--display); background: var(--paper); border: 3px solid var(--ink); border-radius: 12px;
+  box-shadow: 0 3px 0 var(--ink); padding: 3px 9px 3px 5px; font-variant-numeric: tabular-nums; transition: background-color 200ms, color 200ms; }
+.ui-shapes img { width: 20px; height: 20px; }
+.ui-shapes-pips { display: none; gap: 3px; margin-left: 3px; }
+.ui-shapes.low .ui-shapes-pips { display: inline-flex; }
+.ui-shapes-pips i { width: 9px; height: 11px; border: 2px solid var(--ink); border-radius: 3px; background: rgba(34,24,58,0.38); }
+.ui-shapes-pips i.on { background: #fff; }
+.ui-shapes-pips i.pop { animation: ui-sh-pop 420ms ease-out; }
+.ui-shapes.low { background: var(--amber); }
+.ui-shapes.alert { background: var(--danger); color: #fff; font-size: 19px; animation: ui-sh-alarm 1s ease-out infinite; }
+.ui-shapes.alert b { -webkit-text-stroke: 2.5px var(--ink); paint-order: stroke fill; }
+.ui-shapes.bump { animation: ui-sh-bump 420ms ease-out; }
+.ui-shapes.alert.bump { animation: ui-sh-bump 420ms ease-out, ui-sh-alarm 1s ease-out 420ms infinite; }
+.ui-shapes.out { background: #8E1F35; animation: none; }
+.ui-salert { position: fixed; left: 0; right: 0; top: var(--top, 24%); z-index: 17; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.ui-salert.soft { animation: ui-sa-soft 2.2s ease-in-out both; }
+.ui-salert.soft .ui-chip { font-size: 17px; padding: 5px 12px 5px 7px; }
+.ui-salert.soft .ui-chip img { width: 22px; height: 22px; }
+.ui-salert.hard { animation: ui-sa-hard 2.6s ease-in-out both; }
+.ui-salert.out { animation: ui-sa-hard 3s ease-in-out both; }
+.ui-sa-title { display: flex; align-items: center; gap: 6px; font: 700 36px/1 var(--display); color: var(--danger); -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill;
+  letter-spacing: 0.03em; white-space: nowrap; animation: ui-sa-shake 520ms ease-out 120ms both; }
+.ui-sa-title img { width: 40px; height: 40px; }
+.ui-salert.out .ui-sa-title { font-size: 31px; background: var(--danger); color: #fff; border: 4px solid var(--ink); border-radius: 16px; padding: 8px 14px 8px 10px; box-shadow: 0 5px 0 var(--ink);
+  animation: ui-sa-stamp 420ms cubic-bezier(.3,1.5,.5,1) both; transform: rotate(-5deg); }
+.ui-salert .ui-chip { font-size: 15px; padding: 5px 12px; }
+.ui-sa-flash { position: fixed; inset: 0; box-shadow: inset 0 0 70px 24px rgba(255,77,109,0.85); animation: ui-sa-flash 900ms ease-out both; }
+.ui-edge { position: fixed; inset: 0; z-index: 14; pointer-events: none; box-shadow: inset 0 0 48px 12px rgba(255,77,109,0.7); opacity: 0; transition: opacity 400ms; }
+.ui-edge.on { opacity: 1; animation: ui-edge 1.2s ease-in-out infinite alternate; }
+
 @keyframes ui-fade { from { opacity: 0; } }
 @keyframes ui-pop { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.04); opacity: 1; } 100% { transform: scale(1); } }
 @keyframes ui-rise { 0% { transform: translateY(40px); opacity: 0; } 100% { transform: none; opacity: 1; } }
@@ -425,24 +473,38 @@ export function uiCss(): string {
 @keyframes ui-at-fade { 0%, 100% { opacity: 0; } 10%, 86% { opacity: 1; } }
 @keyframes ui-at-stamp { 0% { transform: scale(1.8) rotate(-14deg); opacity: 0; } 60% { transform: scale(0.9) rotate(3deg); opacity: 1; } 100% { transform: none; opacity: 1; } }
 @keyframes ui-at-spark { 0% { transform: scale(0) rotate(-30deg); opacity: 0; } 35% { transform: scale(1.2) rotate(10deg); opacity: 1; } 100% { transform: scale(0.2) rotate(40deg); opacity: 0; } }
+@keyframes ui-bag-squash { 0%, 100% { transform: none; } 30% { transform: scale(1.1, 0.88); } 60% { transform: scale(0.96, 1.05); } }
+@keyframes ui-bag-in { 0% { transform: translateY(-40%) scale(0.6); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes ui-sh-pop { 0% { transform: scale(1.7); background: #fff; } 100% { transform: none; } }
+@keyframes ui-sh-bump { 0%, 100% { transform: none; } 20% { transform: scale(1.18) rotate(-5deg); } 45% { transform: scale(0.96) rotate(4deg); } 70% { transform: scale(1.04) rotate(-2deg); } }
+@keyframes ui-sh-alarm { 0% { box-shadow: 0 3px 0 var(--ink), 0 0 0 0 rgba(255,77,109,0.75); } 100% { box-shadow: 0 3px 0 var(--ink), 0 0 0 12px rgba(255,77,109,0); } }
+@keyframes ui-sa-soft { 0% { opacity: 0; transform: translateY(-18px) scale(0.9); } 12% { opacity: 1; transform: none; } 85% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-10px); } }
+@keyframes ui-sa-hard { 0% { opacity: 0; transform: scale(1.6); } 10% { opacity: 1; transform: scale(0.95); } 16% { transform: none; } 88% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-12px); } }
+@keyframes ui-sa-fade { 0%, 100% { opacity: 0; } 8%, 86% { opacity: 1; } }
+@keyframes ui-sa-shake { 0%, 100% { transform: none; } 15% { transform: translateX(-9px) rotate(-3deg); } 30% { transform: translateX(8px) rotate(3deg); } 45% { transform: translateX(-6px) rotate(-2deg); } 60% { transform: translateX(4px) rotate(1deg); } 75% { transform: translateX(-2px); } }
+@keyframes ui-sa-stamp { 0% { transform: rotate(-5deg) scale(2.2); opacity: 0; } 60% { transform: rotate(-5deg) scale(0.92); opacity: 1; } 100% { transform: rotate(-5deg); opacity: 1; } }
+@keyframes ui-sa-flash { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes ui-edge { from { opacity: 0.45; } to { opacity: 1; } }
 
-/* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard, biome and achievement cards fade in and out. */
-.ui-still:not(.ui-hcard):not(.ui-btitle):not(.ui-achtoast), .ui-still *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+/* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard, biome and achievement cards and the shapes banner fade in and out. */
+.ui-still:not(.ui-hcard):not(.ui-btitle):not(.ui-achtoast):not(.ui-salert), .ui-still *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 .ui-still .ui-confetti, .ui-still .ui-rays { display: none; }
 .ui-hcard.ui-still { animation-name: ui-hc-fade; }
 .ui-btitle.ui-still { animation-name: ui-btc-fade; }
 .ui-btitle.ui-still.stay { animation-name: ui-fade; animation-duration: 300ms; }
 .ui-achtoast.ui-still { animation-name: ui-at-fade; }
 .ui-achtoast.ui-still.stay { animation-name: ui-fade; animation-duration: 300ms; }
+.ui-salert.ui-still { animation-name: ui-sa-fade; }
 .ui-still .ui-at-badge i { display: none; }
 @media (prefers-reduced-motion: reduce) {
-  .ui:not(.ui-hcard):not(.ui-btitle):not(.ui-achtoast), .ui *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+  .ui:not(.ui-hcard):not(.ui-btitle):not(.ui-achtoast):not(.ui-salert), .ui *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
   .ui .ui-confetti, .ui .ui-rays { display: none; }
   .ui-hcard { animation-name: ui-hc-fade; }
   .ui-btitle { animation-name: ui-btc-fade; }
   .ui-btitle.stay { animation-name: ui-fade; animation-duration: 300ms; }
   .ui-achtoast { animation-name: ui-at-fade; }
   .ui-achtoast.stay { animation-name: ui-fade; animation-duration: 300ms; }
+  .ui-salert { animation-name: ui-sa-fade; }
   .ui .ui-at-badge i { display: none; }
 }
 `;
