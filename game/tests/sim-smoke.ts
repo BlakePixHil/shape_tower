@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { Box2DEngine } from '../src/sim/engine/box2d.ts';
 import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { createSim, replay, restore } from '../src/sim/testApi.ts';
-import { DEFAULT_TUNING } from '../src/sim/tuning.ts';
+import { DEFAULT_TUNING, gustFor } from '../src/sim/tuning.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -666,6 +666,25 @@ function twoClaims(t: ReturnType<typeof createSim>): Record<string, any>[] {
   const firstDiff = digests.findIndex((d, k) => d !== r.digests[k]);
   check('A run with gusts replays exactly', firstDiff === -1 && r.digests.length === digests.length && t.sim.stats.gusts > 0, `${digests.length} digests, ${t.sim.stats.gusts} gusts, first mismatch ${firstDiff === -1 ? 'none' : 'at second ' + (firstDiff + 1)}`);
   t.dispose();
+}
+
+// Gust periods (QA-008): start to start, each within §8.2's interval × 0.85 to 1.15 when nothing
+// holds them back (no checkpoint to hold in this sandbox).
+for (const cp of [3, 6]) {
+  const t = createSim({ seed: 5, tuning: { firstGap: 1000, gapCap: 1000, infiniteBudget: true, infiniteHearts: true, powerUps: false } });
+  t.sim.checkpoint = cp;
+  const startsAt: number[] = [];
+  for (let i = 0; i < 60 * 200; i++) {
+    t.step();
+    for (const e of t.drainEvents()) if (e.name === 'hazard_start') startsAt.push(e.step);
+  }
+  t.dispose();
+  const interval = gustFor(cp)!.interval;
+  const periods = startsAt.slice(1).map((s, k) => (s - startsAt[k]) / 60);
+  const mean = periods.reduce((a, b) => a + b, 0) / Math.max(1, periods.length);
+  const inBand = periods.every(p => p >= interval * 0.85 - 0.02 && p <= interval * 1.15 + 0.02);
+  check(`Gusts at checkpoint ${cp} come every ${interval} s, start to start`, periods.length >= 8 && inBand && Math.abs(mean - interval) < interval * 0.08,
+    `${periods.length} periods, mean ${mean.toFixed(1)} s, range ${Math.min(...periods).toFixed(1)} to ${Math.max(...periods).toFixed(1)} s`);
 }
 
 // A gust pushes the tower: a loose O resting on the plinth slides with the wind, the same O with

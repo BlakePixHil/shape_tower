@@ -61,6 +61,7 @@ async function boot(): Promise<void> {
 
   // ------------------------------------------------------------------ flow
 
+  let menuShown = false;
   function home(): void {
     stopSkip();
     showHud(false);
@@ -69,11 +70,13 @@ async function boot(): Promise<void> {
     audio()?.screen?.('menu');
     sc.menu({
       profile, build: BUILD,
+      still: menuShown || settings.reduceMotion, // the logo drops in once per visit
       onPlay: play,
       onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home); },
       onSettings: () => { audio()?.screen?.('profile'); openSettings(home); },
       note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
     });
+    menuShown = true;
   }
 
   function play(): void {
@@ -124,6 +127,7 @@ async function boot(): Promise<void> {
   hud.pauseBtn.onclick = pause;
   hud.onPower = slot => scene.usePower(slot);
   hud.onSecondWind = () => scene.useSecondWind();
+  hud.onHold = () => scene.hold();
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
   window.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p') pause(); });
 
@@ -160,7 +164,7 @@ async function boot(): Promise<void> {
       stopSkip();
       sc.summary({
         stats: {
-          cause: sim.cause ?? '', height, newBest: a.lines.some(l => l[0] === 'New best'), biome: scene.biomeName(),
+          cause: sim.cause ?? '', height, newBest: a.lines.some(l => l[0] === 'New best'), biome: biome - 1,
           checkpoints: sim.stats.checkpoints, perfects: sim.stats.perfects, rows: sim.stats.rows, clutches: sim.stats.clutches, score: sim.score,
         },
         award: a,
