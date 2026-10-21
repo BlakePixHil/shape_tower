@@ -18,8 +18,9 @@ await page.addInitScript(() => {
   const writes = (window.__dbWrites = []);
   const doc = (col, id = Math.random().toString(36).slice(2)) => ({ set: async d => { writes.push({ op: 'set', path: `${col}/${id}`, data: d }); }, update: async () => {} });
   window.claude = { use: async name => (name === 'db' ? { collection: col => ({ doc: id => doc(col, id) }) } : null) };
-  // Bubbles every 2 shapes so the check sees several; infinite bricks so the run lasts.
-  localStorage.setItem('shape-tower-lab-v1', JSON.stringify({ tuning: { bubbleGap: 2, infiniteBudget: true }, view: {} }));
+  // Bubbles every 2 shapes so the check sees several; infinite bricks and hearts so the run lasts
+  // (the bot loses shapes chasing bubbles beside the foundation).
+  localStorage.setItem('shape-tower-lab-v1', JSON.stringify({ tuning: { bubbleGap: 2, infiniteBudget: true, infiniteHearts: true }, view: {} }));
 });
 await page.goto(url);
 await page.waitForSelector('.st-panel', { timeout: 20000 });
@@ -61,7 +62,7 @@ while (Date.now() - t0 < 100_000) {
     break;
   }
   if (s.placed >= 18 && s.wind === 'ready' && !shots['wind-armed']) {
-    await page.click('[data-id="wind"]');
+    await page.click('[data-id="wind"]', { force: true }); // it pulses when ready too
     await page.waitForTimeout(120);
     await shot('wind-armed');
     await page.click('[data-id="wind"]', { force: true }); // it pulses while armed, so never "stable"
@@ -78,5 +79,14 @@ await shot('results');
 const rec = await sim(() => window.__dbWrites.find(w => w.op === 'set' && w.data.kind === 'run')?.data ?? null);
 if (rec) writeFileSync(`${out}/run-record.json`, JSON.stringify(rec));
 const counts = rec ? rec.inputs.reduce((a, i) => { a[i.i.type] = (a[i.i.type] ?? 0) + 1; return a; }, {}) : null;
-console.log(JSON.stringify({ tapped: [...tapped], used, end: { wind: end.wind, slots: end.slots, placed: end.placed, hearts: end.hearts }, record: rec && { secondWind: rec.secondWind, steps: rec.steps, powers: rec.stats.powers, usedWind: rec.stats.secondWind, inputs: counts }, errors: errors.slice(0, 10) }, null, 1));
+// Fails on what must always happen: a power used through the HUD, Second Wind used, a run record
+// saved, no page errors. Which kinds the bubbles dealt is luck, so missing kinds are only reported.
+const failed = [
+  ...(used.some(u => u.emptied) ? [] : ['no power used from the HUD']),
+  ...(shots['wind-used'] ? [] : ['Second Wind not used']),
+  ...(rec ? [] : ['no run record saved']),
+  ...(errors.length ? ['page errors'] : []),
+];
+console.log(JSON.stringify({ failed, tapped: [...tapped], missing: ['glue', 'slowmo', 'undo', 'quickset', 'clean'].filter(k => !tapped.has(k)), used, end: { wind: end.wind, slots: end.slots, placed: end.placed, hearts: end.hearts }, record: rec && { secondWind: rec.secondWind, steps: rec.steps, powers: rec.stats.powers, usedWind: rec.stats.secondWind, inputs: counts }, errors: errors.slice(0, 10) }, null, 1));
 await browser.close();
+if (failed.length) process.exitCode = 1;
