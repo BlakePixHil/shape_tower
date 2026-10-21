@@ -8,10 +8,17 @@ import {
   biquad, trimTail, alloc, type Rng, TAU,
 } from './dsp';
 import type { Material } from '../types';
+import { BAND, BAND_RATE, renderBandNote, type BandInstrument } from './band';
 
 export type InstrumentId =
   | 'marimba' | 'kalimba' | 'glassBell' | 'pluck' | 'wobble' | 'vibes' | 'celesta'
-  | 'whistle' | 'bellLow' | 'clonk' | 'gong' | 'twang';
+  | 'whistle' | 'bellLow' | 'clonk' | 'gong' | 'twang'
+  | BandInstrument;
+
+/** Fraction of the context's sample rate a note bakes at: the band's instruments use half. */
+export function instrumentRate(inst: InstrumentId): number {
+  return (BAND as readonly string[]).includes(inst) ? BAND_RATE : 1;
+}
 
 export const MATERIAL_INSTRUMENT: Record<Material, { inst: InstrumentId; octave: number }> = {
   wood: { inst: 'marimba', octave: 0 },
@@ -29,6 +36,9 @@ export function renderNote(inst: InstrumentId, midi: number, sr: number, rng: Rn
   const f = midiToHz(midi);
   let y: Float32Array;
   switch (inst) {
+    default:
+      y = renderBandNote(inst, midi, sr, rng);
+      break;
     case 'marimba': {
       const n = Math.round(sr * 1.1);
       const ex = burst(sr, rng, 2.2, 5000, n);

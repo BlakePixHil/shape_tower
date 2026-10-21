@@ -166,6 +166,18 @@ input[type="checkbox"] { accent-color: var(--violet); width: 18px; height: 18px;
 .chip small { font: 700 0.68rem/1.2 var(--body); color: var(--ink-soft); overflow-wrap: anywhere; }
 .chip[aria-pressed="true"] { background: var(--gold); }
 
+/* the soundtrack */
+.band { display: grid; gap: 16px; }
+.layers { display: flex; flex-wrap: wrap; gap: 8px; }
+.layer {
+  border: 2px solid var(--ink); border-radius: 999px; padding: 4px 12px; background: var(--paper);
+  font: 700 0.85rem var(--body); color: var(--ink-soft); transition: background 0.2s;
+}
+.layer b { font-family: var(--display); color: var(--ink); margin-right: 6px; }
+.layer.on { background: var(--mint); color: var(--ink); }
+#band-read { font-variant-numeric: tabular-nums; }
+.band .danger-ctl input { accent-color: var(--violet); }
+
 /* moments */
 .moments { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
 .moment { text-align: left; display: grid; gap: 4px; align-content: start; padding: 12px 14px; background: var(--paper); }
@@ -253,11 +265,43 @@ input[type="checkbox"] { accent-color: var(--violet); width: 18px; height: 18px;
     </div>
   </section>
 
+  <section class="panel" aria-labelledby="band-h">
+    <div class="band">
+      <div style="display:grid;gap:6px">
+        <h2 id="band-h">The soundtrack</h2>
+        <p class="soft">Every biome has its own band playing a 32-bar theme at 100 BPM, in three variations. Layers join and leave on bar lines as the run changes. Pick a biome above and the new band takes over at the next bar line.</p>
+      </div>
+      <div class="btnrow">
+        <button class="btn perfect" id="band-play" type="button" aria-pressed="false">Play the band</button>
+        <button class="btn" id="band-groove" type="button">Settle 5 shapes</button>
+        <button class="btn" id="band-claim" type="button">Claim a checkpoint</button>
+      </div>
+      <div class="layers" id="band-layers"></div>
+      <p class="soft" id="band-read">Not playing</p>
+      <div class="danger-ctl">
+        <h3>Distance to the next checkpoint</h3>
+        <p class="soft">The lead joins for the last 25%, and the riser for the last 15%, previewing the next biome's lead. A streak of 4 clean landings (above) brings the lead in too. Tower tension (below) fades in the tension layer, and above 0.60 it takes over from the lead.</p>
+        <div class="tension-read"><span id="band-progress-val">0%</span></div>
+        <input id="band-progress" type="range" min="0" max="100" value="0" aria-label="Distance to the next checkpoint">
+        <div class="scale" aria-hidden="true"><span style="left:0;transform:none">0%</span><span style="left:75%">75% lead</span><span style="left:85%;transform:none">85% riser</span></div>
+      </div>
+      <h3>Outside a run</h3>
+      <div class="btnrow">
+        <button class="btn" id="screen-menu" type="button">Title lullaby</button>
+        <button class="btn" id="screen-profile" type="button">Profile</button>
+        <button class="btn" id="screen-results" type="button">Results loop</button>
+        <button class="btn" id="screen-none" type="button">Stop</button>
+      </div>
+    </div>
+  </section>
+
   <section class="panel" aria-labelledby="mix-h">
     <div style="display:grid;gap:14px">
       <h2 id="mix-h">Listening</h2>
       <div class="controls">
         <label for="vol-sfx">Effects <input id="vol-sfx" type="range" min="0" max="100" value="100"></label>
+        <label for="vol-music">Music <input id="vol-music" type="range" min="0" max="100" value="80"></label>
+        <label for="juice"><input id="juice" type="checkbox" checked> Juice</label>
         <label for="amb"><input id="amb" type="checkbox"> Ambience bed</label>
         <label for="mono"><input id="mono" type="checkbox"> Mono</label>
         <label for="calm"><input id="calm" type="checkbox"> Calm mode</label>

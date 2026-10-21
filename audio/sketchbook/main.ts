@@ -163,10 +163,25 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: 'Shape voices', hue: 'plank', blurb: 'Gibberish, so nothing needs translating. One every 4 seconds at most, on their own slider. Each shape has its own pitch.',
+    pads: [
+      { id: 'voice.whee', label: 'Wheee! (Gumdrop, fast drop)', opts: { rate: 2 ** (5 / 12) } },
+      { id: 'voice.fall', label: 'Wheee… (falling off)' },
+      { id: 'voice.oof', label: 'Oof (Plank, hard landing)', opts: { rate: 2 ** (-5 / 12) } },
+      { id: 'voice.uhoh', label: 'Uh-oh (danger)' },
+      { id: 'voice.yay', label: 'Yay! (checkpoint)' },
+      { id: 'voice.aww', label: 'Aww (game over)' },
+    ].map((p) => ({ ...p, opts: { gainDb: -6, bus: 'voices' as const, ...p.opts } })),
+  },
+  {
     title: 'Ambience', hue: 'lime', blurb: 'Little sounds scattered over each biome bed every 3 to 15 seconds.',
     pads: [
       { id: 'amb.bird', label: 'Bird (Meadow)' },
+      { id: 'amb.cricket', label: 'Cricket (Meadow)' },
+      { id: 'amb.sheep', label: 'Distant sheep (Meadow)' },
       { id: 'amb.leaves', label: 'Leaves (Treetops)' },
+      { id: 'amb.woodpecker', label: 'Woodpecker (Treetops)' },
+      { id: 'amb.squirrel', label: 'Squirrel (Treetops)' },
       { id: 'amb.thunder', label: 'Thunder (Storm Belt)' },
       { id: 'amb.jet', label: 'Jet (Stratosphere)' },
       { id: 'amb.satellite', label: 'Satellite (Orbit)' },
@@ -508,9 +523,9 @@ const MOMENTS: Moment[] = [
     run: (t) => { audio.handle('pb_crossed', {}, t); return 2.6; },
   },
   {
-    title: 'Gust of wind', desc: 'A rising whoosh warns 2 s ahead and lands right as the push hits.',
+    title: 'Gust of wind', desc: 'A rising whoosh warns 2 s ahead and lands right as the push hits. The first gust of all adds a heads-up chime under its hint card.',
     run: (t) => {
-      audio.handle('hazard_warning', { type: 'gust', dir: 'left', eta: 2 }, t);
+      audio.handle('hazard_warning', { type: 'gust', dir: 'left', eta: 2, first: true }, t);
       audio.handle('hazard_start', { type: 'gust', strength: 0.1, dir: 'left' }, t + 2);
       audio.handle('hazard_end', { type: 'gust' }, t + 4.5);
       return 4.6;
@@ -634,12 +649,105 @@ function tensionLevel(v: number): [string, string] {
   return ['calm', 'steady'];
 }
 
+// ------------------------------------------------------------ the soundtrack
+
+let bandOn = false;
+let musicLevel = 0.8;
+let checkpoint = 0;
+const music = audio.music;
+
+function applyMusic(): void {
+  audio.mixer.setVolume('music', bandOn ? musicLevel : 0, audio.now());
+  const b = $('band-play');
+  b.setAttribute('aria-pressed', String(bandOn));
+  b.textContent = bandOn ? 'Mute the band' : 'Play the band';
+}
+
+/** Ends the run the sketchbook keeps going, so a screen's music can play. */
+function toScreen(name: 'menu' | 'profile' | 'results' | 'none'): void {
+  void audio.unlock();
+  (audio as unknown as { attach(): void }).attach();
+  if (name === 'results') music.showScreen('results', audio.now() + 0.05);
+  else audio.screen(name);
+  bandOn = name !== 'none';
+  applyMusic();
+}
+
+const LAYERS = [
+  ['L1', 'Pads and bass'],
+  ['L2', 'Groove'],
+  ['L3', 'Lead'],
+  ['L4', 'Tension'],
+  ['L5', 'Riser'],
+] as const;
+
+function buildBand(): void {
+  const box = $('band-layers');
+  for (const [k, label] of LAYERS) {
+    const el = document.createElement('span');
+    el.className = 'layer';
+    el.id = `layer-${k}`;
+    el.innerHTML = `<b>${k}</b>${label}`;
+    box.append(el);
+  }
+  $('band-play').addEventListener('click', () => {
+    ensureRun();
+    bandOn = !bandOn;
+    applyMusic();
+  });
+  $('band-groove').addEventListener('click', () => {
+    ensureRun();
+    for (let i = 0; i < 5; i++) music.settled();
+  });
+  $('band-claim').addEventListener('click', () => {
+    ensureRun();
+    audio.handle('checkpoint_claimed', { n: ++checkpoint, leftover: 4 });
+    setProgress(0);
+  });
+  $<HTMLInputElement>('band-progress').addEventListener('input', (e) => {
+    ensureRun();
+    setProgress(Number((e.target as HTMLInputElement).value) / 100);
+  });
+  for (const name of ['menu', 'profile', 'results', 'none'] as const) $(`screen-${name}`).addEventListener('click', () => toScreen(name));
+  setInterval(readBand, 200);
+}
+
+function setProgress(v: number): void {
+  $<HTMLInputElement>('band-progress').value = String(Math.round(v * 100));
+  $('band-progress-val').textContent = `${Math.round(v * 100)}%`;
+  audio.handle('signals', { checkpointProgress: v });
+}
+
+function readBand(): void {
+  const st = music.state();
+  const run = st.mode === 'run';
+  const on: Record<string, boolean> = {
+    L1: st.mode !== 'off',
+    L2: run && st.layers.groove,
+    L3: (run && st.layers.lead) || st.mode === 'menu' || st.mode === 'profile',
+    L4: run && audio.signals.tension >= 0.3,
+    L5: run && st.layers.riser,
+  };
+  for (const [k] of LAYERS) $(`layer-${k}`).classList.toggle('on', on[k]);
+  const where = run ? `${biome(currentBiome).name} band` : st.mode === 'off' ? '' : st.mode === 'results' ? 'Results loop' : 'Meadow lullaby';
+  const bars = st.mode === 'results' ? 8 : 32;
+  $('band-read').textContent = st.mode === 'off' ? 'Not playing' : `${where} · bar ${(st.bar % bars) + 1} of ${bars} · ${st.voices} voices${bandOn ? '' : ' · muted'}`;
+}
+
 // ------------------------------------------------------------ wiring
 
 buildBoard();
 buildBiomes();
+buildBand();
 buildMoments();
 renderLadder();
+applyMusic();
+
+$<HTMLInputElement>('vol-music').addEventListener('input', (e) => {
+  musicLevel = Number((e.target as HTMLInputElement).value) / 100;
+  applyMusic();
+});
+$<HTMLInputElement>('juice').addEventListener('change', (e) => audio.setJuice((e.target as HTMLInputElement).checked));
 
 $('land-clean').addEventListener('click', () => place('clean'));
 $('land-perfect').addEventListener('click', () => place('perfect'));
@@ -649,6 +757,7 @@ for (const id of ['land-clean', 'land-perfect', 'land-messy']) $(id).addEventLis
 $<HTMLInputElement>('vol-sfx').addEventListener('input', (e) => {
   audio.setVolume('sfx', Number((e.target as HTMLInputElement).value) / 100);
   applyAmbience();
+  applyMusic();
 });
 $<HTMLInputElement>('amb').addEventListener('change', (e) => {
   ensureRun();

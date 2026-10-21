@@ -1,7 +1,9 @@
 // Runs inside headless Chromium. Each scenario drives a real AudioDirector on an
 // OfflineAudioContext, renders the result and returns numbers for the runner to check.
 
-import { AudioDirector } from '../../src/director';
+import { AudioDirector, TUNING } from '../../src/director';
+import { MUSIC_TUNING } from '../../src/music/engine';
+import { connectJuiceBus } from '../../src/juicebus';
 import { FULL_CAPS, FULL_GLOBAL_CAP } from '../../src/voices';
 import { JUICE_EVENTS, type Material } from '../../src/types';
 import { mulberry32 } from '../../src/synth/dsp';
@@ -252,8 +254,9 @@ const scenarios = {
   async rest() {
     const { ctx, d } = await makeDirector(10);
     d.handle('run_start', {}, 0.1);
-    // ambience bed and sweeteners are meant to be heard; mute them so only the tower is measured
+    // ambience and music are meant to be heard; mute them so only the tower is measured
     d.mixer.setVolume('ambience', 0, 0.2);
+    d.mixer.setVolume('music', 0, 0.2);
     const rng = mulberry32(5);
     for (let t = 0.2; t < 10; t += 0.1) {
       d.handle('signals', { tension: 0.15, biome: 1, cameraY: 5 }, t);
@@ -394,6 +397,179 @@ const scenarios = {
     d.handle('piece_spawned', {}, 26);
     seen.push(base());
     return seen;
+  },
+
+  /**
+   * The soundtrack through a whole run, with only the music bus audible: layers on bar
+   * lines, the tension takeover, a breakdown, the riser, a biome handover, the tape stop
+   * and the results loop.
+   */
+  async music() {
+    const { ctx, d } = await makeDirector(58);
+    for (const bus of ['sfx', 'ui', 'ambience', 'voices'] as const) d.mixer.setVolume(bus, 0, 0);
+    const T = MUSIC_TUNING;
+    const saved = { every: T.breakdownEvery, bars: T.breakdownBars };
+    // a breakdown every 10 bars instead of every 72, so one fits in the test
+    T.breakdownEvery = 10;
+    T.breakdownBars = 2;
+    try {
+      await d.music.prewarm();
+      d.handle('run_start', {}, 0.1);
+      const tensionAt = (t: number) => (t >= 12 && t < 16 ? 0.75 : 0.1);
+      const progressAt = (t: number) => (t < 33 ? Math.min(1, Math.max(0, (t - 24) / 8)) : 0);
+      let biome = 1;
+      let maxVoices = 0;
+      for (let i = 2; i <= 560; i++) {
+        const t = i / 10;
+        if (i >= 5 && i <= 30 && i % 5 === 0) d.handle('piece_settled', { grade: 'clean', material: 'wood' }, t);
+        if (i === 330) {
+          d.handle('checkpoint_claimed', { n: 1, leftover: 0 }, t);
+          await d.music.prewarm();
+        }
+        if (i === 360) {
+          d.handle('checkpoint_claimed', { n: 2, leftover: 0 }, t);
+          d.handle('biome_entered', { id: 2 }, t + 0.01);
+          biome = 2;
+          await d.music.prewarm();
+        }
+        if (i === 460) {
+          d.handle('run_over', {}, t);
+          // the results loop bakes during the 2.7 s of tape stop and "nice try"
+          await d.music.prewarm();
+        }
+        d.handle('signals', { tension: tensionAt(t), checkpointProgress: progressAt(t), biome, cameraY: 5 }, t);
+        maxVoices = Math.max(maxVoices, d.music.state().voices);
+      }
+      const buf = await ctx.startRendering();
+      const level = (a: number, b: number) => {
+        const st = analyse(buf, a, b);
+        return { rmsDb: db(st.rms), peakDb: db(st.peak) };
+      };
+      const all = analyse(buf);
+      return {
+        nonFinite: all.nonFinite, peak: all.peak, nearClip: all.nearClip,
+        log: d.music.log, stats: d.music.state(), maxVoices, streak: d.ladder.currentStreak,
+        levels: {
+          intro: level(1, 4.5), full: level(6, 11.5), tension: level(12.5, 15.5), breakdown: level(20, 23.5),
+          treetops: level(38, 45), stopped: level(47.2, 48.5), results: level(50, 57.5),
+        },
+      };
+    } finally {
+      T.breakdownEvery = saved.every;
+      T.breakdownBars = saved.bars;
+    }
+  },
+
+  /** Title and profile screens play the lullaby; 'none' fades it out. */
+  async screens() {
+    const { ctx, d } = await makeDirector(13);
+    d.screen('menu', 0.1);
+    await d.music.prewarm();
+    const modes: string[] = [];
+    for (let i = 1; i <= 120; i++) {
+      const t = i / 10;
+      if (i === 60) d.screen('profile', t);
+      if (i === 95) d.screen('none', t);
+      d.tick(t);
+      if (i % 30 === 0) modes.push(d.music.mode);
+    }
+    const buf = await ctx.startRendering();
+    const level = (a: number, b: number) => db(analyse(buf, a, b).rms);
+    return { modes, menuDb: level(1, 5.5), profileDb: level(6.5, 9), afterDb: level(11, 13), stats: d.music.state(), nonFinite: analyse(buf).nonFinite };
+  },
+
+  /** Gate 1's juice switch: off keeps what-happened sounds and drops the flourishes; the band stops reacting. */
+  async juice() {
+    const out: Record<string, { names: string[]; notes: number; log: string[]; reactive: boolean }> = {};
+    for (const on of [true, false]) {
+      const { d } = await makeDirector(1);
+      d.setJuice(on);
+      const names = spyPlays(d);
+      let notes = 0;
+      const target = d as unknown as { playNote: (...a: unknown[]) => unknown; playChord: (...a: unknown[]) => unknown };
+      for (const k of ['playNote', 'playChord'] as const) {
+        const orig = target[k].bind(d);
+        target[k] = (...a: unknown[]) => {
+          notes++;
+          return orig(...a);
+        };
+      }
+      await d.music.prewarm();
+      const ev: [number, string, Record<string, unknown>?][] = [
+        [0.1, 'piece_spawned'],
+        ...[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5].map((t) => [t, 'piece_settled', { grade: 'clean', material: 'wood' }] as [number, string, Record<string, unknown>]),
+        [5, 'perfect', { combo: 2 }], [5.1, 'ghost_fit', { perfect: true }], [5.2, 'bond_formed', {}], [5.3, 'contact_hit', { bodyA: 'a', approachSpeed: 6, materialA: 'wood' }],
+        [6, 'row_solid', { count: 2 }], [6.5, 'checkpoint_near', { blocks: 1 }], [7, 'checkpoint_claimed', { n: 1, leftover: 6 }],
+        [7.5, 'heart_lost', { count: 1, left: 2 }], [8, 'pb_crossed', {}], [8.5, 'power_collected', { slot: 0 }],
+        [12, 'hazard_warning', { type: 'gust', dir: -1, eta: 2, first: true }], [14, 'hazard_start', { type: 'gust', strength: 0.08, dir: -1 }],
+        [15, 'second_wind', {}], [16, 'biome_entered', { id: 2 }], [19, 'run_over', {}],
+      ];
+      let i = 0;
+      for (let t = 0.1; t < 20; t = Math.round((t + 0.1) * 10) / 10) {
+        while (i < ev.length && ev[i][0] <= t) {
+          d.handle(ev[i][1], ev[i][2] ?? {}, t);
+          i++;
+        }
+        d.handle('signals', { tension: t > 9 && t < 11 ? 0.8 : 0.1, biome: t >= 16 ? 2 : 1 }, t);
+      }
+      out[on ? 'on' : 'off'] = { names: [...new Set(names)], notes, log: d.music.log.map((e) => e.what), reactive: d.music.reactive };
+    }
+    return out;
+  },
+
+  /** A new bus connecting mid-run (a restart from pause) closes the old run quietly and starts a fresh one. */
+  async restart() {
+    const { d } = await makeDirector(1);
+    const bus = () => {
+      const fns = new Map<string, ((p?: unknown) => void)[]>();
+      return {
+        on: (n: string, f: (p?: unknown) => void) => fns.set(n, [...(fns.get(n) ?? []), f]),
+        off: (n: string, f: (p?: unknown) => void) => fns.set(n, (fns.get(n) ?? []).filter((g) => g !== f)),
+        emit: (n: string, p?: unknown) => (fns.get(n) ?? []).forEach((f) => f(p)),
+      };
+    };
+    const a = bus();
+    connectJuiceBus(a, d);
+    a.emit('piece_spawned', {});
+    a.emit('checkpoint_claimed', { n: 1 });
+    const before = { running: (d as any).running, checkpoint: (d as any).checkpointN, mode: d.music.mode };
+    const b = bus();
+    connectJuiceBus(b, d);
+    const between = { running: (d as any).running, mode: d.music.mode };
+    b.emit('piece_spawned', {});
+    const after = { running: (d as any).running, checkpoint: (d as any).checkpointN, mode: d.music.mode, base: d.mixer.state().base };
+    return { before, between, after, starts: d.music.log.filter((e) => e.what === 'run start').length };
+  },
+
+  /** Shape voices: the right reaction for each moment, one every 4 s at most, pitched per shape, on their own bus. */
+  async voices() {
+    const { ctx, d } = await makeDirector(15);
+    const saved = TUNING.wheeChance;
+    TUNING.wheeChance = 1;
+    const said: { t: number; name: string; bus?: string; rate?: number }[] = [];
+    const target = d as unknown as { play: (name: string, o?: { when?: number; bus?: string; rate?: number }) => unknown };
+    const orig = target.play.bind(d);
+    target.play = (name, o) => {
+      if (name.startsWith('voice.')) said.push({ t: o?.when ?? 0, name: name.slice(6), bus: o?.bus, rate: o?.rate });
+      return orig(name, o);
+    };
+    try {
+      const ev: [number, string, Record<string, unknown>][] = [
+        [0.1, 'piece_spawned', { shape: 'Domino' }], [0.5, 'hard_drop', { distance: 8 }],
+        [1, 'piece_landed', { impact: 0.9, shape: 'Domino', x: 0 }],
+        [5, 'piece_landed', { impact: 0.9, shape: 'Plank', x: 2 }],
+        [6, 'piece_landed', { impact: 0.3, shape: 'T', x: 0 }],
+        [7, 'checkpoint_claimed', { n: 1, leftover: 0 }],
+        [8, 'piece_lost', { shape: 'T' }],
+        [12, 'piece_lost', { shape: 'O' }],
+        [13, 'run_over', { cause: 'hearts' }],
+      ];
+      for (const [t, n, p] of ev) d.handle(n, p, t);
+      const buf = await ctx.startRendering();
+      return { said, nonFinite: analyse(buf).nonFinite, peak: analyse(buf).peak };
+    } finally {
+      TUNING.wheeChance = saved;
+    }
   },
 };
 
