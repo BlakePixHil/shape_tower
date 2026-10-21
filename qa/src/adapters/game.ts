@@ -28,7 +28,7 @@ interface GameCtrl {
 }
 
 interface GameTestSim {
-  readonly sim: { ctrl?: GameCtrl | null };
+  readonly sim: { ctrl?: GameCtrl | null; pieceViews?(): { id: number }[] };
   readonly stepIndex: number;
   readonly hearts: number;
   readonly budget: unknown;
@@ -106,7 +106,9 @@ class GameSim implements Sim {
     this.log({ k: 'step', n });
     for (let i = 0; i < n; i++) {
       const had = this.ctrl();
-      const before = had ? new Set(this.t.pieces().map((p) => p.id)) : null;
+      // Ids only: pieceViews skips the angle that pieces() works out with Math.atan2, so the
+      // harness adds no platform-dependent maths to a step (F3.6 counts those).
+      const before = had ? new Set((this.t.sim.pieceViews?.() ?? this.t.pieces()).map((p) => p.id)) : null;
       this.t.step();
       const events = this.t.drainEvents().map((e) => ({ type: e.name, step: e.step, ...e.payload }) as SimEvent);
       if (had && this.ctrlToken !== null && this.ctrl() !== had) {

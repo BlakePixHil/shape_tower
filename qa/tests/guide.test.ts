@@ -1,7 +1,7 @@
 // Landing-guide accuracy, qa-section.md §5 (G1 to G8, G11) against the sim under test.
 import { describe, expect, it } from 'vitest';
 import { FULL, loadSim, sandboxTuning } from '../src/adapters/index';
-import { g1Tolerance, sameStepUpdate, supportedShapes, sweep, type GuideResult } from '../src/guide';
+import { g1Tolerance, sameStepUpdate, steeredTouchdown, supportedShapes, sweep, type GuideResult } from '../src/guide';
 import { MAX_UPWARD_SPEED } from '../src/measure';
 import { fmt, pct, writeReport } from '../src/report';
 import { CORE_SHAPES, RECT_SHAPES } from '../src/shapes';
@@ -48,6 +48,22 @@ describe(`landing guide on ${sut.kind} (${sut.engine})`, () => {
     expect(s.g1Over3x, g1Line).toBe(0);
     expect(s.g2Failures + s.g3Failures + s.g4Failures + s.g6Failures + s.g8Failures, otherLine).toBe(0);
     expect(s.timeouts).toBe(0);
+  });
+
+  // QA-003: a shape steered onto a ledge as it reached it landed the next frame, so its red guide
+  // showed for 16 ms. The game's controls rule (gameplay.md §2) belongs to the game, not the stand-in.
+  it.runIf(sut.kind === 'game')('G12: a landing the player steers into shows its guide for at least 0.1 s first', async () => {
+    const cases: [string, number][] = [['O', 0], ['I', 0], ['I', 1], ['T', 0], ['L', 0], ['J', 0]];
+    const results = [];
+    for (const [shape, rot] of cases) {
+      const sim = await sut.createSim({ engine: sut.engine, seed: 9, tuning });
+      // 6 steps is 0.1 s; touchdown grace is capped at 0.35 s (21 steps), plus a step either side.
+      results.push(steeredTouchdown(sim, shape, rot, { minSteps: 6, maxSteps: 23 }));
+      sim.dispose();
+    }
+    const lines = results.map((r) => `${r.failures.length ? 'FAIL ' : ''}${r.shape} rot ${r.rot}: landed ${r.stepsToLand ?? 'never'} steps after the move, guide on the spot for ${r.shownSteps}${r.failures.length ? `; ${r.failures.join('; ')}` : ''}`);
+    writeReport({ suite: 'steered-touchdown', sim: sut, full: FULL }, results.some((r) => r.failures.length) ? 'fail' : 'pass', lines, { results });
+    expect(results.filter((r) => r.failures.length).map((r) => `${r.shape} rot ${r.rot}: ${r.failures.join('; ')}`)).toEqual([]);
   });
 
   it('G5: the guide follows a move or rotation before the next step', async () => {

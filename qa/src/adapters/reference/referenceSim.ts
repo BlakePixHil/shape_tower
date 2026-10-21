@@ -455,7 +455,7 @@ export class ReferenceSim implements Sim {
         continue;
       }
       const v = p.body.linvel();
-      const quiet = Math.hypot(v.x, v.y) < this.t.settleSpeed && Math.abs(p.body.angvel()) < this.t.settleSpin;
+      const quiet = Math.sqrt(v.x * v.x + v.y * v.y) < this.t.settleSpeed && Math.abs(p.body.angvel()) < this.t.settleSpin;
       p.quietSteps = quiet ? p.quietSteps + 1 : 0;
       if (p.state === 'landing') {
         p.landingSteps++;

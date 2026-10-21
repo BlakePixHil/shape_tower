@@ -360,3 +360,56 @@ export function sameStepUpdate(sim: Sim, shape: string): string[] {
   }
   return problems;
 }
+
+/** What happened when a move brought a falling shape within a step of touchdown on a ledge (G12). */
+export interface SteeredTouchdown {
+  shape: string;
+  rot: number;
+  /** Steps from the move until the shape landed, or null if it never did. */
+  stepsToLand: number | null;
+  /** Of those steps, how many showed the guide at the spot where it then landed. */
+  shownSteps: number;
+  landedX: number | null;
+  failures: string[];
+}
+
+/**
+ * G12: a stone O at x -1 makes a ledge 2 high beside an empty plinth. The shape falls flush against
+ * the ledge's right side, and when it is a fraction of a step above the ledge's top it is moved half
+ * a block onto it. With no further input, the guide must show that spot for at least `minSteps`
+ * before the shape lands, and the shape must land there within `maxSteps`.
+ */
+export function steeredTouchdown(sim: Sim, shape: string, rot: number, o: { minSteps: number; maxSteps: number }): SteeredTouchdown {
+  const failures: string[] = [];
+  const { w, h } = rotatedSize(shape, rot);
+  sim.placePiece({ shape: 'O', x: -1, y: 1, rot: 0, as: 'stone' });
+  const xs = w / 2;
+  const xt = xs - 0.5;
+  const yt = 2 + h / 2;
+  const id = sim.spawnControlled({ shape, x: xs, rot });
+  const me = () => sim.pieces().find((p) => p.id === id);
+  for (let i = 0; i < 60 * 30 && (me()?.y ?? -Infinity) - yt > 0.03; i++) sim.step();
+  const gap = (me()?.y ?? -Infinity) - yt;
+  if (!(gap > 0 && gap <= 0.03)) failures.push(`setup: the shape was ${gap.toFixed(3)} above the ledge, not within a step`);
+  sim.intent({ type: 'moveTo', x: xt });
+  let stepsToLand: number | null = null;
+  let shownSteps = 0;
+  let landedX: number | null = null;
+  for (let i = 1; i <= o.maxSteps + 60 && stepsToLand === null; i++) {
+    const g = sim.ghost();
+    if (g && g.x === xt && Math.abs(g.y - yt) < 0.01) shownSteps++;
+    sim.step();
+    const ev = sim.drainEvents().find((e): e is PieceLandedEvent => e.type === 'piece_landed' && e.id === id);
+    if (ev) {
+      stepsToLand = i;
+      landedX = ev.pose.x;
+    }
+  }
+  if (stepsToLand === null) failures.push('never landed');
+  else {
+    if (landedX !== xt) failures.push(`landed at x ${landedX}, not ${xt}`);
+    if (shownSteps < o.minSteps) failures.push(`guide showed the landing spot for ${shownSteps} steps before touchdown (minimum ${o.minSteps})`);
+    if (stepsToLand > o.maxSteps) failures.push(`took ${stepsToLand} steps to land (maximum ${o.maxSteps})`);
+  }
+  return { shape, rot, stepsToLand, shownSteps, landedX, failures };
+}

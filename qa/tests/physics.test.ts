@@ -17,6 +17,7 @@ const isGame = sut.kind === 'game';
 const SEEDS = FULL ? 100 : 3;
 const tunnelBug = knownIssue('F3.2', sut);
 const bondBug = knownIssue('F3.3 bonds', sut);
+const mathBug = knownIssue('F3.6 math', sut);
 
 describe(`physics on ${sut.kind} (${sut.engine})`, () => {
   it('F3.4 canonical towers give their expected outcome on every seed (F3.3 no explosions)', async () => {
@@ -135,6 +136,66 @@ describe(`physics on ${sut.kind} (${sut.engine})`, () => {
     expect(flung.map((r) => `${r.base} ${r.shape} x ${r.x} ${r.mode}`)).toEqual([]);
   });
 
+  // A body that turns static must take its true centre of mass. phaser-box2d kept a T, J or L's old
+  // offset, so contacts and bonds on it acted a quarter block off (QA-003, fixed in 3dda597).
+  it.runIf(isGame)('F3.8 a J or L turned to stone by a Solid Row keeps its real centre: shapes bonded on it stay still when woken', async () => {
+    const lines: string[] = [];
+    const bad: string[] = [];
+    // The bottom row across the 8-wide foundation: J (nub at x -4..-3) and L (nub at x 1..2) placed,
+    // then an O dropped at x 3 completes it. Only a landed shape triggers the row check.
+    const row = [
+      { shape: 'J', x: -2.5, y: 1 },
+      { shape: 'L', x: 0.5, y: 1 },
+    ];
+    for (const mortar of [true, false]) {
+      const sim = await sut.createSim({ engine: sut.engine, seed: 5, tuning: sandboxTuning(sut, mortarTuning(sut, mortar)) });
+      for (const p of row) sim.placePiece({ ...p, rot: 0, as: 'dynamic' });
+      stepUntilQuiet(sim, 600);
+      sim.spawnControlled({ shape: 'O', x: 3, rot: 0 });
+      sim.intent({ type: 'hardDrop' });
+      let solid = false;
+      for (let i = 0; i < 600 && !solid; i++) {
+        sim.step();
+        solid = sim.drainEvents().some((e) => e.type === 'row_solid');
+      }
+      const stone = sim.pieces().filter((p) => p.state === 'stone').map((p) => p.shape);
+      if (!solid || stone.length < 3) {
+        bad.push(`Mortar ${mortar ? 'on' : 'off'}: the row never turned to stone (stone: ${stone.join(', ') || 'none'})`);
+        sim.dispose();
+        continue;
+      }
+      // An I across the J and L, resting on the stone row; an O on the stone O as a control.
+      const onTop = [sim.placePiece({ shape: 'I', x: -1, y: 1.5, rot: 0, as: 'dynamic' }), sim.placePiece({ shape: 'O', x: 3, y: 3, rot: 0, as: 'dynamic' })];
+      const start = new Map(sim.pieces().filter((p) => onTop.includes(p.id)).map((p) => [p.id, p]));
+      let fastest = 0;
+      let bonds = 0;
+      let breaks = 0;
+      const watch = (steps: number) => {
+        for (let i = 0; i < steps; i++) {
+          sim.step();
+          for (const e of sim.drainEvents()) {
+            if (e.type === 'bond_formed') bonds++;
+            if (e.type === 'bond_broken') breaks++;
+          }
+          for (const p of sim.pieces()) if (onTop.includes(p.id)) fastest = Math.max(fastest, Math.hypot(p.vx, p.vy));
+        }
+      };
+      // 4 s covers the bond delay (0.5 s), the bonds forming and the I falling asleep. The stale
+      // centre only bites when a bond to stone is solved after a wake, so an O then lands on the I.
+      watch(240);
+      sim.spawnControlled({ shape: 'O', x: -1, rot: 0 });
+      sim.intent({ type: 'hardDrop' });
+      watch(240);
+      const moved = Math.max(...sim.pieces().filter((p) => onTop.includes(p.id)).map((p) => Math.hypot(p.x - start.get(p.id)!.x, p.y - start.get(p.id)!.y)));
+      const line = `Mortar ${mortar ? 'on' : 'off'}: row of ${stone.join(', ')} turned to stone; an I and an O placed on it, then an O landed on the I. They moved at most ${fmt(moved)} blocks, fastest ${fmt(fastest, 2)} blocks/s; ${bonds} bonds formed, ${breaks} broke`;
+      lines.push(line);
+      if (moved > 0.05 || fastest > 0.5 || breaks > 0) bad.push(line);
+      sim.dispose();
+    }
+    writeReport({ suite: 'stone', sim: sut, full: FULL }, bad.length ? 'fail' : 'pass', lines, { lines, bad });
+    expect(bad).toEqual([]);
+  });
+
   it('F3.6 determinism: the same script gives the same hashes twice in one process and in a second process', async () => {
     const seeds = FULL ? [1, 2, 3, 4, 5, 6, 7, 8] : [1, 2];
     const lines: string[] = [];
@@ -154,5 +215,46 @@ describe(`physics on ${sut.kind} (${sut.engine})`, () => {
     }
     writeReport({ suite: 'determinism', sim: sut, full: FULL }, bad.length ? 'fail' : 'pass', lines, { lines });
     expect(bad).toEqual([]);
+  });
+
+  // ECMAScript leaves these Math functions "implementation-approximated", so their last bits can
+  // differ between phones and desktops. Inside a sim step they break cross-platform replays (P2).
+  (mathBug ? it.fails : it)(`F3.6 no platform-dependent Math function runs inside a sim step${mathBug ? ` (known bug ${mathBug.id})` : ''}`, async () => {
+    const names = ['acos', 'acosh', 'asin', 'asinh', 'atan', 'atanh', 'atan2', 'cbrt', 'cos', 'cosh', 'exp', 'expm1', 'hypot', 'log', 'log1p', 'log10', 'log2', 'pow', 'sin', 'sinh', 'tan', 'tanh'] as const;
+    const calls = new Map<string, number>();
+    const saved = new Map<string, unknown>();
+    let inStep = false;
+    const M = Math as unknown as Record<string, (...a: number[]) => number>;
+    for (const n of names) {
+      const real = M[n];
+      saved.set(n, real);
+      M[n] = (...a: number[]) => {
+        // f(±0) is exact by the spec for every one of these (cos(0) is 1), so it can't differ.
+        if (inStep && !a.every((v) => v === 0)) calls.set(n, (calls.get(n) ?? 0) + 1);
+        return real(...a);
+      };
+    }
+    try {
+      // Mortar on, so bonds form and break during the script.
+      const sim = await sut.createSim({ engine: sut.engine, seed: 3, tuning: sandboxTuning(sut, mortarTuning(sut, true)) });
+      const step = sim.step.bind(sim);
+      sim.step = (n?: number) => {
+        inStep = true;
+        try {
+          step(n);
+        } finally {
+          inStep = false;
+        }
+      };
+      playScript(sim, makeScript(3, 12));
+      sim.dispose();
+    } finally {
+      for (const [n, f] of saved) M[n] = f as (...a: number[]) => number;
+    }
+    const found = [...calls].map(([n, c]) => `Math.${n} ×${c}`);
+    const lines = [found.length ? `Called inside sim steps: ${found.join(', ')}` : 'No platform-dependent Math function was called inside a sim step'];
+    if (mathBug) lines.unshift(`Known bug ${mathBug.id} (${mathBug.owner}, since ${mathBug.since}): ${mathBug.summary}`);
+    writeReport({ suite: 'math', sim: sut, full: FULL }, found.length ? 'fail' : 'pass', lines, { calls: Object.fromEntries(calls) });
+    expect(found).toEqual([]);
   });
 });
