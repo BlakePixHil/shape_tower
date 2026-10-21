@@ -14,7 +14,7 @@ import { BIOMES, biome } from './biomes';
 import { ThreadBaker, type Baker } from './bake/baker';
 import { jobKey, runJob, type BakeJob } from './bake/jobs';
 import { mulberry32, type Rng } from './synth/dsp';
-import type { InstrumentId } from './synth/instruments';
+import { instrumentRate, type InstrumentId } from './synth/instruments';
 import { SOUNDS } from './synth/recipes';
 
 /** Materials heard everywhere: the ground, and stone (foundation slabs and Solid Rows in the sim). */
@@ -36,7 +36,8 @@ export function biomeWindow(id: number): number[] {
 }
 
 /** Notes and chords re-render quickly in the background, so only recent ones stay in memory. */
-const NOTE_BUDGET = 12e6;
+/** Notes and chords: the landing ladder plus the band for two biomes (audio section 4.8). */
+const NOTE_BUDGET = 20e6;
 
 /** Baked first, so a run can start before the whole bank is done. */
 const FIRST = [
@@ -166,6 +167,22 @@ export class SoundBank {
     for (const batch of chunks(jobs, 4)) await this.bakeInto(batch);
   }
 
+  /**
+   * A baked note or chord, or null while it bakes in the background. The music
+   * plays only what is ready, so it never renders on the spot.
+   */
+  peek(it: NoteRequest): AudioBuffer | null {
+    const j = this.noteJob(it);
+    const k = jobKey(j);
+    const hit = this.notes.get(k);
+    if (hit) {
+      this.touchNote(k);
+      return hit;
+    }
+    void this.bakeInto([j]);
+    return null;
+  }
+
   /** True when every note and chord in `items` is already baked. */
   hasNotes(items: NoteRequest[]): boolean {
     return items.every((it) => this.notes.has(jobKey(this.noteJob(it))));
@@ -252,7 +269,7 @@ export class SoundBank {
   // ------------------------------------------------------------ internals
 
   private noteJob(it: NoteRequest): BakeJob {
-    const sr = this.ctx.sampleRate;
+    const sr = Math.round(this.ctx.sampleRate * instrumentRate(it.inst));
     return it.midis.length === 1
       ? { kind: 'note', inst: it.inst, midi: it.midis[0], sr }
       : { kind: 'chord', inst: it.inst, midis: it.midis, spread: it.spread ?? 0, sr };
