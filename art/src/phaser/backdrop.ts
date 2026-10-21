@@ -41,7 +41,7 @@ function flashAt(t: number, f: NonNullable<BackdropPart['flash']>): number {
 }
 
 interface Live { part: BackdropPart; img: ImageLike; key: string; keys: string[]; phase: number }
-interface Stars { img: TileSpriteLike; key: string; i: number }
+interface Stars { img: TileSpriteLike; key: string; i: number; m?: number }
 interface Fx { imgs: ImageLike[]; keys: string[]; t: number; dur: number; step: (f: Fx, p: number) => void }
 
 let uid = 0;
@@ -69,6 +69,7 @@ export class Backdrop {
   private fxKeys = new Set<string>();
   private t = 0;
   private id = ++uid;
+  private tilt = 0;
 
   constructor(scene: SceneLike, o: BackdropOptions) {
     this.scene = scene;
@@ -84,6 +85,12 @@ export class Backdrop {
     this.sky = scene.add.image(0, 0, this.skyKey).setOrigin(0, 0).setScrollFactor(0).setDepth(this.depth);
     this.load(0);
   }
+
+  /**
+   * Tilt the whole backdrop about the screen centre, in radians (clockwise on screen), for the Ringed
+   * Giant's tidal sway: follow the gravity tilt, at most ±0.06 (about 3.4°). Off under reduceMotion.
+   */
+  setTilt(rad: number): void { this.tilt = clamp(rad, -0.06, 0.06); }
 
   /** Rebuild for a new view size. */
   resize(width: number, height: number): void {
@@ -103,11 +110,16 @@ export class Backdrop {
     if (this.ground0 === null) this.ground0 = groundScreenY;
     if (!(Math.abs(sp - this.lastSp) <= 0.002)) this.paintSky(sp);
     const cam = this.scene.cameras.main, z = cam.zoom || 1, cx = cam.width / 2, cy = cam.height / 2;
-    // Place an object at screen point (sx, sy) at screen scale `sc`, whatever the camera zoom.
-    const at = (img: ImageLike | TileSpriteLike, sx: number, sy: number, sc: number) =>
-      img.setPosition(cx + (sx - cx) / z, cy + (sy - cy) / z).setScale(sc / z, sc / z);
-    at(this.sky, 0, 0, 1);
-    this.sky.setDisplaySize(this.W / z, this.H / z);
+    const tilt = this.reduceMotion ? 0 : this.tilt, tc = Math.cos(tilt), ts = Math.sin(tilt);
+    // Place an object at screen point (sx, sy) at screen scale `sc`, whatever the camera zoom (and turned by the tilt).
+    const at = (img: ImageLike | TileSpriteLike, sx: number, sy: number, sc: number) => {
+      const dx = sx - cx, dy = sy - cy;
+      img.setPosition(cx + (dx * tc - dy * ts) / z, cy + (dx * ts + dy * tc) / z).setScale(sc / z, sc / z);
+    };
+    // When tilted, the sky and stars overhang the screen so its corners stay covered.
+    const m = tilt ? Math.ceil((this.W + this.H) * Math.abs(ts) * 0.6) : 0;
+    at(this.sky, -m, -m, 1);
+    this.sky.setDisplaySize((this.W + m * 2) / z, (this.H + m * 2) / z).setRotation(tilt);
     const lift = groundScreenY - this.ground0;
     this.stream(sp, lift);
 
@@ -142,8 +154,9 @@ export class Backdrop {
         if (P.bob && !still) y += Math.sin(this.t * 1.7 + L.phase) * P.bob;
         if (L.keys.length > 1) L.img.setTexture(L.keys[still ? 0 : Math.floor(this.t * (P.fps ?? 4) + L.phase) % L.keys.length]);
         at(L.img, x, y, 1 / r);
-        if (P.spin) L.img.setRotation(still ? 0 : this.t * P.spin);
-        else if (P.sway) L.img.setRotation(still ? 0 : Math.sin(this.t * 1.3 + L.phase) * P.sway);
+        if (P.spin) L.img.setRotation(tilt + (still ? 0 : this.t * P.spin));
+        else if (P.sway) L.img.setRotation(tilt + (still ? 0 : Math.sin(this.t * 1.3 + L.phase) * P.sway));
+        else L.img.setRotation(tilt);
       }
     }
 
@@ -154,7 +167,9 @@ export class Backdrop {
       const L = STAR_LAYERS[S.i];
       S.img.setVisible(sa > 0.005);
       if (sa <= 0.005) continue;
-      at(S.img, 0, 0, 1 / this.k);
+      at(S.img, -m, -m, 1 / this.k);
+      if (S.m !== m) { S.img.setSize(Math.ceil((this.W + m * 2) * this.k), Math.ceil((this.H + m * 2) * this.k)); S.m = m; }
+      S.img.setRotation(tilt);
       S.img.tilePositionX = 0;
       S.img.tilePositionY = -lift * L.factor * this.k;
       const tw = this.reduceMotion ? 0 : L.twinkle * (0.5 + 0.5 * Math.sin(this.t * L.hz * Math.PI * 2 + S.i * 2.1));

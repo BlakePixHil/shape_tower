@@ -281,6 +281,14 @@ export function uiCss(): string {
 .ui-hc-title img { width: 40px; height: 40px; }
 .ui-hcard .ui-chip { font-size: 16px; padding: 5px 12px; }
 
+/* HUD gauges: the crosswind windsock and the tidal sway plumb-bob (56 px Paper cards with a caption tab) */
+.ui-gauge { position: relative; display: inline-block; width: 56px; height: 56px; flex: none; background: var(--paper); border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink); pointer-events: none; }
+.ui-gauge svg { position: absolute; inset: -3px; width: 56px; height: 56px; overflow: visible; }
+.ui-gauge-cap { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); z-index: 1; font: 700 10px/1 var(--display); letter-spacing: 0.06em; color: var(--paper); background: var(--ink); border-radius: 6px; padding: 2px 5px; }
+.ui-sock-arm { transform-box: view-box; transform-origin: 16px 14px; transform: rotate(var(--a, 0deg)) scaleX(var(--len, 1)); transition: transform 2s cubic-bezier(.35,1.4,.45,1); }
+.ui-sock-flap { transform-box: view-box; transform-origin: 17px 14px; animation: ui-flap var(--flap, 0.6s) ease-in-out infinite alternate; }
+.ui-plumb-arm { transform-box: view-box; transform-origin: 28px 8px; transform: rotate(var(--a, 0deg)); transition: transform 700ms cubic-bezier(.3,1.5,.5,1); }
+
 /* Biome title card: a banner in the biome's color with its postcard, postmarked as it lands */
 .ui-btitle { position: fixed; left: 0; right: 0; top: var(--top, calc(env(safe-area-inset-top, 0px) + 84px)); z-index: 16; pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 8px;
   animation: ui-btc 2.3s cubic-bezier(.3,1.5,.5,1) both; }
@@ -320,6 +328,7 @@ export function uiCss(): string {
 @keyframes ui-hz-chev { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 @keyframes ui-hz-push { 0%, 100% { transform: none; } 50% { transform: translateX(calc(var(--d) * 4px)) rotate(calc(var(--d) * 3deg)); } }
 @keyframes ui-hc { 0% { opacity: 0; transform: translateY(-24px) scale(0.7); } 12% { opacity: 1; transform: none; } 85% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-16px); } }
+@keyframes ui-flap { from { transform: rotate(-3deg) scaleY(0.94); } to { transform: rotate(3deg) scaleY(1.04); } }
 @keyframes ui-oc-bob { 0%, 100% { transform: none; } 50% { transform: translateY(-3px); } }
 @keyframes ui-oc-drop { 0%, 100% { transform: none; } 50% { transform: translateY(3px); } }
 @keyframes ui-hc-fade { 0%, 100% { opacity: 0; } 8%, 88% { opacity: 1; } }

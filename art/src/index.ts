@@ -20,6 +20,7 @@ export { VFX, VFX_NAMES, bakeVfx, type VfxName } from './vfx.ts';
 export { POWER, POWER_COLORS, POWER_ICON_NAMES, POWER_KINDS, bakeBubble, bakeBubbleGloss, bakePowerIcon, drawPowerIcon, powerBarCss, powerIconUrl, type PowerIcon, type PowerKind } from './powers.ts';
 export { BUNTING_KEYS, CHECKPOINT, bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from './checkpoint.ts';
 export { WIND, WIND_VARIANTS, bakeWind, windDrifters, type WindKind, type WindTex } from './wind.ts';
+export { COLUMN_FRAMES, HAZARD, HAZARD_TEX, JUNK_KINDS, JUNK_LIGHT, bakeHazard, type HazardTex, type JunkKind } from './hazards.ts';
 export { bakeAppIcon, bakeShareCard, bakeSplash, type IconLayer, type ShareCardData } from './brand.ts';
 export { bakePanorama, panoramaBiome, type PanoramaData, type TowerPiece, type TowerSlab } from './panorama.ts';
 export { hexNum, labToHex, oklab } from './util.ts';
@@ -32,7 +33,7 @@ export { BADGE_TIERS, TITLES, badgeTier, badgeUrl, bakeBadge, drawBadge, newTitl
 export { LOGO_ROWS, bakeLogo, logoElement, logoPeekerUrl, logoTileUrl } from './ui/logo.ts';
 export { bakePostcard, postcardElement, postcardUrl, type PostcardOptions } from './ui/postcard.ts';
 export { RAIL_COLORS, altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail, type OffscreenChipOptions, type RailState } from './ui/rail.ts';
-export { HAZARDS, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, type HazardChipOptions, type HazardType } from './ui/hazard.ts';
+export { HAZARDS, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob, setPlumb, setWindsock, windsock, type HazardChipOptions, type HazardType } from './ui/hazard.ts';
 export { biomeCard, type BiomeCardOptions } from './ui/biomecard.ts';
 export {
   MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarUrl, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel, readSettings,
@@ -49,4 +50,5 @@ export { Backdrop, type BackdropOptions } from './phaser/backdrop.ts';
 export { CheckpointLine, PbMarker, type CheckpointLayout } from './phaser/checkpoint.ts';
 export { PowerBubble } from './phaser/power.ts';
 export { WindView, type Drifters, type WindDir, type WindOptions } from './phaser/wind.ts';
+export { HazardFx, type HazardFxOptions } from './phaser/hazards.ts';
 export type { SceneLike } from './phaser/types.ts';

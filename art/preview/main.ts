@@ -16,6 +16,9 @@
 // &wind=1 loops a gust over the Treetops (with &sp=2.3, Cloudlands' wisps): calm, the 2 s telegraph with the edge chip
 // (and the first-gust card once), the gust with squinting top faces, the tail. &wdir=-1 holds the direction (else it alternates).
 // &wt=<s> starts the loop that many seconds in (fast-forwarded, for screenshots: 2.3 = late telegraph, 4 = mid-gust).
+// &hz=crosswind|junk|meteor|dust|sway loops that hazard in its biome: calm, the 2 s telegraph with the edge chip (and the
+// first-appearance card once), the hazard, the end. Crosswind shows the HUD windsock and flips each loop; sway shows the
+// plumb-bob and tilts the backdrop. &ht=<s> starts that far in (1.6 = mid-telegraph, 3.2 = mid-hazard).
 // &ui=menu|pause|summary|levelup|profile|settings|icons|badges|logo|titles opens a UI kit screen or sheet (see ui.ts).
 // Picking a biome (or climbing into one on the tour) also plays its title card.
 // Options also work after a # (e.g. #gallery), for hosts that drop the query string.
@@ -24,11 +27,14 @@ import * as Phaser from 'phaser';
 import {
   ART_SHAPES, ArtTextures, BIOMES, INK, LANDMARKS, POWER, POWER_COLORS, POWER_KINDS, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
   PowerBubble, SkyClock, bakeLandmark, pedestalHeight, pose, powerBarCss, powerIconUrl, rimAmount, skyColors,
-  WindView, biomeCard, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, loadUiFonts, windDrifters, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
+  WindView, HazardFx, biomeCard, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob, setPlumb, setWindsock, windsock, type HazardType, type JunkKind, loadUiFonts, windDrifters, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
 } from '../src/index.ts';
 import { initUiPreview, screensBar } from './ui.ts';
 
 const qs = new URLSearchParams(location.search || location.hash.slice(1));
+/** Each hazard's biome, as a sky position for &hz. */
+const HZ_SP: Record<string, number> = { crosswind: 3.3, junk: 5.3, meteor: 6.3, dust: 7.3, sway: 8.3 };
+const TAU = Math.PI * 2, lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const num = (k: string, d: number) => (qs.has(k) ? Number(qs.get(k)) : d);
 
 interface Placed { view: BlocklingView; key: string; q: number; c: number; r: number; angle?: number; stone?: number; dx?: number }
@@ -54,6 +60,11 @@ class Preview extends Phaser.Scene {
   private windStage = '';
   private windClock = -1;
   private chip: HTMLElement | null = null;
+  private hz: HazardFx | null = null;
+  private hzClock = -1;
+  private hzStage = '';
+  private hzChip: HTMLElement | null = null;
+  private gauge: HTMLElement | null = null;
 
   constructor() { super('preview'); }
 
@@ -70,8 +81,19 @@ class Preview extends Phaser.Scene {
     this.cameras.main.setZoom(num('zoom', 1));
     this.backdrop = new Backdrop(scene, { width: W, height: H });
     this.sky.set(num('sp', 0.15));
-    if (!qs.has('sp') && !qs.has('tour') && !qs.has('powers') && !qs.has('ui') && !qs.has('wind') && !qs.has('rail')) { this.biomePicker(); screensBar(); }
+    if (!qs.has('sp') && !qs.has('tour') && !qs.has('powers') && !qs.has('ui') && !qs.has('wind') && !qs.has('rail') && !qs.has('hz')) { this.biomePicker(); screensBar(); }
     if (qs.has('wind')) this.wind = new WindView(this.tex, { width: W, height: H, drifters: windDrifters(Math.floor(num('sp', 1.35))) });
+    if (qs.has('hz')) {
+      this.hz = new HazardFx(this.tex);
+      const kind = qs.get('hz');
+      if (kind === 'crosswind') this.wind = new WindView(this.tex, { width: W, height: H, drifters: 'wisps' });
+      if (kind === 'crosswind' || kind === 'sway') {
+        const holder = document.createElement('div');
+        holder.style.cssText = 'position:fixed;left:14px;top:calc(env(safe-area-inset-top,0px) + 84px);z-index:5';
+        this.gauge = holder.appendChild(kind === 'crosswind' ? windsock({ dir: 1, strength: 0.7 }) : plumbBob());
+        document.body.appendChild(holder);
+      }
+    }
 
     this.groundY = H * 0.8;
     const pedW = 6;
@@ -327,8 +349,67 @@ class Preview extends Phaser.Scene {
   }
 
   /** The wind loop: 0.8 s calm, 2 s telegraph, 3 s gust, then the tail. Returns true while the gust blows. */
+  /** The &hz loop: 6 s of calm, telegraph, hazard and end, on its own frame clock like the wind's. */
+  private hzUpdate(dt: number): void {
+    if (!this.hz) return;
+    if (this.hzClock < 0) {
+      this.hzClock = 0;
+      for (const end = num('ht', 0); this.hzClock < end - 1e-6;) this.hzUpdate(1 / 60);
+    }
+    this.hzClock += dt;
+    const kind = qs.get('hz')!, t = this.hzClock, n = Math.floor(t / 6), c = t - n * 6, cell = this.cell, W = this.scale.width;
+    const stage = c < 0.6 ? 'calm' : c < 2.6 ? 'warn' : c < 5 ? 'go' : 'end';
+    const tx = this.left + 4.4 * cell, ty = this.top - 5.6 * cell, dir: -1 | 1 = n % 2 ? -1 : 1;
+    const type: HazardType = kind === 'meteor' ? 'meteor' : kind === 'dust' ? 'dust' : kind === 'sway' ? 'sway' : kind === 'crosswind' ? 'crosswind' : 'junk';
+    // Meteors come in from the upper right along these angles (y down), to three spots on the top rows.
+    const hits: [number, number, number][] = [[this.left + 1.2 * cell, this.top - 6.2 * cell, -1.05], [tx, ty, -0.9], [this.left + 3 * cell, this.top - 5.2 * cell, -1.2]];
+    if (stage !== this.hzStage) {
+      this.hzStage = stage;
+      if (stage === 'warn') {
+        const chipDir = kind === 'junk' ? -1 : kind === 'meteor' ? -1 : dir;
+        this.hzChip = document.body.appendChild(hazardChip({ type, dir: chipDir, eta: 2, y: '52%' }));
+        if (n === 0) document.body.appendChild(hazardCard(type));
+        if (kind === 'junk') this.hz.trajectory('path', W + cell, ty - 2.5 * cell, tx, ty).reticle('target', tx, ty, 2);
+        if (kind === 'meteor') hits.forEach(([x, y, a], i) => this.hz!.reticle(`r${i}`, x, y, 2).incoming(`s${i}`, x, y, a));
+        if (kind === 'dust') this.hz.swirl('swirl', this.left + 0.2 * cell, this.top - 5.4 * cell, 2, 1);
+        if (kind === 'crosswind' && this.gauge) setWindsock(this.gauge, dir, 0.75);
+      } else if (stage === 'go') {
+        if (this.hzChip) hazardChipGo(this.hzChip);
+        if (kind === 'crosswind') this.wind?.steady(0.045, dir);
+        if (kind === 'dust') this.hz.unmark('swirl');
+      } else if (stage === 'end') {
+        if (this.hzChip) hazardChipEnd(this.hzChip);
+        this.hzChip = null;
+        this.hz.unmark('path').unmark('target').remove('junk').remove('column').dim(0);
+        hits.forEach((_, i) => this.hz!.unmark(`r${i}`).unmark(`s${i}`).remove(`m${i}`));
+      }
+    }
+    const g = c - 2.6;
+    if (stage === 'go' && kind === 'junk') {
+      // The junk tumbles in along its path and bumps the tower at 1.3 s.
+      const p = Math.min(1, g / 1.3), k: JunkKind = (['bolt', 'panel', 'wrench'] as const)[n % 3];
+      if (p < 1) this.hz.junk('junk', k, lerp(W + cell, tx, p), lerp(ty - 2.5 * cell, ty, p), g * 4);
+      else { this.hz.remove('junk').unmark('path').unmark('target'); }
+    }
+    if (stage === 'go' && kind === 'meteor') hits.forEach(([x, y, a], i) => {
+      const p = (g - i * 0.3) / 0.8, far = 9 * cell;
+      if (p < 0 || p > 1) { if (p > 1) this.hz!.remove(`m${i}`).unmark(`r${i}`).unmark(`s${i}`); return; }
+      this.hz!.meteor(`m${i}`, x + Math.cos(a) * far * (1 - p), y + Math.sin(a) * far * (1 - p));
+    });
+    if (stage === 'go' && kind === 'dust') {
+      this.hz.dim(0.8).column('column', lerp(-1.5 * cell, W + 1.5 * cell, g / 2.4), this.top - 4.4 * cell, 1);
+    }
+    if (kind === 'sway') {
+      // An 8 s sway; the plumb-bob leads the tilt by a second.
+      this.backdrop.setTilt(Math.sin(t * TAU / 8) * 0.035);
+      if (this.gauge) setPlumb(this.gauge, Math.sin((t + 1) * TAU / 8));
+    }
+    if (kind === 'crosswind') this.wind?.update(dt);
+    this.hz.update(dt);
+  }
+
   private windUpdate(dt: number): boolean {
-    if (!this.wind) return false;
+    if (!this.wind || !qs.has('wind')) return false;
     // Runs on its own clock (frame time), so slow headless frames still show the real timing.
     if (this.windClock < 0) {
       this.windClock = 0;
@@ -368,7 +449,7 @@ class Preview extends Phaser.Scene {
     cam.scrollY = -(tour ? Math.max(0, t - 1) * 2.2 : num('climb', 0)) * cell;
 
     const clock = this.sky.update(dt, 0, 0.2);
-    const sp = tour ? Math.min(qs.has('from') ? 9.7 : 2.6, from + Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : qs.has('wind') ? 1.35 : this.pick ? this.pick.biome + 0.3 : clock;
+    const sp = tour ? Math.min(qs.has('from') ? 9.7 : 2.6, from + Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : qs.has('wind') ? 1.35 : qs.has('hz') ? HZ_SP[qs.get('hz')!] ?? 5.3 : this.pick ? this.pick.biome + 0.3 : clock;
     // From scrollY, not worldView, which only catches up after the first frame renders.
     const ground = (this.groundY - (cam.scrollY + cam.height * (1 - 1 / cam.zoom) / 2)) * cam.zoom;
     if (qs.has('at')) {
@@ -392,6 +473,7 @@ class Preview extends Phaser.Scene {
 
     const tension = qs.has('tension') ? num('tension', 0) : 0.5 + 0.5 * Math.sin(t * 0.5);
     const gusting = this.windUpdate(dt);
+    this.hzUpdate(dt);
     const topEx: Expression = gusting ? 'squint' : tension >= 0.85 ? 'panic' : tension >= 0.3 ? 'worried' : 'idle';
     for (const p of this.tower) {
       const P = pose(p.key, p.q);
