@@ -14,11 +14,6 @@ import BenchWorker from './bench.worker.ts?worker&inline';
 
 const BUILD = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
 
-// Stand-in sounds for the power-up events until Sound's own land.
-const POWER_SOUNDS: Record<string, Parameters<AudioDirector['ui']>[0]> = {
-  power_collected: 'badge', power_granted: 'badge', power_used: 'toggleOn', power_refused: 'error', second_wind_ready: 'badge', second_wind: 'unlock',
-};
-
 async function loadFonts(): Promise<void> {
   const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
   try {
@@ -53,8 +48,6 @@ async function boot(): Promise<void> {
       return lab.windAlways || dailyWind ? 'ready' : 'earn';
     },
     onEvent(e) {
-      const ui = POWER_SOUNDS[e.name];
-      if (ui) audio?.ui(ui);
       if (dailyWind && e.name === 'piece_landed') { dailyWind = false; spendDailyWind(profile); }
     },
     onRunStart(sim, info) {

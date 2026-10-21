@@ -1,6 +1,7 @@
 // Quick headless checks of the sim (Gameplay's own; QA owns the real suites).
 // Run: npm run sim:smoke
 
+import { readFileSync } from 'node:fs';
 import { Box2DEngine } from '../src/sim/engine/box2d.ts';
 import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { createSim, replay, restore } from '../src/sim/testApi.ts';
@@ -323,6 +324,19 @@ for (const [shape, x] of [['Domino', -2], ['O', 2.5], ['Plank', -1.5]] as const)
   check('Recorded run replays to identical digests', firstDiff === -1 && r.digests.length === digests.length, `${digests.length} digests, ${landed} landed, first mismatch ${firstDiff === -1 ? 'none' : 'at second ' + (firstDiff + 1)}`);
   r.sim.dispose();
   t.dispose();
+}
+
+// QA-005: QA's stacking bot froze the game with Mortar on. A bond made while a piece slept got
+// no index in the port, and removing it later left a stale joint that made every step throw.
+// QA's record threw at step 1420 before the install patch's fix.
+{
+  const rec = JSON.parse(readFileSync(new URL('./fixtures/qa-005-repro-run.json', import.meta.url).pathname, 'utf8'));
+  let err = '';
+  let r: ReturnType<typeof replay> | null = null;
+  try { r = replay({ seed: rec.seed, tuning: rec.tuning, rookieOpening: rec.rookieOpening, secondWind: rec.secondWind, inputs: rec.inputs, steps: rec.steps + 600 }); }
+  catch (e) { err = String((e as Error).message); }
+  check('QA-005 a bond made in sleep and removed later does not freeze the world', !err && !!r, err ? `threw: ${err.slice(0, 80)}` : `${r!.sim.stepIndex} steps, ${r!.sim.stats.placed} placed`);
+  r?.sim.dispose();
 }
 
 // ---- Power-ups and Second Wind (gameplay.md §13) ----

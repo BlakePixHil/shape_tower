@@ -59,6 +59,20 @@ function b2Rot_GetAngle(q3) {
 }`],
   ['  const c2 = b.c * a.c + b.s * a.s;\n  return Math.atan2(s, c2);',
    '  const c2 = b.c * a.c + b.s * a.s;\n  return b2Atan2(s, c2);'],
+  // b2CreateJoint sets localIndex from `set.joints.length`, but the port's joint arrays keep their
+  // size in `count`, so a joint made outside the awake set (a sleeping piece bonding to stone or
+  // a slab, which Mortar does all the time) got an undefined index. Destroying it later removed
+  // the wrong entry, and the stale joint woke into the solver between two static bodies:
+  // b2World_Step threw "At least one body must be awake" every frame and the game froze
+  // (QA-005, found and fixed by QA). Upstream uses the count; the merge branch indexes `data`.
+  ['    joint.setIndex = b2SetType.b2_disabledSet;\n    joint.localIndex = set.joints.length;',
+   '    joint.setIndex = b2SetType.b2_disabledSet;\n    joint.localIndex = set.joints.count;'],
+  ['    joint.setIndex = b2SetType.b2_staticSet;\n    joint.localIndex = set.joints.length;',
+   '    joint.setIndex = b2SetType.b2_staticSet;\n    joint.localIndex = set.joints.count;'],
+  ['    joint.setIndex = setIndex;\n    joint.localIndex = set.joints.length;',
+   '    joint.setIndex = setIndex;\n    joint.localIndex = set.joints.count;'],
+  ['      jointSim = world.solverSetArray[setIndex].joints[joint.localIndex];',
+   '      jointSim = world.solverSetArray[setIndex].joints.data[joint.localIndex];'],
 ];
 
 let src = readFileSync(file, 'utf8');
