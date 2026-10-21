@@ -1,7 +1,8 @@
 // The altitude rail and the off-screen chips (art-direction.md §8.2). The rail sits at the right edge
 // under the Next column: a bar in biome colors with checkpoint ticks, the best-height flag, and a tiny
-// Blockling head at the tower's top. It shows a window about three stretches tall that scrolls with
-// the climb. Drawn into a canvas, so calling setRail every frame is cheap (it redraws only on change).
+// Blockling head at the tower's top. By default it shows the whole run (0 to the next checkpoint or the
+// best, whichever is higher); a `span` in blocks shows a window that scrolls with the climb instead.
+// Drawn into a canvas, so calling setRail every frame is cheap (it redraws only on change).
 // Needs uiCss() for its placement.
 
 import { INK, PAPER, SIGNAL } from '../config.ts';
@@ -22,8 +23,9 @@ export interface RailState {
   claimed: number;
   /** Best height, in blocks. Omit for none. */
   pb?: number;
-  /** Blocks the rail shows (default: three times the next stretch). */
-  span?: number;
+  /** 'run' (default): the whole climb, 0 to 1.08 × the highest of the next checkpoint, the best and the top.
+   *  A number: a window that many blocks tall, scrolling with the tower's top a third of the way up. */
+  span?: number | 'run';
 }
 
 const W = 46, BAR = 12;
@@ -59,9 +61,9 @@ export function setRail(rail: HTMLElement, s: RailState): void {
   c.setTransform(k, 0, 0, k, 0, 0);
   c.clearRect(0, 0, W, H);
 
-  // The window: the next stretch's height × 3, with the tower top a third of the way up.
-  const next = s.claimed + 1, gap = Math.max(4, cpHeight(s.cps, next) - cpHeight(s.cps, next - 1));
-  const span = s.span ?? gap * 3, lo = Math.max(0, s.top - span * 0.35), hi = lo + span;
+  const next = s.claimed + 1, run = s.span === undefined || s.span === 'run';
+  const lo = run ? 0 : Math.max(0, s.top - (s.span as number) * 0.35);
+  const hi = run ? Math.max(cpHeight(s.cps, next), s.pb ?? 0, s.top, 4) * 1.08 : lo + (s.span as number);
   const pad = 9, y0 = H - pad, y1 = pad + 6, Y = (h: number): number => y0 - ((h - lo) / (hi - lo)) * (y0 - y1);
   const x0 = (W - BAR) / 2 + 4, bar = rrPath(x0, y1, BAR, y0 - y1, BAR / 2);
 
@@ -92,8 +94,10 @@ export function setRail(rail: HTMLElement, s: RailState): void {
       c.lineWidth = 5.5; c.strokeStyle = INK; c.beginPath(); c.moveTo(x0 - 5, y); c.lineTo(x0 + BAR + 5, y); c.stroke();
       c.lineWidth = 2.5; c.strokeStyle = SIGNAL.gold; c.stroke();
     } else {
-      c.lineWidth = 2; c.strokeStyle = done ? INK : rgba(INK, 0.45);
-      c.beginPath(); c.moveTo(x0 - 2, y); c.lineTo(x0 + BAR + 2, y); c.stroke();
+      // Thinner when ticks crowd (a long run on the whole-run scale).
+      const crowd = clamp((Y(cpHeight(s.cps, n - 1)) - y) / 10, 0.45, 1);
+      c.lineWidth = 2 * crowd; c.strokeStyle = done ? INK : rgba(INK, 0.45);
+      c.beginPath(); c.moveTo(x0 - 2 * crowd, y); c.lineTo(x0 + BAR + 2 * crowd, y); c.stroke();
     }
     // A biome's first checkpoint gets a dot in the new biome's color.
     if (BIOMES.some(b => b.firstCp === n + 1)) {

@@ -23,6 +23,7 @@ The Shape Tower art kit. Everything is drawn in code with Canvas 2D (no image fi
 | UI kit | `src/ui/` | The DOM "sticker toy" UI (art-direction.md §8): `uiCss()` (Paper panels, Ink outlines, buttons that press and bounce, chips, XP bar, toggles, sliders), 43 icons, level badges in seven tiers with titles, the logo, biome postcards, the player's avatar, and builders for the main menu, pause card, run summary, level-up takeover, profile and settings. |
 | Gusts | `src/wind.ts`, `src/phaser/wind.ts`, `src/ui/hazard.ts` | Curled and long wind streaks, leaves and cloud wisps, `WindView` to play them, and the HUD's hazard chip (countdown ring, push chevrons) and first-appearance card for every hazard. Faces gain a `squint` expression for the tower's top during a gust. |
 | Altitude rail | `src/ui/rail.ts` | The HUD's altitude rail (biome colors, checkpoint ticks, best-height flag, a Blockling head at the tower's top) and the off-screen chips: gold "▲ 4" for a checkpoint above the view, red "▼" for a piece falling out of it. |
+| Brand | `src/brand.ts` | `bakeAppIcon(px, layer)` (the store icon, or Android's adaptive background and foreground), `bakeSplash(w, h)`, and `bakeShareCard(data)` for the run's share image around the money shot. |
 | Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `PowerBubble`, `WindView`, `Backdrop`. |
 
 ## Using it from game/
@@ -168,7 +169,7 @@ setOffscreenChip(cpChip, String(next));
 const lost = hud.appendChild(offscreenChip({ dir: 'down', label: '' }));  // red "▼" at the bottom edge, --x at the piece
 ```
 
-`top` and `pb` are in blocks above the foundation; `cps` lists checkpoint heights from checkpoint 1, at least through the next one (later ones are extrapolated). The rail shows a window three stretches tall with the tower's top a third of the way up: claimed stretches in their biome's color (`RAIL_COLORS`), the rest washed out, the next checkpoint's tick in gold, a dot where a new biome starts, and the best-height flag (pinned to the top when it's above the window).
+`top` and `pb` are in blocks above the foundation; `cps` lists checkpoint heights from checkpoint 1, at least through the next one (later ones are extrapolated). If you have the ticks with the checkpoint being climbed to last, that's `cps: ticks, claimed: ticks.length - 1`. The rail shows the whole run (0 to 1.08 × the highest of the next checkpoint, the best and the top); `span: <blocks>` shows a window that scrolls with the climb instead, with the best-height flag pinned to the top when it's above the window. Stretches take their biome's color (`RAIL_COLORS`), washed out above the tower's top; the next checkpoint's tick is gold, and a dot marks where a new biome starts.
 
 ### Screens
 
@@ -244,7 +245,8 @@ Add these to the preview URL:
 - `pal=<0..3>` picks the Deep Cosmos palette (with `sp=9.3`); `palcycle=1` moves to the next one every 7 s with its landmark. `landmarks=1` shows the four landmark textures.
 - `ui=menu|pause|summary|levelup|profile|settings` opens that screen over the Meadow (its buttons work); `ui=icons|badges|logo` shows a sheet of the kit's parts. `lv=<level>` sets the player's level, `still=1` turns the animations off. Without `ui`, a Screens row sits above the biome picker.
 - `wind=1` loops a gust over the Treetops (with `sp=2.3`, Cloudlands' wisps): calm, the telegraph with the edge chip and, once, the first-gust card, the gust with squinting faces, the tail. `wdir=-1` holds the direction; `wt=<s>` starts that far into the loop (2.3 is late in the telegraph, 4 mid-gust).
-- `rail=1` shows the altitude rail climbing at 3 blocks a second with both off-screen chips; `top=<blocks>` starts it there and `hold=1` stops the climb.
+- `ui=brand` shows the app icon at several sizes, Android's adaptive layers and masks, the splash and a share card (`share=1` shows just the share card and splash, larger).
+- `rail=1` shows the altitude rail climbing at 3 blocks a second with both off-screen chips; `top=<blocks>` starts it there, `hold=1` stops the climb and `span=<blocks>` shows a scrolling window instead of the whole run.
 - Options also work after a `#` (for example `#tour`), for hosts that drop the query string.
 - `gallery=1` shows every shape in every rotation, with worried, stone and space-rim looks.
 - `climb=<blocks>` scrolls up, `zoom=<n>` zooms the camera, `sp=<0..9.7>` sets the sky position, `tension=<0..1>` fixes tension.

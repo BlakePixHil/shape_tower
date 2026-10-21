@@ -1,10 +1,12 @@
 // UI kit preview: the DOM screens over the running scene, and sheets of the kit's parts.
 // &ui=menu|pause|summary|levelup|profile|settings opens that screen (buttons work: Settings, Profile,
-// Close and so on). &ui=icons|badges|logo shows a sheet. &lv=<level> sets the player's level (default 7).
+// Close and so on). &ui=icons|badges|logo|brand shows a sheet (brand: app icon, Android layers, splash, share card). &lv=<level> sets the player's level (default 7).
 // &still=1 skips the animations, as Reduce Motion does. Without &ui, a Screens row sits above the biome picker.
 // &rail=1 shows the altitude rail climbing through a few biomes, with the off-screen checkpoint and lost-piece chips.
+// &top=<blocks> starts it there, &hold=1 stops the climb, &span=<blocks> shows a scrolling window instead of the whole run.
 
 import {
+  bakeAppIcon, bakeShareCard, bakeSplash,
   altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail,
   BADGE_TIERS, BIOMES, INK, UI_ICONS, avatarUrl, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
   postcardElement, profilePanel, readSettings, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, titleFor, uiIconUrl, xpBar,
@@ -120,6 +122,22 @@ function sheet(name: string): void {
     const cards = root.querySelector('.pv-cards')!;
     BIOMES.forEach((_, i) => cards.appendChild(postcardElement({ biome: i, width: 104, date: i < 2 ? '21 OCT 2026' : undefined })));
     cards.appendChild(postcardElement({ biome: 7, width: 104, locked: true }));
+  } else if (name === 'brand') {
+    root.innerHTML = `<h3>App icon (1024, shown at 200) and at 120, 60, 40</h3><div class="pv-wrap pv-icons"></div>
+      <h3>Android adaptive: background, foreground, masked circle and squircle</h3><div class="pv-wrap pv-adaptive"></div>
+      <h3>Splash and share card</h3><div class="pv-wrap pv-big"></div>`;
+    const img = (cv: HTMLCanvasElement, css: number, radius = '22%') => { const i = document.createElement('img'); i.src = cv.toDataURL(); i.style.cssText = `width:${css}px;border-radius:${radius};box-shadow:0 3px 0 ${INK}`; return i; };
+    const icons = root.querySelector('.pv-icons')!, full = bakeAppIcon(1024);
+    icons.append(img(full, 200), img(bakeAppIcon(240), 120), img(bakeAppIcon(120), 60), img(bakeAppIcon(80), 40));
+    const ad = root.querySelector('.pv-adaptive')!, bg = bakeAppIcon(432, 'background'), fg = bakeAppIcon(432, 'foreground');
+    const both = document.createElement('canvas'); both.width = both.height = 432; const bc = both.getContext('2d')!; bc.drawImage(bg, 0, 0); bc.drawImage(fg, 0, 0);
+    // Android masks the middle 72 of 108 dp.
+    const crop = document.createElement('canvas'); crop.width = crop.height = 288; crop.getContext('2d')!.drawImage(both, -72, -72);
+    ad.append(img(bg, 90, '0'), img(fg, 90, '0'), img(crop, 90, '50%'), img(crop, 90, '30%'));
+    (ad.children[1] as HTMLElement).style.background = 'repeating-conic-gradient(#ddd 0 25%, #fff 0 50%) 0 0 / 16px 16px';
+    const big = root.querySelector('.pv-big')!;
+    big.append(img(bakeSplash(390 * 2, 844 * 2), 150, '12px'), img(bakeShareCard({ height: 63.4, biome: 3, newBest: true, name: 'Blake', level: 7, score: 18240 }), 200, '12px'));
+    if (qs.has('share')) { root.innerHTML = ''; root.append(img(bakeShareCard({ height: 63.4, biome: 3, newBest: true, name: 'Blake', level: 7, score: 18240 }), 360, '12px'), img(bakeSplash(390 * 2, 844 * 2), 360, '12px')); }
   }
   mount(root);
 }
@@ -128,14 +146,14 @@ function sheet(name: string): void {
 export function screensBar(): void {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 62px);display:flex;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;z-index:3;font:600 11px Fredoka,Nunito,system-ui,sans-serif';
-  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo']]) {
+  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon']]) {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = `background:#FFC23D;color:${INK};border:2px solid ${INK};border-radius:10px;box-shadow:0 2px 0 ${INK};padding:2px 8px;font:inherit;cursor:pointer`;
     b.onclick = () => {
       document.querySelectorAll('.pv-sheet').forEach(e => e.remove());
       openScreen(k);
-      if (k === 'icons' || k === 'badges' || k === 'logo') {
+      if (k === 'icons' || k === 'badges' || k === 'logo' || k === 'brand') {
         const x = document.createElement('button');
         x.className = 'ui-btn icon sm'; x.style.cssText = 'position:fixed;top:10px;right:10px;z-index:41';
         x.innerHTML = `<img alt="Close" src="${uiIconUrl('close', 20)}">`;
@@ -158,7 +176,7 @@ function railDemo(): void {
   const frame = () => {
     const t = (performance.now() - t0) / 1000, top = start + (qs.has('hold') ? 0 : t * 3);
     const claimed = cps.filter(h => h <= top).length;
-    setRail(rail, { top, cps, claimed, pb });
+    setRail(rail, { top, cps, claimed, pb, span: qs.has('span') ? Number(qs.get('span')) : 'run' });
     setOffscreenChip(chip, String(claimed + 1));
     chip.classList.toggle('show', cps[claimed] - top > 6);
     lost.classList.toggle('show', qs.has('hold') || t % 4 < 1.6);

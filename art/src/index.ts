@@ -20,6 +20,7 @@ export { VFX, VFX_NAMES, bakeVfx, type VfxName } from './vfx.ts';
 export { POWER, POWER_COLORS, POWER_ICON_NAMES, POWER_KINDS, bakeBubble, bakeBubbleGloss, bakePowerIcon, drawPowerIcon, powerBarCss, powerIconUrl, type PowerIcon, type PowerKind } from './powers.ts';
 export { BUNTING_KEYS, CHECKPOINT, bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from './checkpoint.ts';
 export { WIND, WIND_VARIANTS, bakeWind, windDrifters, type WindKind, type WindTex } from './wind.ts';
+export { bakeAppIcon, bakeShareCard, bakeSplash, type IconLayer, type ShareCardData } from './brand.ts';
 export { hexNum, labToHex, oklab } from './util.ts';
 export { BIOME_BAKERS, type BiomeBaker } from './backdrops.ts';
 
