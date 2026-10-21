@@ -572,6 +572,53 @@ const scenarios = {
     }
   },
 
+  /** Achievements: a stamp and a sparkle that grows with the tier, under the play in a run, one sting on the strip. */
+  async achievements() {
+    const out: Record<string, unknown> = {};
+    for (const on of [true, false]) {
+      const { ctx, d } = await makeDirector(13);
+      d.setJuice(on);
+      const plays: { t: number; name: string }[] = [];
+      let notes = 0, ducks = 0;
+      const target = d as unknown as Record<string, (...a: unknown[]) => unknown>;
+      for (const k of ['play', 'playNote', 'playChord', 'duck'] as const) {
+        const orig = target[k].bind(d);
+        target[k] = (...a: unknown[]) => {
+          if (k === 'play') plays.push({ t: (a[1] as { when?: number })?.when ?? 0, name: a[0] as string });
+          else if (k === 'duck') ducks++;
+          else notes++;
+          return orig(...a);
+        };
+      }
+      d.handle('run_start', {}, 0.1);
+      d.mixer.setVolume('music', 0, 0.2);
+      d.mixer.setVolume('ambience', 0, 0.2);
+      const at = (t: number, tier: string, inRun: boolean) => {
+        const n0 = notes;
+        d.handle('achievement', { id: `a${t}`, tier, inRun }, t);
+        return notes - n0;
+      };
+      // a hard wood landing between the toasts, to measure them against
+      d.handle('contact_hit', { bodyA: 'p1', bodyB: 'tower', approachSpeed: 9, materialA: 'wood', size: 4 }, 2.5);
+      d.handle('piece_settled', { grade: 'clean', material: 'wood' }, 2.6);
+      const bronze = at(1, 'bronze', true), gold = at(3.5, 'gold', true), platinum = at(6, 'platinum', true);
+      const tooSoon = at(6.2, 'silver', true);
+      d.handle('run_over', { cause: 'hearts' }, 7);
+      const strip = at(10, 'gold', false), again = at(10.5, 'platinum', false);
+      const buf = await ctx.startRendering();
+      out[on ? 'on' : 'off'] = {
+        notes: { bronze, gold, platinum, tooSoon, strip, again },
+        stamps: plays.filter((p) => p.name === 'ach.stamp').map((p) => p.t),
+        names: [...new Set(plays.filter((p) => p.t >= 1 && p.t < 7 || p.t >= 10).map((p) => p.name))],
+        ducks,
+        // the toasts' loudness against a hard landing
+        bronzeDb: db(analyse(buf, 1, 1.5).rms), platinumDb: db(analyse(buf, 6, 6.8).rms), landingDb: db(analyse(buf, 2.5, 3).rms),
+        nonFinite: analyse(buf).nonFinite, peak: analyse(buf).peak,
+      };
+    }
+    return out;
+  },
+
   /** A gust's warning whoosh builds to its push; a warning a hold cancels stops building. */
   async gusts() {
     const { ctx, d } = await makeDirector(9);

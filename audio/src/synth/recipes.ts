@@ -551,6 +551,18 @@ export const SOUNDS: Record<string, SoundDef> = {
       return finish(y, sr, 0.6);
     },
   },
+  // an achievement badge stamped onto paper: a rubbery thump and the slap of the sheet (the director adds the sparkle)
+  'ach.stamp': {
+    rate: 0.5,
+    variants: 2,
+    render: (sr, rng) => {
+      const y = thunk(sr, rng, rand(rng, 140, 160), 0.26, 1300);
+      const slap = biquad(burst(sr, rng, 6, 9000, Math.round(sr * 0.08)), sr, 'bandpass', 2300, 0.9);
+      shape(slap, sr, (t) => Math.exp(-t / 0.018));
+      mixInto(y, slap, sr, 0.004, 0.45);
+      return finish(y, sr, 0.7);
+    },
+  },
 
   // shape voices (6.8): three takes of each reaction; the director pitches them per shape
   ...Object.fromEntries(Object.entries(REACTIONS).map(([name, syllables]) => [`voice.${name}`, {
