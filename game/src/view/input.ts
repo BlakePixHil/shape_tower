@@ -27,8 +27,9 @@ const SOFT_PX = 40;
 const FLICK_WINDOW_MS = 120;
 const FLICK_SPEED = 1.2;      // screen heights per second
 const FLICK_TRAVEL = 0.1;     // of screen height
-const FLICK_TAN = Math.tan((25 * Math.PI) / 180);
-const LOCK_BACK_MS = 100;
+const FLICK_TAN = Math.tan((35 * Math.PI) / 180); // also: a fast downward stroke this close to vertical doesn't steer
+const STROKE_SPEED = 0.5;     // screen heights per second: faster than this downward is a drop stroke
+const STROKE_MAX_MS = 600;
 const HYSTERESIS = 0.15;
 
 export class Gestures {
@@ -116,9 +117,15 @@ export class Gestures {
     this.moved = Math.max(this.moved, Math.hypot(s.x - this.start.x, s.y - this.start.y));
     if (this.second) return;
 
-    // Horizontal: relative drag with half-block snapping and hysteresis.
+    // Horizontal: relative drag with half-block snapping and hysteresis. The sideways drift of a
+    // fast downward stroke doesn't steer: the anchor moves with the finger instead.
+    const prev = this.samples[this.samples.length - 2];
+    const r = this.samples.find(p => p.t >= s.t - 50) ?? this.samples[0];
+    const rdy = s.y - r.y;
+    const stroking = r !== s && rdy / (Math.max(1, s.t - r.t) / 1000) / window.innerHeight > STROKE_SPEED && Math.abs(s.x - r.x) <= rdy * FLICK_TAN;
     if (this.baseX === null) this.rebase(s.x);
-    if (this.baseX !== null && this.sent !== null) {
+    if (stroking && prev) this.origin.x += s.x - prev.x;
+    else if (this.baseX !== null && this.sent !== null) {
       const raw = this.baseX + ((s.x - this.origin.x) / this.target.blockPx()) * this.target.sensitivity();
       if (Math.abs(raw - this.sent) >= 0.25 + HYSTERESIS) {
         const snapped = Math.round(raw * 2) / 2;
@@ -128,6 +135,8 @@ export class Gestures {
           this.softFrom = s; // steering sideways: a soft drop needs a fresh downward stretch
         }
       }
+    }
+    if (this.sent !== null) {
       this.xHistory.push({ t: s.t, x: this.sent });
       if (this.xHistory.length > 64) this.xHistory.shift();
     }
@@ -161,8 +170,9 @@ export class Gestures {
 
     if (vertical && travel > FLICK_TRAVEL && Math.abs(vy) > FLICK_SPEED) {
       if (vy > 0) {
-        // Lock in the x the shape had 100 ms before the flick began (§2).
-        const lockT = Math.max(this.start.t, w0.t - LOCK_BACK_MS);
+        // Lock in the x the shape had just before the downward stroke began, so a swipe that isn't
+        // straight down never shifts the drop (§2).
+        const lockT = Math.max(this.start.t, Math.min(w0.t, this.strokeStart(end)));
         let lockX: number | undefined;
         for (const h of this.xHistory) if (h.t <= lockT) lockX = h.x;
         lockX ??= this.xHistory[0]?.x;
@@ -180,6 +190,20 @@ export class Gestures {
     this.id = null;
     this.start = null;
   };
+
+  /** When the finger's final downward stroke began: walk back while it keeps moving down fast. */
+  private strokeStart(end: Sample): number {
+    const H = window.innerHeight;
+    let t0 = end.t, slow = 0;
+    for (let i = this.samples.length - 1; i > 0 && end.t - this.samples[i - 1].t <= STROKE_MAX_MS; i--) {
+      const a = this.samples[i - 1], b = this.samples[i];
+      const vy = (b.y - a.y) / (Math.max(1, b.t - a.t) / 1000) / H;
+      if (vy < STROKE_SPEED) { if (vy < 0 || ++slow > 1) break; continue; } // one slow sample is jitter
+      slow = 0;
+      t0 = a.t;
+    }
+    return t0;
+  }
 
   private cancel = (e: PointerEvent): void => {
     if (e.pointerId === this.second?.id) { this.second = null; this.target.peek(null); }

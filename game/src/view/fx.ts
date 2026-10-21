@@ -12,6 +12,7 @@ interface Particle {
 
 export interface ParticleOpts {
   tex: string;
+  frame?: string;     // atlas frame (the art kit's effects)
   tint?: number;
   scale?: number;
   endScale?: number;
@@ -19,6 +20,7 @@ export interface ParticleOpts {
   gravity?: number;   // px/s², +y is down
   drag?: number;      // per second
   spin?: number;
+  angle?: number;     // fixed starting rotation (default: random)
   alpha?: number;
   blend?: Phaser.BlendModes;
 }
@@ -34,8 +36,8 @@ export class Particles {
       const old = this.live.shift()!;
       this.recycle(old.img);
     }
-    const img = this.pool.pop() ?? this.scene.add.image(0, 0, o.tex).setDepth(this.depth);
-    img.setTexture(o.tex).setPosition(x, y).setVisible(true).setAlpha(o.alpha ?? 1).setRotation(Math.random() * 6.28);
+    const img = this.pool.pop() ?? this.scene.add.image(0, 0, o.tex, o.frame).setDepth(this.depth);
+    img.setTexture(o.tex, o.frame).setPosition(x, y).setVisible(true).setAlpha(o.alpha ?? 1).setRotation(o.angle ?? Math.random() * 6.28);
     img.setTint(o.tint ?? 0xffffff);
     img.setBlendMode(o.blend ?? Phaser.BlendModes.NORMAL);
     const s = o.scale ?? 1;

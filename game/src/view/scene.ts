@@ -6,13 +6,13 @@
 
 import * as Phaser from 'phaser';
 import {
-  ArtTextures, Backdrop, BIOMES as ART_BIOMES, BlocklingView, GuideView, SkyClock, biomeForCheckpoint, rimAmount, starAmount,
-  type Expression, type Finish, type GuideState, type TexRef,
+  ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, CheckpointLine, GuideView, PbMarker, SkyClock, VFX,
+  biomeForCheckpoint, rimAmount, type Expression, type Finish, type GuideState, type TexRef, type VfxName,
 } from '@art/index.ts';
 import { DT, Sim, type PieceView, type Tint } from '../sim/sim.ts';
 import { SHAPES, extents } from '../sim/shapes.ts';
 import { biomeFor, type Tuning } from '../sim/tuning.ts';
-import { Particles, Shaker, TimeControl, bakeChip, bakeDot, easeElasticOut } from './fx.ts';
+import { Particles, Shaker, TimeControl, easeElasticOut, type ParticleOpts } from './fx.ts';
 import { Hud } from './hud.ts';
 import { Gestures } from './input.ts';
 import type { LabState, ViewSettings } from './panel.ts';
@@ -54,7 +54,9 @@ const ACROSS = 12;
 const ACROSS_MAX = 15;
 const TAU = Math.PI * 2;
 const PEDESTAL_LEGS = 0.4; // deck 0.6 + legs 0.4 = the sim's 1-block plinth
-const D = { slab: 5, line: 8, piece: 10, fx: 30, guide: 40, ctrl: 50, text: 60, stars: -999, clouds: -900 };
+const D = { slab: 5, line: 8, piece: 10, fx: 30, front: 35, guide: 40, ctrl: 50, text: 60 };
+const ORBIT = ART_BIOMES.findIndex(b => b.id === 'orbit'); // landings throw stardust from here up
+const STONE_CHIP = 0xb9b1a6;
 
 export class PlayScene extends Phaser.Scene {
   sim!: Sim;
@@ -71,10 +73,8 @@ export class PlayScene extends Phaser.Scene {
   private backdrop!: Backdrop;
   private guide!: GuideView;
   private skyClock = new SkyClock();
-  private stars!: Phaser.GameObjects.Graphics;
-  private lines!: Phaser.GameObjects.Graphics;
-  private plaque!: Phaser.GameObjects.Text;
-  private pbText!: Phaser.GameObjects.Text;
+  private lines: CheckpointLine[] = []; // claimed lines still kept, then the active one
+  private pb!: PbMarker;
 
   private particles!: Particles;
   private shaker = new Shaker();
@@ -94,7 +94,6 @@ export class PlayScene extends Phaser.Scene {
   private acc = 0;
   private cam = { x: 0, y: 0, across: ACROSS, lowSince: -1, peek: 0, peekTarget: 0 };
   private tint = { shown: 'ok' as Tint, pending: 'ok' as Tint, since: 0 };
-  private claimed: { y: number; x0: number; x1: number }[] = [];
   private stoneWave: { top: number; at: number } | null = null;
   private rowWave: { x0: number; at: number } | null = null;
   private lastSettledId = -1;
@@ -103,8 +102,6 @@ export class PlayScene extends Phaser.Scene {
   private overAt = -1;
   private slowOn = false;
   private overPayload: Record<string, unknown> | null = null;
-  private clouds: { img: Phaser.GameObjects.Image; x: number; y: number; v: number }[] = [];
-  private starField: { x: number; y: number; r: number; tw: number }[] = [];
 
   constructor() { super('play'); }
 
@@ -123,18 +120,10 @@ export class PlayScene extends Phaser.Scene {
     // The canvas already renders at device resolution, so the kit bakes at 1 texture px per game px.
     this.art = new ArtTextures(this, { cellPx: this.ppb, texScale: 1 });
     this.art.prewarm(Object.keys(SHAPES), { finishes: ['wood'] });
-    this.backdrop = new Backdrop(this, { width: this.W, height: this.H, texScale: 1, reduceMotion: this.view.reducedMotion });
+    this.backdrop = new Backdrop(this, { width: this.W, height: this.H, texScale: 1, frontDepth: D.front, reduceMotion: this.view.reducedMotion });
     this.guide = new GuideView(this.art, D.guide);
-    this.stars = this.add.graphics().setScrollFactor(0).setDepth(D.stars);
-    this.lines = this.add.graphics().setDepth(D.line);
-    this.plaque = this.text('CP 1', 15, '#FFFFFF').setOrigin(0.5).setDepth(D.line + 0.1);
-    this.pbText = this.text('PB', 13, GOLD).setOrigin(0, 0.5).setDepth(D.line + 0.1);
-    this.textures.addCanvas('dot', bakeDot(Math.round(this.ppb * 0.4)));
-    this.textures.addCanvas('dotHard', bakeDot(Math.round(this.ppb * 0.4), false));
-    this.textures.addCanvas('chip', bakeChip(Math.round(this.ppb * 0.22)));
-    this.textures.addCanvas('cloud', this.bakeCloud());
+    this.pb = new PbMarker(this.art, D.line - 0.1);
     this.particles = new Particles(this, D.fx);
-    this.buildSkyLife();
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
       ctrlX: () => (this.started && !this.paused && this.sim?.ctrl ? this.sim.ctrl.xTarget : null),
@@ -166,31 +155,6 @@ export class PlayScene extends Phaser.Scene {
     });
   }
 
-  private bakeCloud(): HTMLCanvasElement {
-    const u = this.ppb, c = document.createElement('canvas');
-    c.width = Math.ceil(u * 6); c.height = Math.ceil(u * 2.4);
-    const ctx = c.getContext('2d')!;
-    ctx.fillStyle = '#FFFFFF';
-    for (const [x, y, r] of [[1.4, 1.5, 0.8], [2.4, 1.1, 1.0], [3.5, 1.3, 0.9], [4.5, 1.6, 0.7], [3, 1.7, 0.7]]) { ctx.beginPath(); ctx.arc(x * u, y * u, r * u, 0, TAU); ctx.fill(); }
-    ctx.fillRect(1.4 * u, 1.6 * u, 3.1 * u, 0.7 * u);
-    return c;
-  }
-
-  /** Clouds through the lower sky (thickest in Cloudlands) and a star field for space. */
-  private buildSkyLife(): void {
-    let seed = 7;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let y = 12; y < 130; y += 3 + rnd() * 4) {
-      const dense = y > 38 && y < 66;
-      for (let k = 0; k < (dense ? 2 : 1); k++) {
-        const side = rnd() < 0.5 ? -1 : 1;
-        const img = this.add.image(0, 0, 'cloud').setScrollFactor(0.5).setDepth(D.clouds).setAlpha(0.8).setScale(0.6 + rnd() * 0.8);
-        this.clouds.push({ img, x: side * (4 + rnd() * 7), y: y * 0.5, v: (rnd() - 0.5) * 0.3 });
-      }
-    }
-    for (let i = 0; i < 140; i++) this.starField.push({ x: rnd(), y: rnd(), r: 0.6 + rnd() * 1.6, tw: rnd() * TAU });
-  }
-
   // ---------------------------------------------------------------- runs
 
   newRun(): void {
@@ -202,7 +166,9 @@ export class PlayScene extends Phaser.Scene {
     this.slabs.clear();
     this.particles?.clear();
     this.guide.hide();
-    this.claimed = [];
+    for (const l of this.lines) l.destroy();
+    this.lines = [];
+    this.pb.hide();
     this.prev.clear();
     this.cur.clear();
     this.views = [];
@@ -235,6 +201,8 @@ export class PlayScene extends Phaser.Scene {
     this.timeCtl.enabled = !v.reducedMotion;
     this.guide.reduceMotion = v.reducedMotion;
     this.backdrop.reduceMotion = v.reducedMotion;
+    for (const l of this.lines) l.reduceMotion = v.reducedMotion;
+    this.pb.reduceMotion = v.reducedMotion;
     for (const s of this.sprites.values()) s.view.setFaces(v.faces);
     this.ctrlSprite?.view.setFaces(v.faces);
   }
@@ -317,6 +285,7 @@ export class PlayScene extends Phaser.Scene {
         if (s) {
           s.view.flash('proud', 1.2);
           this.glint(s, GOLD);
+          this.sparkle(s, GOLD);
           this.popNear(s, 'PERFECT!', GOLD, 22);
           if (p.combo > 1) this.popNear(s, `COMBO ×${p.combo}`, '#FFFFFF', 15, 0.9);
         }
@@ -330,15 +299,16 @@ export class PlayScene extends Phaser.Scene {
       }
       case 'bond_formed': {
         const pos = p.pos as { x: number; y: number };
-        for (let i = 0; i < 3; i++) this.particles.spawn((pos.x + (i - 1) * 0.3) * this.ppb, -pos.y * this.ppb, 0, 0, { tex: 'dot', scale: 0.35, endScale: 0.05, life: 0.25, alpha: 0.9, blend: Phaser.BlendModes.ADD });
+        for (let i = 0; i < 3; i++) this.particles.spawn((pos.x + (i - 1) * 0.3) * this.ppb, -pos.y * this.ppb, 0, 0, this.fx('dot', 0.14, 0.02, { life: 0.25, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
         break;
       }
       case 'bond_broken': {
         const pos = p.pos as { x: number; y: number };
         for (let i = 0; i < 6; i++) {
           const a = Math.random() * TAU, v = this.ppb * (2 + Math.random() * 3);
-          this.particles.spawn(pos.x * this.ppb, -pos.y * this.ppb, Math.cos(a) * v, Math.sin(a) * v - this.ppb * 3, { tex: 'chip', tint: 0xb9b1a6, scale: 0.8, endScale: 0.4, life: 0.6, gravity: this.ppb * 20, spin: 8 });
+          this.particles.spawn(pos.x * this.ppb, -pos.y * this.ppb, Math.cos(a) * v, Math.sin(a) * v - this.ppb * 3, this.fx('chip', 0.24, 0.12, { tint: STONE_CHIP, life: 0.6, gravity: this.ppb * 20, spin: 8 }));
         }
+        this.particles.spawn(pos.x * this.ppb, -pos.y * this.ppb, 0, 0, this.fx('crack', 0.8, 0.8, { life: 0.7 }));
         this.shaker.add(0.18);
         break;
       }
@@ -358,7 +328,10 @@ export class PlayScene extends Phaser.Scene {
       case 'budget_low': this.hooks.hud.pulseBricks(); break;
       case 'checkpoint_cancelled': this.pop('Wobbly!', this.sim.foundation.x, this.sim.lineY + 0.6, AMBER, 18); break;
       case 'checkpoint_claimed': this.onClaim(p, now); break;
-      case 'biome_entered': this.hooks.hud.titleCard(BIOME_TITLES[Number(p.id) - 1] ?? ''); break;
+      case 'biome_entered':
+        this.hooks.hud.titleCard(BIOME_TITLES[Number(p.id) - 1] ?? '');
+        this.backdrop.arrival(Number(p.id) - 1); // birds for Treetops, the cloud punch-through for Cloudlands
+        break;
       case 'run_over': {
         this.slowmo(now, 0.4, 900);
         this.overAt = now + 1300;
@@ -390,11 +363,15 @@ export class PlayScene extends Phaser.Scene {
     const e = extents(p.shape, pose.rot);
     const by = -(pose.y + e.minY) * this.ppb;
     const nDust = Math.round(4 + 8 * impact);
-    const dust = num(ART_BIOMES[this.biomeIndex()].dust);
+    const bi = this.biomeIndex();
+    const dust = num(ART_BIOMES[bi].dust);
     for (let i = 0; i < nDust; i++) {
       const fx = pose.x + e.minX + Math.random() * (e.maxX - e.minX);
       const dir = fx < pose.x ? -1 : 1;
-      this.particles.spawn(fx * this.ppb, by, dir * this.ppb * (1 + Math.random() * 2.5) * (0.4 + impact), -this.ppb * (0.3 + Math.random()), { tex: 'dot', tint: dust, scale: 0.5 + impact * 0.5, endScale: 1.2, life: 0.45, drag: 4, alpha: 0.85 });
+      const o = bi >= ORBIT
+        ? this.fx('stardust', 0.2 + impact * 0.15, 0.05, { tint: dust, life: 0.6, drag: 3, spin: 4, blend: Phaser.BlendModes.ADD })
+        : this.fx('puff', 0.25 + impact * 0.2, 0.55, { tint: dust, life: 0.45, drag: 4, alpha: 0.85 });
+      this.particles.spawn(fx * this.ppb, by, dir * this.ppb * (1 + Math.random() * 2.5) * (0.4 + impact), -this.ppb * (0.3 + Math.random()), o);
     }
     if (impact > 0.5) this.shaker.add(0.32 * impact);
   }
@@ -418,17 +395,23 @@ export class PlayScene extends Phaser.Scene {
     this.time.delayedCall(90, () => this.slowmo(performance.now(), 0.5, 300));
     const f = this.sim.foundation; // the new slab
     const lineY = f.top - this.sim.tuning.slabThickness;
-    this.claimed.push({ y: lineY, x0: f.x - f.width / 2, x1: f.x + f.width / 2 });
+    // The bunting pops off, the rope turns gold and a flag plants beside the tower (§7.2).
+    this.lines[this.lines.length - 1]?.claim((f.x - f.width / 2) * this.ppb, (f.x + f.width / 2) * this.ppb);
     this.stoneWave = { top: lineY, at: now };
     if (!this.view.reducedMotion) this.hooks.hud.flash(0.2);
-    // Confetti of tiny shapes in every shape colour bursts from the line (§7.2).
-    const fy = -lineY * this.ppb;
+    // Flash, rays and a gold shockwave, then confetti and tiny shapes in every shape colour (§7.2).
+    const fx0 = f.x * this.ppb, fy = -lineY * this.ppb;
+    this.particles.spawn(fx0, fy, 0, 0, this.fx('flash', 2, 6, { life: 0.25, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
+    this.particles.spawn(fx0, fy, 0, 0, this.fx('rays', 3, 7, { tint: num(GOLD), life: 0.9, alpha: 0.6, spin: 0.6, blend: Phaser.BlendModes.ADD }));
+    this.particles.spawn(fx0, fy, 0, 0, this.fx('shockwave', 1, 10, { tint: num(GOLD), life: 0.6, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
     for (let i = 0; i < 70; i++) {
       const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2, v = this.ppb * (6 + Math.random() * 9);
-      this.particles.spawn((f.x - f.width / 2 + f.width * Math.random()) * this.ppb, fy, Math.cos(a) * v, Math.sin(a) * v, { tex: 'chip', tint: CONFETTI[i % CONFETTI.length], scale: 0.9, endScale: 0.6, life: 1.4 + Math.random() * 0.6, gravity: this.ppb * 12, drag: 1.2, spin: 10 * (Math.random() - 0.5) });
+      const o = i % 3 === 0
+        ? this.fx(`mini_${BUNTING_KEYS[i % BUNTING_KEYS.length]}` as VfxName, 1, 0.7, {})
+        : this.fx('confetti', 0.2, 0.14, { tint: CONFETTI[i % CONFETTI.length] });
+      this.particles.spawn((f.x - f.width / 2 + f.width * Math.random()) * this.ppb, fy, Math.cos(a) * v, Math.sin(a) * v,
+        { ...o, life: 1.4 + Math.random() * 0.6, gravity: this.ppb * 12, drag: 1.2, spin: 10 * (Math.random() - 0.5) });
     }
-    const ring = this.add.circle(f.x * this.ppb, fy, this.ppb * 0.5).setStrokeStyle(this.ppb * 0.12, num(GOLD), 1).setFillStyle(0, 0).setDepth(D.fx);
-    this.tweens.add({ targets: ring, scale: 9, alpha: 0, duration: 600, ease: 'Cubic.Out', onComplete: () => ring.destroy() });
     this.pop(`CHECKPOINT ${p.n}!`, f.x, lineY + 2.2, GOLD, 26);
     const leftover = p.leftover as number;
     if (leftover > 0) this.time.delayedCall(400, () => this.pop(`+${leftover} bricks left`, f.x, lineY + 1.2, '#FFFFFF', 16));
@@ -470,6 +453,25 @@ export class PlayScene extends Phaser.Scene {
     this.tweens.add({ targets: flash, alpha: 0, duration: 320, ease: 'Quad.Out', onComplete: () => flash.destroy() });
   }
 
+  /**
+   * Particle options for one of the art kit's effects, sized in blocks (start, end). The mini_*
+   * confetti have no size table, so for those the sizes are multiples of their natural size.
+   */
+  private fx(name: VfxName, size: number, end: number, o: Omit<ParticleOpts, 'tex' | 'frame' | 'scale' | 'endScale'> = {}): ParticleOpts {
+    const r = this.art.vfx(name);
+    const k = this.art.scale / ((VFX as Record<string, number>)[name] ?? 1);
+    return { ...o, tex: r.key, frame: r.frame, scale: size * k, endScale: end * k };
+  }
+
+  private sparkle(s: PieceSprite, color: string): void {
+    const pose = this.cur.get(s.id);
+    if (!pose) return;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + Math.random() * 0.5, v = this.ppb * (1.5 + Math.random() * 1.5);
+      this.particles.spawn(pose.x * this.ppb, -pose.y * this.ppb, Math.cos(a) * v, Math.sin(a) * v, this.fx('sparkle', 0.5, 0.1, { tint: num(color), life: 0.6, drag: 3, spin: 3, blend: Phaser.BlendModes.ADD }));
+    }
+  }
+
   /** A toast beside a piece, on the side away from the drop column (art-direction.md §5.3). */
   private popNear(s: PieceSprite, text: string, color: string, size: number, dy = 0): void {
     const pose = this.cur.get(s.id);
@@ -508,11 +510,9 @@ export class PlayScene extends Phaser.Scene {
     const sp = this.skyClock.update(dt, bi, prog, this.view.reducedMotion);
     const ppbScreen = this.ppb * this.zoom;
     this.backdrop.update(dt, this.H / 2 + (this.cam.y + 1) * ppbScreen, sp);
-    this.drawStars(sp, now);
-    this.drawClouds(dt, sp);
 
     this.drawSlabs(now);
-    this.drawLines(now, committed);
+    this.drawLines(dt, committed);
     this.drawPieces(dt, alpha, now, sp);
     this.drawCtrl(dt, alpha, now, sp);
     this.drawGuide(now);
@@ -552,30 +552,6 @@ export class PlayScene extends Phaser.Scene {
     this.cam.x += (sim.foundation.x - this.cam.x) * (1 - Math.exp(-dt * 2));
   }
 
-  private drawStars(sp: number, now: number): void {
-    const a = starAmount(sp);
-    const g = this.stars;
-    g.clear();
-    if (a <= 0.01) return;
-    // Screen space under a zoomed camera: place around the camera centre at 1/zoom.
-    const z = this.zoom, cx = this.W / 2, cy = this.H / 2;
-    const drift = (this.cam.y * this.ppb * this.zoom * 0.03) % this.H;
-    for (const st of this.starField) {
-      const sx = st.x * this.W, sy = (st.y * this.H + drift) % this.H;
-      g.fillStyle(0xffffff, a * (0.55 + 0.45 * Math.sin(now / 700 + st.tw)));
-      g.fillCircle(cx + (sx - cx) / z, cy + (sy - cy) / z, (st.r * this.dpr) / z);
-    }
-  }
-
-  private drawClouds(dt: number, sp: number): void {
-    const a = Math.max(0, 1 - Math.max(0, sp - 3.2) / 1.2) * 0.85;
-    for (const c of this.clouds) {
-      if (!this.view.reducedMotion) c.x += c.v * dt;
-      if (c.x > 14) c.x = -14; else if (c.x < -14) c.x = 14;
-      c.img.setPosition(c.x * this.ppb, -c.y * this.ppb).setAlpha(a).setVisible(a > 0.01);
-    }
-  }
-
   private drawSlabs(now: number): void {
     const plinthId = this.sim.foundations[0].id;
     for (const f of this.sim.foundationViews()) {
@@ -598,7 +574,8 @@ export class PlayScene extends Phaser.Scene {
         s.img.setScale(t < 0.55 ? 0.95 : 1 / Math.max(0.85, sq), sq);
         if (t >= 0.55 && !s.landed) {
           s.landed = true;
-          for (let i = 0; i < 14; i++) this.particles.spawn((f.x + (Math.random() - 0.5) * f.width) * this.ppb, -(f.top - f.thickness) * this.ppb, (Math.random() - 0.5) * this.ppb * 5, -this.ppb * Math.random(), { tex: 'dot', scale: 0.6, endScale: 1.3, life: 0.5, drag: 3, alpha: 0.8 });
+          const dust = num(ART_BIOMES[this.biomeIndex()].dust);
+          for (let i = 0; i < 14; i++) this.particles.spawn((f.x + (Math.random() - 0.5) * f.width) * this.ppb, -(f.top - f.thickness) * this.ppb, (Math.random() - 0.5) * this.ppb * 5, -this.ppb * Math.random(), this.fx('puff', 0.3, 0.6, { tint: dust, life: 0.5, drag: 3, alpha: 0.8 }));
           this.shaker.add(0.25);
         }
       } else {
@@ -615,66 +592,37 @@ export class PlayScene extends Phaser.Scene {
     this.tweens.add({ targets: img, alpha: 0, delay: 2150, duration: 400, onComplete: () => img.destroy() });
   }
 
-  private drawLines(now: number, committed: number): void {
-    const g = this.lines;
+  private drawLines(dt: number, committed: number): void {
     const sim = this.sim;
     const u = this.ppb;
-    g.clear();
     const x0 = (this.cam.x - this.cam.across / 2 - 1) * u, x1 = (this.cam.x + this.cam.across / 2 + 1) * u;
-    // Claimed lines stay as a solid gold rope with a planted flag (§7.2).
-    for (const c of this.claimed) {
-      const y = -c.y * u, fx = c.x0 * u - u * 0.6;
-      g.lineStyle(u * 0.09, num(GOLD), 1);
-      g.lineBetween(fx, y, c.x1 * u + u * 0.6, y);
-      g.lineStyle(u * 0.07, num(INK), 1);
-      g.lineBetween(fx, y, fx, y - u * 1.3);
-      g.fillStyle(num(GOLD), 1);
-      g.fillTriangle(fx, y - u * 1.3, fx + u * 0.75, y - u * 1.08, fx, y - u * 0.86);
+    // The active line glows brighter as the tower gets close and fills its ring while you hold
+    // (§7.1). Claimed lines keep their gold rope and flag; only the last few are kept.
+    let line = this.lines[this.lines.length - 1];
+    if (!line || line.claimed) {
+      line = new CheckpointLine(this.art, sim.checkpoint, D.line);
+      line.reduceMotion = this.view.reducedMotion;
+      this.lines.push(line);
+      while (this.lines.length > 4) this.lines.shift()!.destroy();
     }
-    // The active line glows brighter as the tower gets close (§7.1).
-    const near = Math.max(0, Math.min(1, 1 - (sim.lineY - committed) / 4));
-    const y = -sim.lineY * u;
-    const pulse = 0.5 + 0.5 * Math.sin(now / (near > 0.75 ? 90 : 250));
-    g.lineStyle(u * (0.35 + 0.3 * near), num(GOLD), 0.12 + 0.18 * near * pulse);
-    g.lineBetween(x0, y, x1, y);
-    const dash = u * 0.45, gap = u * 0.25;
-    const off = ((now / 1000) * u * 0.6) % (dash + gap);
-    g.lineStyle(u * 0.09, num(INK), 0.9);
-    for (let x = x0 - off; x < x1; x += dash + gap) g.lineBetween(x, y, x + dash, y);
-    g.lineStyle(u * 0.05, num(GOLD), 1);
-    for (let x = x0 - off; x < x1; x += dash + gap) g.lineBetween(x + u * 0.03, y, x + dash - u * 0.03, y);
-    // Plaque at the right edge, with the Hold steady ring around it.
-    const px = (this.cam.x + this.cam.across / 2 - 1.3) * u;
-    g.fillStyle(num(INK), 1);
-    g.fillRoundedRect(px - u * 0.95, y - u * 0.42, u * 1.9, u * 0.84, u * 0.2);
-    g.fillStyle(num(GOLD), 1);
-    g.fillRoundedRect(px - u * 0.85, y - u * 0.32, u * 1.7, u * 0.64, u * 0.14);
-    this.plaque.setText(`CP ${sim.checkpoint}`).setPosition(px, y);
     const hold = sim.holdState();
-    if (hold.active) {
-      g.lineStyle(u * 0.14, num(INK), 1);
-      g.strokeCircle(px, y, u * 0.95);
-      g.lineStyle(u * 0.09, num(MINT), 1);
-      g.beginPath();
-      g.arc(px, y, u * 0.95, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, hold.progress), false);
-      g.strokePath();
-    }
+    line.set({ y: -sim.lineY * u, x0, x1, near: Math.max(0, Math.min(1, 1 - (sim.lineY - committed) / 4)), hold: hold.active ? hold.progress : 0 });
+    for (const l of this.lines) l.update(dt);
     // Personal best marker, with fireworks when you cross it.
     if (this.bestHeight > 1) {
       const by = -this.bestHeight * u;
-      g.lineStyle(u * 0.05, 0xffffff, 0.6);
-      for (let x = x0; x < x1; x += u * 0.5) g.lineBetween(x, by, x + u * 0.22, by);
-      this.pbText.setVisible(true).setPosition((this.cam.x - this.cam.across / 2 + 0.3) * u, by - u * 0.35);
+      this.pb.set(by, x0, x1).update(dt);
       if (!this.pbCrossed && committed > this.bestHeight) {
         this.pbCrossed = true;
+        this.pb.pop();
         this.hooks.onJuice?.('pb_crossed', { height: this.bestHeight });
         this.pop('NEW BEST!', this.cam.x, this.bestHeight + 1.5, GOLD, 24);
         for (let i = 0; i < 40; i++) {
           const a = Math.random() * TAU, v = u * (3 + Math.random() * 6);
-          this.particles.spawn((this.cam.x + (Math.random() - 0.5) * 8) * u, by - u * 4, Math.cos(a) * v, Math.sin(a) * v, { tex: 'dot', tint: CONFETTI[i % CONFETTI.length], scale: 0.5, endScale: 0.1, life: 1, gravity: u * 4, blend: Phaser.BlendModes.ADD });
+          this.particles.spawn((this.cam.x + (Math.random() - 0.5) * 8) * u, by - u * 4, Math.cos(a) * v, Math.sin(a) * v, this.fx('dot', 0.2, 0.04, { tint: CONFETTI[i % CONFETTI.length], life: 1, gravity: u * 4, blend: Phaser.BlendModes.ADD }));
         }
       }
-    } else this.pbText.setVisible(false);
+    } else this.pb.hide();
   }
 
   private drawPieces(dt: number, alpha: number, now: number, sp: number): void {
@@ -726,7 +674,7 @@ export class PlayScene extends Phaser.Scene {
       if (s.lost && y < -1.5) alphaV = Math.max(0, 1 - (-1.5 - y) / 2);
       if (s.lost && !s.gone && y < -1.2) {
         s.gone = true;
-        for (let i = 0; i < 8; i++) this.particles.spawn(x * u, 1.1 * u, (Math.random() - 0.5) * u * 6, -u * (1 + Math.random() * 2), { tex: 'dot', tint: 0xc9a27a, scale: 0.7, endScale: 1.4, life: 0.5, drag: 3, alpha: 0.85 });
+        for (let i = 0; i < 8; i++) this.particles.spawn(x * u, 1.1 * u, (Math.random() - 0.5) * u * 6, -u * (1 + Math.random() * 2), this.fx('puff', 0.3, 0.6, { tint: num(ART_BIOMES[0].dust), life: 0.5, drag: 3, alpha: 0.85 }));
       }
 
       // Faces: only the top ~10 blocks animate; tension drives the mood (§4.3).
@@ -776,10 +724,10 @@ export class PlayScene extends Phaser.Scene {
     const nope = this.ctrl.nopeAt > 0 && now - this.ctrl.nopeAt < 140 ? Math.sin(((now - this.ctrl.nopeAt) / 140) * Math.PI * 3) * 3 * this.dpr : 0;
     s.view.setRim(rimAmount(sp)).setPose(this.ctrl.x * u + nope, -y * u, this.ctrl.ang - this.ctrl.lean).setSquash(sx, sy);
     s.view.update(dt);
-    // Speed streaks on a hard drop.
-    if (c.hard && Math.random() < 0.8) {
+    // Speed lines trail a hard drop.
+    if (c.hard && Math.random() < 0.6) {
       const e = extents(c.shape, c.rot);
-      this.particles.spawn((c.x + e.minX + Math.random() * (e.maxX - e.minX)) * u, -(y + e.maxY) * u, 0, -u * 4, { tex: 'dotHard', scale: 0.12, endScale: 0.05, life: 0.18, alpha: 0.7 });
+      this.particles.spawn((c.x + e.minX + 0.2 + Math.random() * (e.maxX - e.minX - 0.4)) * u, -(y + e.maxY + 0.5) * u, 0, -u * 2, this.fx('speedline', 0.9, 0.5, { life: 0.16, alpha: 0.6, angle: 0 }));
     }
   }
 
