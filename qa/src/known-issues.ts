@@ -15,17 +15,9 @@ export interface KnownIssue {
 // maths, Math.atan2 in Mortar welds) on game/wobble-lab e21e9d8, and QA-005 (F3.11, the Mortar
 // freeze from Box2D joints made outside the awake set) on 8565dda, and QA-006 (F18.4, Glue used up
 // with Mortar off) on game/power-fixes bf28a93 (all 2026-10-21). QA-007 (F18.8, odd weights halved
-// rounding down) closed 2026-10-21 when Gameplay made rounding down the rule.
-export const KNOWN_ISSUES: Record<string, KnownIssue> = {
-  'F7.1 gust period': {
-    id: 'QA-008',
-    sims: ['game/box2d'],
-    summary:
-      'Gusts come about 4.5 s less often than gameplay.md §8.2 says: from one gust\'s start to the next averages 22.5 s at checkpoint 3 (table: every 18 s) and 16.4 to 16.9 s from checkpoint 6 (table: 12 s). updateGust schedules the next warning interval × 0.85 to 1.15 after the gust ends, then warns for 2 s, so the 2 to 3 s gust and the 2 s warning add to every interval. Scheduling from the gust\'s start (gustNext = its start + interval × jitter − 2) would match the table.',
-    owner: 'Gameplay',
-    since: '2026-10-21',
-  },
-};
+// rounding down) closed 2026-10-21 when Gameplay made rounding down the rule. QA-008 (F7.1, gusts
+// scheduled from the end of the last gust, so periods ran about 4.5 s long) on game/slice 9e96419.
+export const KNOWN_ISSUES: Record<string, KnownIssue> = {};
 
 export function knownIssue(check: string, sim: { kind: string; engine: string }): KnownIssue | undefined {
   const k = KNOWN_ISSUES[check];
