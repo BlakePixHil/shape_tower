@@ -22,7 +22,7 @@ The merge gate is `qa/scripts/gate.sh [checkout]`: every module's own checks (ga
 | Variable | Meaning |
 |---|---|
 | `QA_SIM` | `game` (default when `game/src/sim/testApi.ts` exists) or `reference` |
-| `QA_ENGINE` | `box2d` (default) or `rapier`, passed to the game sim |
+| `QA_ENGINE` | `box2d` (default) or `rapier`, passed to the game sim (the harness loads Rapier first through the test API's `useRapier()`) |
 | `QA_GAME_SIM` | Another path to the game's test API, for example a second checkout |
 | `QA_FULL` | `1` for the full run |
 
@@ -49,7 +49,7 @@ The merge gate is `qa/scripts/gate.sh [checkout]`: every module's own checks (ga
 | `scripts/run-story.ts` | Replays a run record from a phone, checks its digests against Node, and prints each landing with the ghost the player saw, losses, hearts, bond breaks, power-ups and Second Wind |
 | `scripts/cross-build.ts` | Records bot runs on one build and replays them on another, to check that a change leaves earlier runs step for step the same (`--tuning` replays them with tuning changed, such as gusts on) |
 | `scripts/replay-child.ts` | Replays run records in a fresh process (F18.13) |
-| `scripts/gate.sh` | The merge gate: every module's checks plus the fast set on one checkout |
+| `scripts/gate.sh` | The merge gate on one checkout: every module's checks, the built game page played headless (game-check, power-check), the art build and its UI screens, and QA's fast set |
 | `scripts/ui-second-wind.mjs` | Drives a built game in headless Chromium and checks Second Wind in the HUD: two-tap arming, the glow, no pop-up at pause or game over, the greyed state, the day's free one |
 | `scripts/ui-screens.mjs` | Opens each UI kit screen of the built art preview at three phone and tablet sizes, saves screenshots, and checks for sideways scroll, controls off screen or under 44 px, cut-off text and page errors |
 
