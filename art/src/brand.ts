@@ -3,7 +3,7 @@
 // pieces at most so it reads at 60 px. Android's adaptive icon is the same art split into a background
 // and a foreground kept inside the 66% safe circle. Splash: the logo over the Meadow sky. Share card:
 // the run's height, biome postcard and badge around the player's money shot.
-// Load Fredoka and Nunito first (the logo, numbers and labels are text).
+// Load Fredoka and Nunito first (numbers and labels are text; the logo is drawn as outlines).
 
 import { FONT_BODY, FONT_DISPLAY, INK, PAPER, SIGNAL } from './config.ts';
 import { BIOMES } from './biomes.ts';
