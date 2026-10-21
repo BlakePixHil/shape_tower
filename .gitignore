@@ -9,3 +9,4 @@ playwright-report/
 
 # The phone app's web copy and APKs
 game/dist-app/
+game/dist-apk/

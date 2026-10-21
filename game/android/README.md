@@ -8,7 +8,7 @@ Capacitor's Android project for the game (vertical slice G6). The web side is th
 
 ```sh
 cd game
-scripts/android-build.sh   # signed release APK in dist-app/
+scripts/android-build.sh   # signed release APK in dist-apk/
 ```
 
 Needs JDK 21 and the Android SDK with `platforms;android-36` and `build-tools;36.0.0`
