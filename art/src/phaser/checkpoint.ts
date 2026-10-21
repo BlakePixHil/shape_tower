@@ -182,9 +182,10 @@ export class CheckpointLine {
     } else this.flag.setVisible(false);
   }
 
-  destroy(): void { for (const o of this.all()) o.destroy(); this.pennants = []; this.ticks = []; }
+  destroy(): void { for (const o of this.parts()) o.destroy(); this.pennants = []; this.ticks = []; }
 
-  private all(): DisplayLike[] {
+  /** Every object the line draws (pennants are made as they're needed), e.g. to keep it on its own camera. */
+  parts(): DisplayLike[] {
     return [this.rope, this.glow, this.plaque, this.label, this.glint, this.flag, ...this.ticks, ...this.pennants.map(p => p.img)];
   }
 }

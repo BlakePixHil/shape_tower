@@ -140,10 +140,18 @@ export class PlayScene extends Phaser.Scene {
   private slowOn = false;
   // The countdown's mood (Blake, 2026-10-21: "the screen should slightly fade grayscale … and pause on
   // shape interactions briefly to build suspension"): the screen fades part-way to grey as a hold
-  // fills, and a knock during it freezes the frame for a beat (gameplay.md §7.2).
+  // fills, and a knock during it freezes the frame for a beat (gameplay.md §7.2). The checkpoint itself
+  // keeps its colour (Art): while the screen is grey, the main camera draws what's behind the line, a
+  // plain camera draws the line, and a second grey camera draws everything in front of it.
   private holdFilter: Phaser.Filters.ColorMatrix | null = null;
+  private frontFilter: Phaser.Filters.ColorMatrix | null = null;
+  private lineCam: Phaser.Cameras.Scene2D.Camera | null = null;
+  private frontCam: Phaser.Cameras.Scene2D.Camera | null = null;
+  private split = false;
   private grey = 0;
   private greyFast = false;
+  private greyPop = -1; // when the claim's colour overshoot started, -1 for none
+  private greyPopFrom = 0;
   private greyWarm = 3; // frames the filter runs at no strength on boot, so its shader compiles behind the menu, not at the first hold
   private holdKnockAt = 0;
   private overPayload: Record<string, unknown> | null = null;
@@ -199,11 +207,19 @@ export class PlayScene extends Phaser.Scene {
     this.cracks = this.add.graphics().setDepth(D.piece + 2);
     this.ctrlCracks = this.add.graphics().setDepth(D.ctrl + 1);
     // Off (no extra pass) outside a hold. The HUD is DOM, so the hold pill keeps its colour.
-    const filters = this.cameras.main.filters;
-    if (filters) {
-      this.holdFilter = filters.internal.addColorMatrix();
-      this.holdFilter.colorMatrix.desaturate();
-      this.holdFilter.colorMatrix.alpha = 0;
+    if (this.cameras.main.filters) {
+      const grey = (cam: Phaser.Cameras.Scene2D.Camera) => {
+        const f = cam.filters!.internal.addColorMatrix();
+        f.colorMatrix.desaturate();
+        f.colorMatrix.alpha = 0;
+        return f;
+      };
+      this.holdFilter = grey(this.cameras.main);
+      this.lineCam = this.cameras.add(0, 0, this.W, this.H).setVisible(false);
+      this.frontCam = this.cameras.add(0, 0, this.W, this.H).setVisible(false);
+      this.frontFilter = grey(this.frontCam);
+      this.frontFilter.setActive(false);
+      this.events.on(Phaser.Scenes.Events.PRE_RENDER, this.splitCams, this);
     }
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
@@ -258,6 +274,7 @@ export class PlayScene extends Phaser.Scene {
     this.dustPuffAt = 0;
     this.grey = 0;
     this.greyFast = false;
+    this.greyPop = -1;
     this.holdKnockAt = 0;
     this.backdrop?.setTilt(0);
     this.guide.hide();
@@ -724,30 +741,67 @@ export class PlayScene extends Phaser.Scene {
   private onHoldKnock(speed: number, now: number): void {
     const ms = this.sim.tuning.holdHitstop;
     // Knocks Sound plays as more than a tap (1 block/s), no closer than half a second apart.
-    if (!(ms > 0) || this.demoing || !this.sim.holdState().active || !(speed >= 1) || now < this.holdKnockAt) return;
+    if (!(ms > 0) || this.demoing || this.sim.tuning.zen || !this.sim.holdState().active || !(speed >= 1) || now < this.holdKnockAt) return;
     const stop = Math.min(ms * 1.5, ms * (0.75 + speed / 12));
     this.holdKnockAt = now + stop + 450;
     this.hitstop(now, stop);
     this.time.delayedCall(stop, () => this.slowmo(performance.now(), 0.5, 220));
   }
 
-  /** The screen's fade toward grey: deeper as the hold fills, back to full colour when it ends. */
-  private updateHoldMood(dt: number): void {
+  /**
+   * The screen's fade toward grey: deeper as the hold fills, back to full colour when it ends. Zen
+   * has no countdown to build up to, so it stays in colour. On a claim the colour overshoots a little
+   * (about 1.2 saturation for 150 ms, Art) before it settles.
+   */
+  private updateHoldMood(dt: number, now: number): void {
     const f = this.holdFilter;
     if (!f) return;
     const sim = this.sim, hold = sim.holdState();
-    const on = this.started && !this.demoing && !this.pano && this.juice && hold.active && sim.state === 'playing';
+    const on = this.started && !this.demoing && !this.pano && this.juice && !sim.tuning.zen && hold.active && sim.state === 'playing';
     const target = on ? sim.tuning.holdGrey * (0.35 + 0.65 * Math.min(1, hold.progress)) : 0;
     // In over about a quarter second; colour floods back fast on a claim, gently when the hold slips.
     const tau = target > this.grey ? 0.25 : this.greyFast ? 0.08 : 0.3;
     this.grey += (target - this.grey) * (1 - Math.exp(-dt / tau));
     if (target === 0 && this.grey < 0.01) { this.grey = 0; this.greyFast = false; }
-    f.colorMatrix.alpha = this.grey;
-    f.setActive(this.grey > 0 || this.greyWarm-- > 0);
+    // The filter's mix past zero pushes colour away from grey: -0.2 is 1.2 saturation.
+    let mix = this.grey;
+    if (this.greyPop >= 0) {
+      const t = now - this.greyPop, OVER = -0.2;
+      if (t < 70) mix = this.greyPopFrom + (OVER - this.greyPopFrom) * Math.sin((t / 70) * Math.PI / 2);
+      else if (t < 220) mix = OVER;
+      else if (t < 470) { const e = (t - 220) / 250; mix = OVER * (1 - e * e * (3 - 2 * e)); }
+      else { this.greyPop = -1; mix = 0; }
+    }
+    f.colorMatrix.alpha = mix;
+    f.setActive(mix !== 0 || this.greyWarm-- > 0);
+    if (this.frontFilter) { this.frontFilter.colorMatrix.alpha = mix; this.frontFilter.setActive(mix !== 0); }
+  }
+
+  /** Before each frame is drawn: while the screen greys, the active checkpoint goes on its own plain camera. */
+  private splitCams(): void {
+    const lc = this.lineCam, fc = this.frontCam;
+    if (!lc || !fc) return;
+    const main = this.cameras.main, line = this.lines[this.lines.length - 1];
+    const split = this.grey > 0 && !!line && !line.claimed;
+    const list = this.children.list as Phaser.GameObjects.GameObject[];
+    if (split) {
+      for (const c of [lc, fc]) {
+        if (c.width !== main.width || c.height !== main.height) c.setSize(main.width, main.height);
+        c.setZoom(main.zoom).setRoundPixels(main.roundPixels);
+        c.setScroll(main.scrollX, main.scrollY);
+      }
+      // Depth order holds: the main camera draws up to the line, then the line, then the rest.
+      const back = lc.id | fc.id, front = main.id | lc.id, mid = main.id | fc.id, cut = (D.line + D.piece) / 2;
+      for (const o of list) o.cameraFilter = ((o as unknown as { depth?: number }).depth ?? 0) < cut ? back : front;
+      for (const o of line.parts()) (o as unknown as Phaser.GameObjects.GameObject).cameraFilter = mid;
+    } else if (this.split) {
+      for (const o of list) o.cameraFilter = 0;
+    }
+    if (split !== this.split) { lc.setVisible(split); fc.setVisible(split); this.split = split; }
   }
 
   private onClaim(p: Record<string, any>, now: number): void {
-    this.greyFast = true;
+    if (this.grey > 0.02 && this.juice) { this.greyPop = now; this.greyPopFrom = this.grey; this.grey = 0; } else this.greyFast = true;
     this.hitstop(now, 90);
     this.time.delayedCall(90, () => this.slowmo(performance.now(), 0.5, 300));
     const f = this.sim.foundation; // the new slab
@@ -1076,7 +1130,7 @@ export class PlayScene extends Phaser.Scene {
     cam.setZoom(this.zoom);
     cam.centerOn(this.cam.x * this.ppb + shake.x / this.zoom, -this.cam.y * this.ppb + shake.y / this.zoom);
     sim.setCamera(this.cam.x, this.cam.y, timeScale);
-    this.updateHoldMood(dt);
+    this.updateHoldMood(dt, now);
 
     // Sky position follows checkpoint progress through the biome (art-direction.md §3.4).
     const bi = this.biomeIndex();

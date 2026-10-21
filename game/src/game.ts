@@ -17,7 +17,7 @@ import { TrophyToasts } from './view/trophies.ts';
 import { setupNative } from './native.ts';
 
 /** Calls Sound adds in its next module version, made safe until then. */
-type Director = AudioDirector & { setJuice?(on: boolean): void; screen?(name: 'menu' | 'profile' | 'none'): void };
+type Director = AudioDirector & { setJuice?(on: boolean): void; setZen?(on: boolean): void; screen?(name: 'menu' | 'profile' | 'none'): void };
 
 const TIER_RANK = { bronze: 0, silver: 1, gold: 2, platinum: 3 };
 
@@ -148,6 +148,7 @@ async function boot(): Promise<void> {
     state.view = viewFor(settings, juice);
     scene.applyView(state.view);
     audio()?.setJuice?.(juice);
+    audio()?.setZen?.(m.id === 'zen'); // Zen's holds skip the music's drain, as they skip the grey (gameplay.md §7.3)
     audio()?.screen?.('none');
     hud.lockHold(profile.level < 2);
     showHud(true);
