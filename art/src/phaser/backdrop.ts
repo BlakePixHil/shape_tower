@@ -20,7 +20,7 @@ import { bakeDustDevil, bakeRingArc } from '../space.ts';
 import { STAR_LAYERS, bakeStarTile } from '../stars.ts';
 import { bakeFlare, bakeRumble } from '../storm.ts';
 import { bird } from '../treetops.ts';
-import { TAU, clamp, ctx2d, hash, makeCanvas } from '../util.ts';
+import { TAU, clamp, cpuBaked, ctx2d, hash, makeCanvas } from '../util.ts';
 import type { CanvasTextureLike, ImageLike, SceneLike, TileSpriteLike } from './types.ts';
 
 export interface BackdropOptions {
@@ -297,7 +297,8 @@ export class Backdrop {
     const bake = BAKERS[i];
     if (!bake || this.biomes.has(i)) return;
     const layers: Live[] = [];
-    for (const part of bake(this.W, this.H, k).sort((p, q) => p.z - q.z)) {
+    // baked in CPU memory, so addCanvas's read-back (its CanvasTexture's getImageData) is a copy, not a GPU wait (#33)
+    for (const part of cpuBaked(() => bake(this.W, this.H, k)).sort((p, q) => p.z - q.z)) {
       const key = `st:bg:${this.id}:${part.key}:${this.W}x${this.H}`;
       const keys = (part.frames ?? [part.canvas]).map((cv, n) => {
         const fk = n ? `${key}#${n}` : key;
@@ -323,7 +324,7 @@ export class Backdrop {
     STAR_LAYERS.forEach((_, i) => {
       const key = `st:stars:${this.id}:${i}`;
       if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
-      this.scene.textures.addCanvas(key, bakeStarTile(i, this.k));
+      this.scene.textures.addCanvas(key, cpuBaked(() => bakeStarTile(i, this.k)));
       const img = this.scene.add.tileSprite(0, 0, Math.ceil(this.W * this.k), Math.ceil(this.H * this.k), key)
         .setOrigin(0, 0).setScrollFactor(0).setDepth(this.depth + 0.005 + i * 0.001);
       this.stars.push({ img, key, i });
@@ -337,7 +338,7 @@ export class Backdrop {
 
   private fxTexture(name: string, make: () => HTMLCanvasElement): string {
     const key = `st:fx:${this.id}:${name}:${this.W}x${this.H}`;
-    if (!this.scene.textures.exists(key)) this.scene.textures.addCanvas(key, make());
+    if (!this.scene.textures.exists(key)) this.scene.textures.addCanvas(key, cpuBaked(make));
     this.fxKeys.add(key);
     return key;
   }
