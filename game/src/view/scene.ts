@@ -6,14 +6,14 @@
 
 import * as Phaser from 'phaser';
 import {
-  ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, CheckpointLine, GuideView, PbMarker, SkyClock, VFX,
+  ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, CheckpointLine, GuideView, PbMarker, POWER_COLORS, PowerBubble, SkyClock, VFX,
   biomeForCheckpoint, rimAmount, type Expression, type Finish, type GuideState, type TexRef, type VfxName,
 } from '@art/index.ts';
 import { DT, Sim, type Bubble, type PieceView, type PowerKind, type SecondWindMode, type Tint } from '../sim/sim.ts';
 import { SHAPES, extents } from '../sim/shapes.ts';
 import { biomeFor, type Tuning } from '../sim/tuning.ts';
 import { Particles, Shaker, TimeControl, easeElasticOut, type ParticleOpts } from './fx.ts';
-import { Hud, POWER_ICONS, POWER_NAMES } from './hud.ts';
+import { Hud, POWER_NAMES } from './hud.ts';
 import { Gestures } from './input.ts';
 import type { LabState, ViewSettings } from './panel.ts';
 import type { RunStart } from './records.ts';
@@ -59,9 +59,7 @@ const PEDESTAL_LEGS = 0.4; // deck 0.6 + legs 0.4 = the sim's 1-block plinth
 const D = { slab: 5, line: 8, piece: 10, fx: 30, front: 35, guide: 40, bubble: 45, ctrl: 50, text: 60 };
 const ORBIT = ART_BIOMES.findIndex(b => b.id === 'orbit'); // landings throw stardust from here up
 const STONE_CHIP = 0xb9b1a6;
-/** Bubble rims and toasts per power (placeholders until Art's bubble art). */
-const POWER_COLORS: Record<PowerKind, string> = { clean: '#3EE6A8', quickset: '#B9B1A6', undo: '#B18CFF', glue: '#FFAA2B', slowmo: '#7FD8FF' };
-const WIND_BLUE = '#7FD8FF';
+const WIND_BLUE = POWER_COLORS.wind;
 
 export class PlayScene extends Phaser.Scene {
   sim!: Sim;
@@ -90,7 +88,7 @@ export class PlayScene extends Phaser.Scene {
   private sprites = new Map<number, PieceSprite>();
   private slabs = new Map<number, { img: Phaser.GameObjects.Image; born: number; landed: boolean }>();
   private ctrlSprite: PieceSprite | null = null;
-  private ctrl = { x: 0, ang: 0, angV: 0, spawnAt: 0, nopeAt: -1, lastX: 0, lean: 0, shape: '' };
+  private ctrl = { x: 0, ang: 0, angV: 0, spawnAt: 0, nopeAt: -1, lastX: 0, lean: 0, shape: '', lift: 0, liftAt: 0, cushionAt: 0 };
   private prev = new Map<number, Pose>();
   private cur = new Map<number, Pose>();
   private prevCtrlY = 0;
@@ -107,7 +105,8 @@ export class PlayScene extends Phaser.Scene {
   private overAt = -1;
   private slowOn = false;
   private overPayload: Record<string, unknown> | null = null;
-  private bubbleView: { id: number; c: Phaser.GameObjects.Container; born: number } | null = null;
+  private bubbleView: { id: number; view: PowerBubble } | null = null;
+  private poppedBubbles: PowerBubble[] = []; // still playing their collect or fade
   private taughtBubble = false;
 
   constructor() { super('play'); }
@@ -176,8 +175,10 @@ export class PlayScene extends Phaser.Scene {
     for (const l of this.lines) l.destroy();
     this.lines = [];
     this.pb.hide();
-    this.bubbleView?.c.destroy();
+    this.bubbleView?.view.destroy();
     this.bubbleView = null;
+    for (const b of this.poppedBubbles) b.destroy();
+    this.poppedBubbles = [];
     this.prev.clear();
     this.cur.clear();
     this.views = [];
@@ -210,6 +211,7 @@ export class PlayScene extends Phaser.Scene {
 
   applyView(v: ViewSettings): void {
     this.view = v;
+    if (this.bubbleView) this.bubbleView.view.reduceMotion = v.reducedMotion;
     this.shaker.scale = v.reducedMotion ? 0 : v.shake;
     this.timeCtl.enabled = !v.reducedMotion;
     this.guide.reduceMotion = v.reducedMotion;
@@ -312,8 +314,16 @@ export class PlayScene extends Phaser.Scene {
       }
       case 'bond_formed': {
         const pos = p.pos as { x: number; y: number };
-        const tint = p.glue ? num(POWER_COLORS.glue) : undefined;
-        for (let i = 0; i < 3; i++) this.particles.spawn((pos.x + (i - 1) * 0.3) * this.ppb, -pos.y * this.ppb, 0, 0, this.fx('dot', p.glue ? 0.24 : 0.14, 0.02, { tint, life: p.glue ? 0.5 : 0.25, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
+        if (p.glue) {
+          // Glued bonds throw gold sparks, each pointing along its flight.
+          for (let i = 0; i < 5; i++) {
+            const a = Math.random() * TAU, v = this.ppb * (2 + Math.random() * 2.5);
+            const vx = Math.cos(a) * v, vy = Math.sin(a) * v;
+            this.particles.spawn(pos.x * this.ppb, -pos.y * this.ppb, vx, vy, this.fx('spark', 0.4, 0.15, { tint: num(GOLD), life: 0.35, drag: 2, angle: Math.atan2(vy, vx), blend: Phaser.BlendModes.ADD }));
+          }
+          break;
+        }
+        for (let i = 0; i < 3; i++) this.particles.spawn((pos.x + (i - 1) * 0.3) * this.ppb, -pos.y * this.ppb, 0, 0, this.fx('dot', 0.14, 0.02, { life: 0.25, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
         break;
       }
       case 'bond_broken': {
@@ -371,6 +381,12 @@ export class PlayScene extends Phaser.Scene {
         break;
       }
       case 'second_wind': this.onSecondWind(now); break;
+      case 'piece_lifted':
+        // The sim moves the shape in hand clear of a new slab in one step; ease it up instead.
+        this.ctrl.lift = this.prevCtrlY - this.curCtrlY;
+        this.ctrl.liftAt = now;
+        this.prevCtrlY = this.curCtrlY;
+        break;
       case 'run_over': {
         this.slowmo(now, 0.4, 900);
         this.overAt = now + 1300;
@@ -459,54 +475,36 @@ export class PlayScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- power-ups
 
-  private showBubble(now: number): void {
+  private showBubble(_now: number): void {
     const b = this.sim.bubble;
     if (!b) return;
-    this.bubbleView?.c.destroy();
-    const u = this.ppb, r = b.r * u, col = num(POWER_COLORS[b.kind]);
-    const g = this.add.graphics();
-    g.fillStyle(col, 0.28).fillCircle(0, 0, r);
-    g.lineStyle(3 * this.dpr, 0xffffff, 0.95).strokeCircle(0, 0, r);
-    g.lineStyle(2 * this.dpr, col, 0.9).strokeCircle(0, 0, r - 3 * this.dpr);
-    g.fillStyle(0xffffff, 0.85).fillEllipse(-0.32 * r, -0.42 * r, 0.42 * r, 0.22 * r);
-    const icon = this.add.text(0, 0, POWER_ICONS[b.kind][0], { fontSize: `${Math.round(r * 1.05)}px`, fontFamily: 'system-ui, sans-serif' }).setOrigin(0.5);
-    const c = this.add.container(b.x * u, -b.y * u, [g, icon]).setDepth(D.bubble).setScale(0);
-    this.tweens.add({ targets: c, scale: 1, duration: 340, ease: 'Back.Out' });
-    this.bubbleView = { id: b.id, c, born: now };
+    this.bubbleView?.view.destroy();
+    const view = new PowerBubble(this.art, b.kind, D.bubble);
+    view.reduceMotion = this.view.reducedMotion;
+    view.set(b.x * this.ppb, -b.y * this.ppb);
+    this.bubbleView = { id: b.id, view };
     if (!this.taughtBubble) { this.taughtBubble = true; this.pop('Steer through it!', b.x, b.y + 1.1, '#FFFFFF', 15); }
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * TAU, v = u * 1.5;
-      this.particles.spawn(b.x * u, -b.y * u, Math.cos(a) * v, Math.sin(a) * v, this.fx('sparkle', 0.3, 0.05, { tint: col, life: 0.4, drag: 3, blend: Phaser.BlendModes.ADD }));
-    }
   }
 
-  private drawBubble(now: number): void {
+  private drawBubble(dt: number): void {
     const v = this.bubbleView, b: Bubble | null = this.sim.bubble;
-    if (!v || !b || v.id !== b.id) return;
-    // A gentle bob and sway; collection uses the sim's fixed circle, which is generous.
-    const t = (now - v.born) / 1000;
-    const bob = this.view.reducedMotion ? 0 : 0.08 * Math.sin(t * 3);
-    v.c.setPosition(b.x * this.ppb, -(b.y + bob) * this.ppb);
-    v.c.setRotation(this.view.reducedMotion ? 0 : 0.08 * Math.sin(t * 1.7));
+    // The kit adds its own bob and sway; collection uses the sim's fixed circle, which is generous.
+    if (v && b && v.id === b.id) v.view.set(b.x * this.ppb, -b.y * this.ppb).ending(b.shapesLeft === 1).update(dt);
+    for (const p of this.poppedBubbles) p.update(dt);
+    this.poppedBubbles = this.poppedBubbles.filter(p => { if (p.done) p.destroy(); return !p.done; });
   }
 
-  /** The bubble pops into a slot (collected) or fades. */
+  /** The bubble bursts and its icon flies to the slot it fills (collected), or drifts away. */
   private dropBubble(collected: boolean, p: Record<string, any>): void {
     const v = this.bubbleView;
     this.bubbleView = null;
     if (!v) return;
+    this.poppedBubbles.push(v.view);
+    if (!collected) { v.view.fade(); return; }
+    const slot = this.hooks.hud.slotCentre(p.slot as number);
+    const to = this.cameras.main.getWorldPoint(slot.x * this.dpr, slot.y * this.dpr);
+    v.view.collect({ x: to.x, y: to.y });
     const kind = p.kind as PowerKind;
-    if (!collected) {
-      this.tweens.add({ targets: v.c, alpha: 0, scale: 0.6, duration: 300, onComplete: () => v.c.destroy() });
-      return;
-    }
-    this.tweens.add({ targets: v.c, alpha: 0, scale: 1.6, duration: 180, ease: 'Quad.Out', onComplete: () => v.c.destroy() });
-    const u = this.ppb, x = (p.x as number) * u, y = -(p.y as number) * u, col = num(POWER_COLORS[kind]);
-    this.particles.spawn(x, y, 0, 0, this.fx('ring', 0.6, 2.2, { tint: col, life: 0.35, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
-    for (let i = 0; i < 10; i++) {
-      const a = Math.random() * TAU, sp = u * (2 + Math.random() * 3);
-      this.particles.spawn(x, y, Math.cos(a) * sp, Math.sin(a) * sp, this.fx('sparkle', 0.4, 0.05, { tint: col, life: 0.55, drag: 3, spin: 4, blend: Phaser.BlendModes.ADD }));
-    }
     this.pop(`${POWER_NAMES[kind].toUpperCase()}!`, p.x as number, (p.y as number) + 1, POWER_COLORS[kind], 18);
     this.shaker.add(0.1);
   }
@@ -529,8 +527,7 @@ export class PlayScene extends Phaser.Scene {
       case 'clean': {
         // A broom-stroke of light across the stretch after the puffs.
         const w = Math.max(8, f.width + 4), x0 = f.x - w / 2;
-        const bar = this.add.rectangle(x0 * this.ppb, -(f.top + 1.5) * this.ppb, this.ppb * 0.8, this.ppb * 3.5, num(col), 0.5).setBlendMode(Phaser.BlendModes.ADD).setDepth(D.fx);
-        this.tweens.add({ targets: bar, x: (x0 + w) * this.ppb, duration: 320, ease: 'Sine.InOut', onComplete: () => this.tweens.add({ targets: bar, alpha: 0, duration: 150, onComplete: () => bar.destroy() }) });
+        this.particles.spawn(x0 * this.ppb, -(f.top + 1.75) * this.ppb, (w / 0.32) * this.ppb, 0, this.fx('sweep', 3.5, 3.5, { tint: num(col), life: 0.32, alpha: 0.9, angle: 0, blend: Phaser.BlendModes.ADD }));
         this.pop('CLEAN SLATE!', f.x, f.top + 3, col, 24);
         this.shaker.add(0.2);
         break;
@@ -539,6 +536,10 @@ export class PlayScene extends Phaser.Scene {
         // Stone washes down from the top, like a claim.
         this.stoneWave = { top: top + 0.5, at: now };
         this.hitstop(now, 60);
+        for (let i = 0; i < 10; i++) {
+          const x = f.x + (Math.random() - 0.5) * f.width;
+          this.particles.spawn(x * this.ppb, -top * this.ppb, (Math.random() - 0.5) * this.ppb * 4, -this.ppb * (1 + Math.random() * 2), this.fx('chip', 0.22, 0.1, { tint: num(col), life: 0.7, gravity: this.ppb * 14, spin: 6 }));
+        }
         this.pop('QUICK-SET!', f.x, top + 1.5, '#FFFFFF', 24);
         this.shaker.add(0.25);
         break;
@@ -547,9 +548,15 @@ export class PlayScene extends Phaser.Scene {
         this.pop('UNDO!', p.x as number, (p.y as number) + 1.2, col, 22);
         break;
       case 'glue':
-      case 'slowmo':
+      case 'slowmo': {
         this.pop(`${POWER_NAMES[kind].toUpperCase()} ×${p.shapes}`, f.x, top + 2.5, col, 22);
+        if (kind === 'slowmo') {
+          const c = this.sim.ctrl;
+          const at = c ? { x: c.x, y: this.curCtrlY } : { x: f.x, y: top + 1 };
+          this.particles.spawn(at.x * this.ppb, -at.y * this.ppb, 0, 0, this.fx('ripple', 1, 3.5, { tint: num(col), life: 0.6, alpha: 0.9, angle: 0, blend: Phaser.BlendModes.ADD }));
+        }
         break;
+      }
     }
   }
 
@@ -559,12 +566,14 @@ export class PlayScene extends Phaser.Scene {
     if (!this.view.reducedMotion) this.hooks.hud.flash(0.35);
     this.hitstop(now, 80);
     this.pop('SECOND WIND!', f.x, top + 3, WIND_BLUE, 28);
-    // A gust blows across the screen.
+    this.particles.spawn(f.x * u, -top * u, 0, 0, this.fx('ripple', 1.5, 6, { tint: num(WIND_BLUE), life: 0.7, alpha: 0.9, angle: 0, blend: Phaser.BlendModes.ADD }));
+    // A gust blows across the screen, left to right at about 20 blocks/s.
     const visH = this.H / (this.ppb * this.zoom);
-    const left = this.cam.x - this.cam.across / 2 - 1;
-    for (let i = 0; i < 36; i++) {
+    const left = this.cam.x - this.cam.across / 2 - 2.5;
+    const n = 12 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < n; i++) {
       const y = this.cam.y + (Math.random() - 0.5) * visH * 0.8;
-      this.particles.spawn((left - Math.random() * 4) * u, -y * u, u * (18 + Math.random() * 10), 0, this.fx('speedline', 1.2, 0.8, { tint: 0xffffff, life: 0.9, alpha: 0.7, angle: Math.PI / 2 }));
+      this.particles.spawn((left - Math.random() * 5) * u, -y * u, u * (18 + Math.random() * 4), 0, this.fx('gust', 2.4, 2.4, { tint: 0xffffff, life: 1.2, alpha: 0.85, angle: 0 }));
     }
     for (let i = 0; i < 24; i++) {
       const a = Math.random() * TAU, v = u * (3 + Math.random() * 5);
@@ -671,7 +680,7 @@ export class PlayScene extends Phaser.Scene {
     this.drawPieces(dt, alpha, now, sp);
     this.drawCtrl(dt, alpha, now, sp);
     this.drawGuide(now);
-    this.drawBubble(now);
+    this.drawBubble(dt);
     this.particles.update(dt);
     this.updateHud(committed);
   }
@@ -871,7 +880,15 @@ export class PlayScene extends Phaser.Scene {
       this.ctrl.angV += (-(w * w) * (this.ctrl.ang - target) - 2 * z * w * this.ctrl.angV) * h;
       this.ctrl.ang += this.ctrl.angV * h;
     }
-    const y = this.prevCtrlY + (this.curCtrlY - this.prevCtrlY) * alpha;
+    // A lift clear of a new slab eases up over 250 ms instead of jumping.
+    const lt = Math.min(1, (now - this.ctrl.liftAt) / 250);
+    const y = this.prevCtrlY + (this.curCtrlY - this.prevCtrlY) * alpha + this.ctrl.lift * (1 - lt) * (1 - lt) * (1 - lt);
+    // Hovering through a checkpoint hold: a soft cushion of puffs under the shape.
+    if (this.sim.hovering && !c.hard && !c.soft && now - this.ctrl.cushionAt > 110) {
+      this.ctrl.cushionAt = now;
+      const e = extents(c.shape, c.rot);
+      this.particles.spawn((c.x + e.minX + Math.random() * (e.maxX - e.minX)) * this.ppb, -(y + e.minY - 0.1) * this.ppb, 0, this.ppb * 0.8, this.fx('dot', 0.3, 0.05, { tint: 0xffffff, life: 0.45, alpha: 0.6, blend: Phaser.BlendModes.ADD }));
+    }
     // Spawn pop 0 → 1.1 → 1 over 220 ms (§7.1), then stretch while dropping.
     const pt = Math.min(1, (now - this.ctrl.spawnAt) / 220);
     const pop = pt < 1 ? (pt < 0.6 ? (pt / 0.6) * 1.1 : 1.1 - 0.1 * ((pt - 0.6) / 0.4)) : 1;
@@ -883,7 +900,7 @@ export class PlayScene extends Phaser.Scene {
     // Glue drips honey; Slow-Mo leaves a drift of sparkles.
     if (this.sim.glueLeft > 0 && Math.random() < 0.12) {
       const e = extents(c.shape, c.rot);
-      this.particles.spawn((c.x + e.minX + Math.random() * (e.maxX - e.minX)) * u, -(y + e.minY) * u, 0, u * 0.5, this.fx('dotHard', 0.16, 0.08, { tint: num(POWER_COLORS.glue), life: 0.7, gravity: u * 6 }));
+      this.particles.spawn((c.x + e.minX + Math.random() * (e.maxX - e.minX)) * u, -(y + e.minY) * u, 0, u * 0.5, this.fx('honey', 0.32, 0.2, { life: 0.7, gravity: u * 6, angle: 0 }));
     }
     if (this.sim.slowLeft > 0 && !c.hard && Math.random() < 0.2) {
       const e = extents(c.shape, c.rot);

@@ -57,6 +57,8 @@ export interface Tuning {
   gapGrowth: number;
   gapCap: number;
   holdTime: number;
+  holdHover: boolean;         // the shape in hand waits during a hold and the claim's slab drop
+  claimClearance: number;     // blocks: room kept between the new slab and the shape in hand
   minSlabWidth: number;
   slabThickness: number;
   slackStart: number;
@@ -133,6 +135,8 @@ export const DEFAULT_TUNING: Tuning = {
   gapGrowth: 1,
   gapCap: 16,
   holdTime: 2.0,
+  holdHover: true,
+  claimClearance: 2.5,
   minSlabWidth: 3,
   slabThickness: 0.5,
   slackStart: 1.6,

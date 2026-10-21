@@ -309,6 +309,11 @@ export class Sim {
 
   holdState(): { active: boolean; progress: number } { return { ...this.hold }; }
 
+  /** The shape in hand waits: a checkpoint hold is running, or the claimed slab is still dropping in. */
+  get hovering(): boolean {
+    return this.tuning.holdHover && (this.hold.active || this.time < this.claimPauseUntil);
+  }
+
   tension(): number { return this.tensionValue; }
 
   drainEvents() { return this.bus.drain(); }
@@ -429,7 +434,10 @@ export class Sim {
     // Something toppled into the shape: it becomes physical right away.
     if (!this.free(c.shape, c.x, c.y, c.rot)) { this.land(c, c.y, c.speed, true); return; }
     const fall = fallSpeedFor(t, this.checkpoint) * (this.slowLeft > 0 ? t.slowFactor : 1);
-    c.speed = c.hard ? t.hardDropSpeed : fall * (c.soft ? t.softDropMult : 1);
+    // While a checkpoint is being held, and while the new slab drops in, the shape in hand hovers
+    // so the player can react to the claim. Soft and hard drops still bring it down.
+    const hover = !c.hard && !c.soft && this.hovering;
+    c.speed = c.hard ? t.hardDropSpeed : hover ? 0 : fall * (c.soft ? t.softDropMult : 1);
     const ny = c.y - c.speed * DT;
     if (this.free(c.shape, c.x, ny, c.rot)) {
       c.y = ny;
@@ -991,6 +999,15 @@ export class Sim {
     this.solidTo = 0;
     this.hold = { active: false, progress: 0 };
     this.claimPauseUntil = this.time + 1.5;
+    // A shape in hand close to the new slab moves up so it has room to be steered (and the slab
+    // never lands on it).
+    const c = this.ctrl;
+    if (c && t.holdHover) {
+      const e = extents(c.shape, c.rot);
+      const minY = slab.top + t.claimClearance - e.minY;
+      if (c.y < minY && this.free(c.shape, c.x, minY, c.rot)) { c.y = minY; c.touchedAt = null; this.bus.emit('piece_lifted', { y: minY }); }
+      c.xTarget = this.clampX(c, c.xTarget);
+    }
     this.lastNear = -1;
     this.cascade = null;
   }

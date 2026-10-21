@@ -339,6 +339,31 @@ for (const [shape, x] of [['Domino', -2], ['O', 2.5], ['Plank', -1.5]] as const)
   r?.sim.dispose();
 }
 
+// Blake: a claim landing while a shape was still falling felt unfair. The shape in hand now hovers
+// through the hold and the slab drop, is lifted clear of the new slab, then falls again.
+{
+  const t = createSim({});
+  for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) t.placePiece({ shape: 'O', x: -3 + col * 2, y: 1 + row * 2 + 0.001 * row });
+  t.step(60);
+  t.spawnControlled({ shape: 'O', x: 0 });
+  t.sim.ctrl!.y = 10.2; // 1.2 above the wall, which is at the line
+  const y0 = t.sim.ctrl!.y;
+  t.step(30);
+  const duringHold = t.sim.ctrl!.y, holding = t.checkpoint.hold.active;
+  const claim = stepUntil(t, 'checkpoint_claimed', 600);
+  const events = t.drainEvents();
+  const slabTop = t.sim.foundation.top;
+  const lifted = t.sim.ctrl!.y;
+  t.step(60);
+  const inPause = t.sim.ctrl!.y;
+  t.step(60);
+  const after = t.sim.ctrl!.y;
+  check('A shape in hand hovers through a hold, is lifted clear of the new slab, then falls',
+    holding && !!claim && duringHold === y0 && Math.abs(lifted - 1 - (slabTop + 2.5)) < 1e-9 && inPause === lifted && after < lifted - 0.5,
+    `hold ${holding}, y ${y0} → ${duringHold} in the hold, lifted to ${lifted.toFixed(2)} over slab ${slabTop.toFixed(2)}, ${inPause.toFixed(2)} in the pause, ${after.toFixed(2)} after, ${events.some(e => e.name === 'piece_lifted') ? 'lift event' : 'no lift event'}`);
+  t.dispose();
+}
+
 // ---- Power-ups and Second Wind (gameplay.md §13) ----
 
 /** Steps until an event fires (or `max` steps pass); returns its payload. */

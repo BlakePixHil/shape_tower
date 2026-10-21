@@ -1,14 +1,12 @@
 // The in-game HUD and screens as DOM over the canvas (art-direction.md §8: "sticker toy" UI).
 // Screen space only: camera shake never moves it.
 
-import { bakePiece } from '@art/index.ts';
+import { bakePiece, powerBarCss, powerIconUrl } from '@art/index.ts';
 import type { PowerKind, SecondWindState } from '../sim/sim.ts';
 import { INK } from './palette.ts';
 
-/** Placeholder icons until Art's power-up icons land: [emoji, short label]. */
-export const POWER_ICONS: Record<PowerKind, [string, string]> = {
-  clean: ['🧹', 'SWEEP'], quickset: ['🪨', 'SET'], undo: ['↩️', 'UNDO'], glue: ['🍯', 'GLUE'], slowmo: ['🐌', 'SLOW'],
-};
+/** The short label under each power's slot. */
+export const POWER_TAGS: Record<PowerKind, string> = { clean: 'SWEEP', quickset: 'SET', undo: 'UNDO', glue: 'GLUE', slowmo: 'SLOW' };
 export const POWER_NAMES: Record<PowerKind, string> = { clean: 'Clean Slate', quickset: 'Quick-Set', undo: 'Undo', glue: 'Glue', slowmo: 'Slow-Mo' };
 
 const CSS = `
@@ -19,7 +17,7 @@ const CSS = `
 .st-row { display: flex; gap: 8px; align-items: center; }
 .st-btn { pointer-events: auto; background: #FFF7E8; border: 3px solid ${INK}; border-radius: 14px; box-shadow: 0 4px 0 ${INK}; font: 600 16px 'Fredoka', system-ui, sans-serif; color: ${INK}; padding: 6px 12px; cursor: pointer; transition: transform 80ms; touch-action: manipulation; }
 .st-btn:active { transform: translateY(4px); box-shadow: 0 0 0 ${INK}; }
-.st-icon { width: 44px; height: 44px; padding: 0; display: grid; place-items: center; font-size: 18px; }
+.st-iconbtn { width: 44px; height: 44px; padding: 0; display: grid; place-items: center; font-size: 18px; }
 .st-hearts { display: flex; gap: 3px; }
 .st-heart { width: 22px; height: 22px; transition: transform 200ms; }
 .st-heart.lost { animation: st-crack 500ms forwards; }
@@ -105,6 +103,8 @@ export class Hud {
   private activeEl: HTMLDivElement;
   private powerKey = '';
   private windArmedUntil = 0;
+  private windSpentAt = 0;
+  private lastWind: SecondWindState = 'earn';
   /** A power slot was tapped. */
   onPower: (slot: number) => void = () => {};
   /** Second Wind was tapped twice (the first tap arms it, so a stray tap can't spend it). */
@@ -118,14 +118,14 @@ export class Hud {
 
   constructor(parent: HTMLElement) {
     const style = document.createElement('style');
-    style.textContent = CSS;
+    style.textContent = CSS + powerBarCss(); // Art's power bar styles go on top of ours
     document.head.appendChild(style);
     this.root = document.createElement('div');
     this.root.className = 'st-hud';
     this.root.innerHTML = `
       <div class="st-top">
         <div class="st-col">
-          <div class="st-row"><button class="st-btn st-icon" data-id="pause" aria-label="Pause">❚❚</button><div class="st-hearts" data-id="hearts"></div></div>
+          <div class="st-row"><button class="st-btn st-iconbtn" data-id="pause" aria-label="Pause">❚❚</button><div class="st-hearts" data-id="hearts"></div></div>
           <div class="st-card" data-id="holdcard" style="width:58px;height:58px"><div class="st-cap">HOLD</div><canvas data-id="hold"></canvas></div>
           <div class="st-chip" data-id="bricks">🧱 <span>0</span></div>
         </div>
@@ -144,7 +144,7 @@ export class Hud {
       <div class="st-powers">
         <button class="st-btn st-slot empty" data-id="slot0" aria-label="Power-up 1"></button>
         <button class="st-btn st-slot empty" data-id="slot1" aria-label="Power-up 2"></button>
-        <button class="st-btn st-slot st-wind earn" data-id="wind" aria-label="Second Wind">🌬️<span class="st-tag">CP 2</span></button>
+        <button class="st-btn st-slot st-wind earn" data-id="wind" aria-label="Second Wind"><img class="st-icon" alt=""><span class="st-tag">CP 2</span></button>
         <div class="st-active" data-id="active"></div>
       </div>
       <button class="st-btn st-lab" data-id="lab">⚙ Lab</button>`;
@@ -167,6 +167,7 @@ export class Hud {
     this.slotBtns = [q('slot0'), q('slot1')];
     this.windBtn = q('wind');
     this.activeEl = q('active');
+    this.windBtn.querySelector('img')!.src = powerIconUrl('wind', 46);
     this.slotBtns.forEach((b, i) => { b.onclick = () => this.onPower(i); });
     this.windBtn.onclick = () => {
       const now = performance.now();
@@ -317,19 +318,28 @@ export class Hud {
     this.powerKey = key;
     slots.forEach((k, i) => {
       const b = this.slotBtns[i];
+      if (b.dataset.kind === (k ?? undefined)) return;
       b.classList.toggle('empty', !k);
-      b.innerHTML = k ? `${POWER_ICONS[k][0]}<span class="st-tag">${POWER_ICONS[k][1]}</span>` : '';
+      if (k) b.dataset.kind = k; else delete b.dataset.kind;
+      b.innerHTML = k ? `<img class="st-icon" alt="" src="${powerIconUrl(k, 40)}"><span class="st-tag">${POWER_TAGS[k]}</span>` : '';
       b.setAttribute('aria-label', k ? POWER_NAMES[k] : 'Empty power-up slot');
     });
     const w = this.windBtn;
-    w.classList.toggle('hide', wind === 'off' || wind === 'used');
+    // Spent: it blows away (Art's `spent` animation, 450 ms), then hides.
+    const now = performance.now();
+    if (wind === 'used' && this.lastWind === 'ready') this.windSpentAt = now;
+    this.lastWind = wind;
+    const blowing = wind === 'used' && now - this.windSpentAt < 450;
+    if (blowing) this.powerKey = ''; // keep checking until it has blown away
+    w.classList.toggle('spent', blowing);
+    w.classList.toggle('hide', wind === 'off' || (wind === 'used' && !blowing));
     w.classList.toggle('earn', wind === 'earn');
     w.classList.toggle('armed', armed);
     w.classList.toggle('glow', wind === 'ready' && trouble && !armed);
     w.querySelector('.st-tag')!.textContent = wind === 'earn' ? 'CP 2' : armed ? 'TAP AGAIN' : '2ND WIND';
     let chips = '';
-    if (glueLeft > 0) chips += `<div class="st-chip">🍯 ${glueLeft}</div>`;
-    if (slowLeft > 0) chips += `<div class="st-chip">🐌 ${slowLeft}</div>`;
+    if (glueLeft > 0) chips += `<div class="st-chip"><img class="st-icon" alt="Glue" src="${powerIconUrl('glue', 16)}">${glueLeft}</div>`;
+    if (slowLeft > 0) chips += `<div class="st-chip"><img class="st-icon" alt="Slow-Mo" src="${powerIconUrl('slowmo', 16)}">${slowLeft}</div>`;
     this.activeEl.innerHTML = chips;
   }
 
@@ -378,6 +388,9 @@ export class Hud {
   reset(): void {
     this.powerKey = '';
     this.windArmedUntil = 0;
+    this.windSpentAt = 0;
+    this.lastWind = 'earn';
+    for (const b of this.slotBtns) delete b.dataset.kind;
     this.lastHearts = -1;
     this.lastHeight = 0;
     this.nextKey = '';
