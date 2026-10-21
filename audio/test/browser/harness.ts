@@ -3,6 +3,7 @@
 
 import { AudioDirector } from '../../src/director';
 import { MUSIC_TUNING } from '../../src/music/engine';
+import { connectJuiceBus } from '../../src/juicebus';
 import { FULL_CAPS, FULL_GLOBAL_CAP } from '../../src/voices';
 import { JUICE_EVENTS, type Material } from '../../src/types';
 import { mulberry32 } from '../../src/synth/dsp';
@@ -475,6 +476,69 @@ const scenarios = {
     const buf = await ctx.startRendering();
     const level = (a: number, b: number) => db(analyse(buf, a, b).rms);
     return { modes, menuDb: level(1, 5.5), profileDb: level(6.5, 9), afterDb: level(11, 13), stats: d.music.state(), nonFinite: analyse(buf).nonFinite };
+  },
+
+  /** Gate 1's juice switch: off keeps what-happened sounds and drops the flourishes; the band stops reacting. */
+  async juice() {
+    const out: Record<string, { names: string[]; notes: number; log: string[]; reactive: boolean }> = {};
+    for (const on of [true, false]) {
+      const { d } = await makeDirector(1);
+      d.setJuice(on);
+      const names = spyPlays(d);
+      let notes = 0;
+      const target = d as unknown as { playNote: (...a: unknown[]) => unknown; playChord: (...a: unknown[]) => unknown };
+      for (const k of ['playNote', 'playChord'] as const) {
+        const orig = target[k].bind(d);
+        target[k] = (...a: unknown[]) => {
+          notes++;
+          return orig(...a);
+        };
+      }
+      await d.music.prewarm();
+      const ev: [number, string, Record<string, unknown>?][] = [
+        [0.1, 'piece_spawned'],
+        ...[1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5].map((t) => [t, 'piece_settled', { grade: 'clean', material: 'wood' }] as [number, string, Record<string, unknown>]),
+        [5, 'perfect', { combo: 2 }], [5.1, 'ghost_fit', { perfect: true }], [5.2, 'bond_formed', {}], [5.3, 'contact_hit', { bodyA: 'a', approachSpeed: 6, materialA: 'wood' }],
+        [6, 'row_solid', { count: 2 }], [6.5, 'checkpoint_near', { blocks: 1 }], [7, 'checkpoint_claimed', { n: 1, leftover: 6 }],
+        [7.5, 'heart_lost', { count: 1, left: 2 }], [8, 'pb_crossed', {}], [8.5, 'power_collected', { slot: 0 }],
+        [12, 'hazard_warning', { type: 'gust', dir: -1, eta: 2, first: true }], [14, 'hazard_start', { type: 'gust', strength: 0.08, dir: -1 }],
+        [15, 'second_wind', {}], [16, 'biome_entered', { id: 2 }], [19, 'run_over', {}],
+      ];
+      let i = 0;
+      for (let t = 0.1; t < 20; t = Math.round((t + 0.1) * 10) / 10) {
+        while (i < ev.length && ev[i][0] <= t) {
+          d.handle(ev[i][1], ev[i][2] ?? {}, t);
+          i++;
+        }
+        d.handle('signals', { tension: t > 9 && t < 11 ? 0.8 : 0.1, biome: t >= 16 ? 2 : 1 }, t);
+      }
+      out[on ? 'on' : 'off'] = { names: [...new Set(names)], notes, log: d.music.log.map((e) => e.what), reactive: d.music.reactive };
+    }
+    return out;
+  },
+
+  /** A new bus connecting mid-run (a restart from pause) closes the old run quietly and starts a fresh one. */
+  async restart() {
+    const { d } = await makeDirector(1);
+    const bus = () => {
+      const fns = new Map<string, ((p?: unknown) => void)[]>();
+      return {
+        on: (n: string, f: (p?: unknown) => void) => fns.set(n, [...(fns.get(n) ?? []), f]),
+        off: (n: string, f: (p?: unknown) => void) => fns.set(n, (fns.get(n) ?? []).filter((g) => g !== f)),
+        emit: (n: string, p?: unknown) => (fns.get(n) ?? []).forEach((f) => f(p)),
+      };
+    };
+    const a = bus();
+    connectJuiceBus(a, d);
+    a.emit('piece_spawned', {});
+    a.emit('checkpoint_claimed', { n: 1 });
+    const before = { running: (d as any).running, checkpoint: (d as any).checkpointN, mode: d.music.mode };
+    const b = bus();
+    connectJuiceBus(b, d);
+    const between = { running: (d as any).running, mode: d.music.mode };
+    b.emit('piece_spawned', {});
+    const after = { running: (d as any).running, checkpoint: (d as any).checkpointN, mode: d.music.mode, base: d.mixer.state().base };
+    return { before, between, after, starts: d.music.log.filter((e) => e.what === 'run start').length };
   },
 };
 

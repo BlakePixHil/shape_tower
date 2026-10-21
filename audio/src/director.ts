@@ -60,6 +60,8 @@ export interface DirectorOptions {
    * Without it, baking runs on the main thread in small slices.
    */
   worker?: Worker | (() => Worker) | null;
+  /** Gate 1's juice switch (default on); see setJuice. */
+  juice?: boolean;
 }
 
 interface Playing {
@@ -122,6 +124,8 @@ export class AudioDirector {
   private disposers: (() => void)[] = [];
   private isReady = false;
   private storage?: StorageLike | null;
+  /** juice on: flourishes, haptics, ducking and a soundtrack that reacts (setJuice) */
+  private juice = true;
 
   // run state
   private running = false;
@@ -168,6 +172,7 @@ export class AudioDirector {
     this.mixer = new Mixer(this.ctx);
     this.bank = new SoundBank(this.ctx, opts.seed ?? 1, makeBaker(opts.worker, this.realtime));
     this.music = new MusicEngine(this.ctx, this.mixer.input('music'), this.bank);
+    this.setJuice(opts.juice ?? true);
     const sr = this.ctx.sampleRate;
     const reverb = this.bank.baker
       .bake([{ kind: 'ir', seconds: 1.6, seed: opts.seed ?? 7, sr }])
@@ -262,6 +267,40 @@ export class AudioDirector {
   setLockOnChime(on: boolean): void {
     this.settings.lockOnChime = on;
     this.persist();
+  }
+
+  /**
+   * Gate 1's juice switch (vertical slice G5). Off keeps every sound that says what happened
+   * (impacts, settles, hearts, the checkpoint clack, warnings, creaks, hazards, UI) and drops
+   * the flourishes: the landing-note melody, shimmers, confetti, fireworks, coin cascades,
+   * stinger chords, biome entry moments, shape voices, ducking and haptics. The music keeps
+   * playing but stops reacting to the run. Set it before the run starts.
+   */
+  setJuice(on: boolean): void {
+    this.juice = on;
+    this.music.reactive = on;
+  }
+
+  get juiceOn(): boolean {
+    return this.juice;
+  }
+
+  /**
+   * A new JuiceBus was connected (connectJuiceBus calls this): a run still going on the old
+   * bus is closed quietly, so the new sim's first spawn starts a fresh run mix and band.
+   */
+  attach(when: number = this.now()): void {
+    if (!this.running) return;
+    this.running = false;
+    this.overAt = -Infinity;
+    this.danger = this.holding = false;
+    this.stopDrumroll(when);
+    for (const [, sc] of this.scrapes) this.stopPlaying(sc.p, when, 0.05);
+    this.scrapes.clear();
+    for (const [, l] of this.hazardLoops) this.stopPlaying(l, when, 0.2);
+    this.hazardLoops.clear();
+    this.setSlowPower(false, when);
+    this.music.stop(when);
   }
 
   /** Resume audio after a user gesture (also installed automatically in real-time mode). */
@@ -409,6 +448,11 @@ export class AudioDirector {
     }
   }
 
+  /** Ducks a bus under a celebration (juice only). */
+  private duck(bus: BusName, db: number, when: number, dur: number): void {
+    if (this.juice) this.mixer.duck(bus, db, when, dur);
+  }
+
   /** Changes the speed of everything that follows slow motion (and of sounds started later). */
   private setRateFactor(f: number, when: number): void {
     this.rateFactor = f;
@@ -419,7 +463,7 @@ export class AudioDirector {
   }
 
   private haptic(name: PatternName, strength = 1, delaySec = 0): void {
-    if (!this.realtime) return;
+    if (!this.realtime || !this.juice) return;
     if (delaySec > 0) setTimeout(() => this.haptics.play(name, strength), delaySec * 1000);
     else this.haptics.play(name, strength);
   }
@@ -624,7 +668,7 @@ export class AudioDirector {
       this.music.setBiome(b.id, this.checkpointN);
     }
     if (changed || !this.bed) this.startBed(when);
-    if (withEntry && !this.entryPlayed.has(b.id)) {
+    if (withEntry && this.juice && !this.entryPlayed.has(b.id)) {
       this.entryPlayed.add(b.id);
       const at = Math.max(when, this.lastCheckpointAt + 1.6);
       this.play(`entry.${b.id}`, { when: at, gainDb: b.id === 4 ? -6 : -9, category: 'stinger', priority: 1, slowmo: false });
@@ -712,19 +756,21 @@ export class AudioDirector {
         this.onSettled(p, when);
         break;
       case 'perfect': {
+        if (!this.juice) break;
         const combo = num(p, 'combo', 1);
         this.play('shimmer', { when, gainDb: -14, rate: semis(Math.min(combo, 8)), category: 'stinger', priority: 3 });
         this.haptic('perfect');
         break;
       }
       case 'clutch':
+        if (!this.juice) break;
         this.play('phew', { when, gainDb: -10, category: 'stinger', priority: 2 });
         this.play('shimmer', { when: when + 0.1, gainDb: -18, category: 'misc', priority: 4 });
         this.haptic('clutch');
         break;
       case 'ghost_fit': {
         const perfect = bool(p, 'perfect');
-        if (perfect && !this.ghostPerfect && this.settings.lockOnChime && this.cool.ready('lockon', when, 0.25)) {
+        if (perfect && !this.ghostPerfect && this.juice && this.settings.lockOnChime && this.cool.ready('lockon', when, 0.25)) {
           this.play('lockon', { when, gainDb: -15, category: 'ui', priority: 3, slowmo: false });
           this.haptic('lockOn');
         }
@@ -736,7 +782,7 @@ export class AudioDirector {
       case 'bond_formed':
         if (bool(p, 'glue')) {
           if (this.cool.ready('glue', when, 0.12)) this.play('glue.squelch', { when, gainDb: -17, category: 'misc', priority: 4 });
-        } else if (this.cool.ready('bond', when, 0.2)) this.play('bond.tink', { when, gainDb: -28, category: 'misc', priority: 5 });
+        } else if (this.juice && this.cool.ready('bond', when, 0.2)) this.play('bond.tink', { when, gainDb: -28, category: 'misc', priority: 5 });
         break;
       case 'bond_broken': {
         const f = num(p, 'force', 10);
@@ -796,11 +842,11 @@ export class AudioDirector {
         this.play('blip', { when, gainDb: -22, category: 'misc', priority: 5 });
         break;
       case 'pb_crossed':
-        this.onPersonalBest(when);
+        if (this.juice) this.onPersonalBest(when);
         break;
       case 'checkpoint_near': {
         const blocks = num(p, 'blocks', 99);
-        if (blocks <= 1 && !this.drumroll && !this.holding) {
+        if (blocks <= 1 && !this.drumroll && !this.holding && this.juice) {
           this.drumroll = this.play('drumroll', { when, gainDb: -16, category: 'stinger', priority: 2, attack: 0.3, vary: false }) ?? undefined;
         } else if (blocks > 1) this.stopDrumroll(when);
         break;
@@ -864,13 +910,17 @@ export class AudioDirector {
         break;
       case 'power_collected':
         this.play('bubble.pop', { when, gainDb: -9, pan: this.panX(num(p, 'x', this.signals.foundationX)), category: 'misc', priority: 2 });
-        this.powerChime(when + 0.04, -11);
+        if (this.juice) this.powerChime(when + 0.04, -11);
         this.haptic('double', 0.7);
         break;
       case 'power_granted': {
         // a grade-S claim grants one as the claim fanfare settles
         const at = Math.max(when, this.lastCheckpointAt + 1, this.lastGrantAt + 0.45);
         this.lastGrantAt = at;
+        if (!this.juice) {
+          this.play('bubble.pop', { when: at, gainDb: -14, category: 'misc', priority: 3 });
+          break;
+        }
         this.powerChime(at, -12);
         this.play('shimmer', { when: at + 0.15, gainDb: -16, category: 'misc', priority: 4 });
         this.haptic('double', 0.5, at - when);
@@ -896,7 +946,7 @@ export class AudioDirector {
         // never a nag: silent at run start, one soft cue when checkpoint 2 earns it
         if (str(p, 'how', 'start') === 'earned') {
           const at = Math.max(when, this.lastCheckpointAt + 2.2);
-          this.play('shimmer', { when: at, gainDb: -17, category: 'misc', priority: 3 });
+          if (this.juice) this.play('shimmer', { when: at, gainDb: -17, category: 'misc', priority: 3 });
           const { inst, octave } = this.instFor();
           this.playNote(inst, scaleNote(this.key, 7) + 12 * octave, { when: at + 0.05, gainDb: -17, category: 'note', priority: 3 });
         }
@@ -907,6 +957,7 @@ export class AudioDirector {
 
       // feel
       case 'hitstop': {
+        if (!this.juice) break;
         const ms = clamp(num(p, 'ms', 50), 0, 500) / 1000;
         for (const pl of this.playing.values()) {
           if (!pl.slowmo) continue;
@@ -973,7 +1024,7 @@ export class AudioDirector {
     this.nextSweet = when + 2;
     this.nextCreak = when;
     if (chime) {
-      this.play('entry.1', { bus: 'ambience', when, gainDb: -12, category: 'stinger', priority: 2 });
+      if (this.juice) this.play('entry.1', { bus: 'ambience', when, gainDb: -12, category: 'stinger', priority: 2 });
       this.runStartChime(when + 0.15);
     }
   }
@@ -995,12 +1046,12 @@ export class AudioDirector {
   private onPowerUsed(kind: string, p: Payload, when: number): void {
     switch (kind) {
       case 'clean': // the broom stroke came with pieces_swept; this adds the clean sparkle
-        this.play('shimmer', { when: when + 0.35, gainDb: -12, category: 'misc', priority: 3 });
+        if (this.juice) this.play('shimmer', { when: when + 0.35, gainDb: -12, category: 'misc', priority: 3 });
         this.haptic('medium');
         break;
       case 'quickset':
         this.play('quickset', { when, gainDb: -8, category: 'misc', priority: 1 });
-        this.mixer.duck('music', -4, when, 1.2);
+        this.duck('music', -4, when, 1.2);
         this.haptic('solidRow');
         break;
       case 'undo':
@@ -1032,11 +1083,12 @@ export class AudioDirector {
     // the gust carries the pieces away, so it replaces the broom stroke that started this moment
     if (this.lastSweep.p && when - this.lastSweep.at < 0.05) this.stopPlaying(this.lastSweep.p, when, 0.02);
     this.play('windgust', { when, gainDb: -6, category: 'misc', priority: 1 });
+    if (!this.juice) return;
     const { inst, octave } = this.instFor();
     this.playChord(inst, tonicChord(this.key, 3, octave), { when: when + 0.65, gainDb: -8, priority: 1 }, 0.03);
     this.play('shimmer', { when: when + 0.75, gainDb: -12, category: 'misc', priority: 3 });
-    this.mixer.duck('music', -8, when, 2.5);
-    this.mixer.duck('ambience', -6, when, 2.5);
+    this.duck('music', -8, when, 2.5);
+    this.duck('ambience', -6, when, 2.5);
     this.haptic('celebrate');
   }
 
@@ -1104,6 +1156,7 @@ export class AudioDirector {
     this.play('settle', { when, gainDb: -16, category: 'note', priority: 3 });
     this.music.settled();
     const r = this.ladder.settle(this.key, grade);
+    if (!this.juice) return;
     if (r.kind === 'clonk') {
       this.playNote('clonk', this.key.root - 12, { when: when + 0.01, gainDb: -12 });
     } else {
@@ -1121,6 +1174,7 @@ export class AudioDirector {
   private onSolidRow(count: number, when: number): void {
     const { inst, octave } = this.instFor();
     this.play('row.clack', { when, gainDb: -5, category: 'stinger', priority: 1 });
+    if (!this.juice) return;
     this.playChord(inst, tonicChord(this.key, Math.min(3, count) as 1 | 2 | 3, octave), { when: when + 0.02, gainDb: -9, priority: 1 });
     for (let i = 0; i < 8; i++) {
       this.play('tick', { when: when + 0.06 + i * 0.02, gainDb: -18, rate: semis(scaleNote({ root: 0, mode: this.key.mode }, i)), category: 'misc', priority: 3, vary: false });
@@ -1132,7 +1186,7 @@ export class AudioDirector {
   private onHeartLost(count: number, left: number, when: number): void {
     const n = Math.min(5, count);
     for (let i = 0; i < n; i++) this.play('heartpop', { when: when + i * 0.09, gainDb: -8, rate: semis(i), category: 'stinger', priority: 1 });
-    if (left > 0) {
+    if (left > 0 && this.juice) {
       const { inst, octave } = this.instFor();
       const t = when + n * 0.09 + 0.05;
       this.playNote(inst, scaleNote(this.key, 2) + 12 * octave, { when: t, gainDb: -11, priority: 2 });
@@ -1149,6 +1203,9 @@ export class AudioDirector {
     this.mixer.setOverlay('hold', false, when);
     const { inst, octave } = this.instFor();
     this.play('flag', { when, gainDb: -8, category: 'stinger', priority: 1 });
+    this.music.claimed(when, n);
+    this.deepCosmosKey(n);
+    if (!this.juice) return;
     const notes = run(this.key, 0, 4, 1).concat(scaleNote(this.key, 5));
     notes.forEach((m, i) => this.playNote(inst, m + 12 * octave, { when: when + 0.05 + i * 0.09, gainDb: -9, priority: 2, category: 'note' }));
     this.playChord(inst, tonicChord(this.key, 2, octave + 0), { when: when + 0.5, gainDb: -8, priority: 1 }, 0.02);
@@ -1158,18 +1215,19 @@ export class AudioDirector {
     for (let i = 0; i < Math.min(20, leftover); i++) {
       this.play('kaching', { bus: 'ui', when: when + 1.6 + i / 12, gainDb: -17, rate: semis(Math.min(i, 12)), category: 'ui', priority: 3, vary: false, slowmo: false });
     }
-    this.mixer.duck('music', -6, when, 2);
-    this.mixer.duck('ambience', -6, when, 2);
+    this.duck('music', -6, when, 2);
+    this.duck('ambience', -6, when, 2);
     this.haptic('checkpoint');
     this.haptic('foundation', 1, 1.3);
-    this.music.claimed(when, n);
-    // Deep Cosmos rotates key every 6 checkpoints
-    if (this.biomeId === 10) {
-      const k = biomeKey(10, n);
-      if (k.root !== this.key.root) void this.bank.warmNotes(this.musicFor(k, this.material));
-      this.key = k;
-      this.music.setBiome(10, n);
-    }
+  }
+
+  /** Deep Cosmos rotates key every 6 checkpoints. */
+  private deepCosmosKey(n: number): void {
+    if (this.biomeId !== 10) return;
+    const k = biomeKey(10, n);
+    if (k.root !== this.key.root) void this.bank.warmNotes(this.musicFor(k, this.material));
+    this.key = k;
+    this.music.setBiome(10, n);
   }
 
   private onPersonalBest(when: number): void {
@@ -1177,7 +1235,7 @@ export class AudioDirector {
     const { inst, octave } = this.instFor();
     run(this.key, 0, 5).forEach((m, i) => this.playNote(inst, m + 12 * octave, { when: when + 0.6 + i * 0.07, gainDb: -10, priority: 2 }));
     this.playChord(inst, tonicChord(this.key, 2, octave), { when: when + 1.0, gainDb: -8, priority: 1 }, 0.02);
-    this.mixer.duck('music', -6, when, 2);
+    this.duck('music', -6, when, 2);
     this.haptic('celebrate');
   }
 
@@ -1194,7 +1252,7 @@ export class AudioDirector {
     this.play('shimmer', { bus: 'ui', when: when + 0.55, gainDb: -10, category: 'misc', priority: 2, slowmo: false });
     for (let i = 0; i < (big ? 4 : 2); i++) this.play('confetti', { bus: 'ui', when: when + 0.5 + i * 0.12, gainDb: -14, pan: (this.rng() * 2 - 1) * 0.5, category: 'misc', priority: 3, slowmo: false });
     if (huge) for (let i = 0; i < 2; i++) this.play('firework', { bus: 'ui', when: when + 0.9 + i * 0.3, gainDb: -10, category: 'stinger', priority: 2, slowmo: false });
-    this.mixer.duck('music', -9, when, 3);
+    this.duck('music', -9, when, 3);
     this.haptic('celebrate');
   }
 
@@ -1211,14 +1269,15 @@ export class AudioDirector {
     this.hazardLoops.clear();
     // tape-stop: everything already playing slows to a halt while the music and ambience fade
     for (const pl of this.playing.values()) {
-      if (pl.bus === 'ui') continue;
+      if (pl.bus === 'ui' || !this.juice) continue;
       const r = pl.src.playbackRate;
       r.cancelScheduledValues(when);
       r.setValueAtTime(pl.baseRate * this.rateFactor, when);
       r.linearRampToValueAtTime(Math.max(0.05, pl.baseRate * 0.2), when + 0.6);
       pl.gain.gain.setTargetAtTime(0, when + 0.3, 0.12);
     }
-    this.music.stopRun(when);
+    if (this.juice) this.music.stopRun(when);
+    else this.music.stop(when);
     this.rateFactor = 1;
     this.mixer.clearOverlays(when);
     this.mixer.setBase('gameover', when, 0.2);
@@ -1235,6 +1294,7 @@ export class AudioDirector {
     const t = when + 1.1 + journey.length * 0.13;
     this.mixer.setBase('results', t + 1.4, 0.5);
     this.music.showScreen('results', t + 1.4);
+    if (!this.juice) return;
     this.withNotes([...journey.map((j) => ({ inst: j.inst, midis: [j.midi] })), ...phrase.map((m) => ({ inst, midis: [m] }))], () => {
       journey.forEach((j, i) => this.playNote(j.inst, j.midi, { bus: 'ui', when: when + 1.1 + i * 0.13, gainDb: -12, priority: 2, slowmo: false }));
       phrase.forEach((m, i) => this.playNote(inst, m, { bus: 'ui', when: t + 0.3 + i * 0.22, gainDb: -10, priority: 2, slowmo: false }));
@@ -1245,6 +1305,11 @@ export class AudioDirector {
     const type = hazardType(str(p, 'type'));
     const eta = clamp(num(p, 'eta', 2), 0.2, 6);
     const pan = dirPan(p?.dir) * 0.5;
+    // a hazard's first appearance: a friendly "heads up" under its hint card
+    if (bool(p, 'first')) {
+      const { inst, octave } = this.instFor();
+      [4, 7].forEach((d, i) => this.playNote(inst, scaleNote(this.key, d) + 12 * octave, { bus: 'ui', when: when + i * 0.14, gainDb: -12, category: 'ui', priority: 2, slowmo: false }));
+    }
     switch (type) {
       case 'junk':
         for (let i = 0; i < 3; i++) this.play('radar', { when: when + (i * eta) / 3, gainDb: -15, pan, category: 'misc', priority: 3 });

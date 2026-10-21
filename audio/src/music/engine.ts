@@ -80,6 +80,8 @@ export interface MusicInputs {
 
 export class MusicEngine {
   readonly out: GainNode;
+  /** false for Gate 1's juice-off runs: the band plays its theme with every layer but doesn't follow the run */
+  reactive = true;
   private parts: Record<Part, GainNode>;
   private l1Filter: BiquadFilterNode;
   private voices: Voice[] = [];
@@ -234,7 +236,7 @@ export class MusicEngine {
   /** Call often (every tick): follows tension live and schedules bars just ahead of `when`. */
   update(when: number, inputs?: MusicInputs): void {
     if (inputs) this.inputs = inputs;
-    if (this._mode === 'run') this.follow(when);
+    if (this._mode === 'run' && this.reactive) this.follow(when);
     if (this._mode === 'off' || !this.band) return;
     // after a stall (suspended context, starved timer) skip ahead instead of rushing to catch up
     const behind = when - (this.t0 + this.bar * BAR);
@@ -337,20 +339,21 @@ export class MusicEngine {
     const intro = this.bar < this.intro;
     const breakdown = this.runBars % T.breakdownEvery >= T.breakdownEvery - T.breakdownBars;
     const rest = intro || breakdown;
+    const r = this.reactive;
 
-    const groove = this.settles >= T.grooveAfterSettles && !rest;
+    const groove = (!r || this.settles >= T.grooveAfterSettles) && !rest;
     if (groove !== this.grooveOn) this.note(groove ? 'L2 on' : breakdown ? 'L2 off (breakdown)' : 'L2 off', at);
     this.grooveOn = groove;
 
     if ((streak >= T.leadStreak || progress >= T.leadProgress) && tension < T.tensionTakeover) this.leadUntil = this.runBars + T.leadHoldBars - 1;
-    const lead = !rest && tension < T.tensionTakeover && this.runBars <= this.leadUntil;
+    const lead = !rest && (!r || (tension < T.tensionTakeover && this.runBars <= this.leadUntil));
     if (lead !== this.leadOn) {
       this.note(lead ? 'L3 on' : 'L3 off', at);
       if (lead) open(this.parts.lead, at);
     }
     this.leadOn = lead;
 
-    const riser = progress >= T.riserAt;
+    const riser = r && progress >= T.riserAt;
     if (riser !== this.riserOn) {
       this.note(riser ? 'L5 on' : 'L5 off', at);
       if (riser) open(this.parts.riser, at);
@@ -358,9 +361,9 @@ export class MusicEngine {
     this.riserOn = riser;
 
     const n = this.bar;
-    const out = band.theme.bar(n, this.density).filter((e) =>
+    const out = band.theme.bar(n, r ? this.density : 1).filter((e) =>
       e.part === 'pad' || e.part === 'bass' || ((e.part === 'support' || e.part === 'drums') && groove) || (e.part === 'lead' && lead));
-    if (tension >= T.tensionFrom - 0.05) out.push(...band.theme.tension(n, tension));
+    if (r && tension >= T.tensionFrom - 0.05) out.push(...band.theme.tension(n, tension));
     if (riser) out.push(...band.theme.riser(this.riserStep++, this.nextStyle()));
     this.runBars++;
     return out;

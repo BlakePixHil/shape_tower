@@ -157,6 +157,27 @@ checks.screens = (r) => {
   assert.ok(r.afterDb < -70, `'none' fades it out (${r.afterDb} dB)`);
 };
 
+const FLOURISHES = ['shimmer', 'confetti', 'firework', 'kaching', 'swell', 'stonewave', 'foundation', 'phew', 'lockon', 'bond.tink', 'drumroll', 'entry.'];
+checks.juice = (r) => {
+  const has = (names, n) => names.some((x) => x === n || (n.endsWith('.') && x.startsWith(n)));
+  for (const n of ['shimmer', 'confetti', 'kaching', 'lockon', 'firework']) assert.ok(has(r.on.names, n), `juice on plays ${n}`);
+  for (const n of FLOURISHES) assert.ok(!has(r.off.names, n), `juice off drops ${n} (${r.off.names.join(' ')})`);
+  for (const n of ['settle', 'flag', 'row.clack', 'heartpop', 'bubble.pop', 'windgust', 'gust.warn', 'gust.push', 'impact.']) {
+    assert.ok(has(r.off.names, n), `juice off keeps ${n} (${r.off.names.join(' ')})`);
+  }
+  assert.ok(r.off.notes <= 2 && r.on.notes > 15, `the landing melody and stinger chords go with juice off (${r.on.notes} -> ${r.off.notes} notes; the first-gust chime stays)`);
+  assert.ok(r.on.log.includes('L3 off (tension)') && !r.off.log.includes('L3 off (tension)'), 'the band follows tension only with juice on');
+  assert.ok(r.on.log.includes('tape stop') && !r.off.log.includes('tape stop'), 'only juice on tape-stops');
+  assert.ok(r.on.reactive && !r.off.reactive);
+};
+
+checks.restart = (r) => {
+  assert.ok(r.before.running && r.before.checkpoint === 1 && r.before.mode === 'run', 'the first run is going');
+  assert.ok(!r.between.running && r.between.mode === 'off', 'connecting a new bus closes it quietly');
+  assert.ok(r.after.running && r.after.checkpoint === 0 && r.after.mode === 'run' && r.after.base === 'playing', 'the new sim gets a fresh run');
+  assert.equal(r.starts, 2, 'and a fresh band');
+};
+
 checks.sim = (r) => {
   assert.equal(r.nonFinite, 0, 'no NaN in the mix');
   assert.ok(r.peak <= 1, `the mix never exceeds full scale (peak ${r.peak.toFixed(3)})`);
