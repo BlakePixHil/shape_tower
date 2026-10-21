@@ -202,6 +202,18 @@ checks.achievements = (r) => {
   assert.ok(!r.off.names.includes('shimmer') && !r.off.names.includes('confetti'), `and the shimmer (${r.off.names.join(' ')})`);
 };
 
+checks.hold = (r) => {
+  const { on, off } = r;
+  const near = (a, b, tol, what) => assert.ok(Math.abs(a - b) <= tol, `${what} (${a} against ${b} dB)`);
+  near(on.start, on.base, 1.5, 'the hold starts with the music where it was');
+  near(on.full, on.start - 6, 1, 'a full ring drains the music by about 6 dB');
+  assert.ok(on.knock < on.full - 3, `a knock in the hold dips the music (${on.knock} against ${on.full} dB)`);
+  near(on.after, on.base, 1.5, 'the music comes back when the hold ends');
+  // juice off: the hold overlay only, no drain and no breath
+  near(off.full, off.start, 1, 'juice off does not drain the music');
+  near(off.knock, off.full, 1, 'juice off does not dip on a knock');
+};
+
 checks.gusts = (r) => {
   assert.equal(r.nonFinite, 0, 'no NaN');
   assert.ok(r.builtDb > -45, `a warning builds toward its gust (${r.builtDb} dB)`);
@@ -261,6 +273,7 @@ function summary(name, r) {
   if (name === 'run') return `peak ${r.all.peak.toFixed(3)}, voices ${r.caps.total}/${r.capLimits.total}, contact ${r.contactCpuMs.mean.toFixed(3)} ms`;
   if (name === 'rest') return `resting tower ${r.quietPeakDb} dBFS`;
   if (name === 'achievements') return `notes per tier ${['bronze', 'gold', 'platinum', 'strip'].map((k) => `${k} ${r.on.notes[k]}`).join(', ')}; bronze ${r.on.bronzeDb}, platinum ${r.on.platinumDb} against a hard landing ${r.on.landingDb} dB RMS; juice off: stamps only`;
+  if (name === 'hold') return `music ${r.on.base} dB, hold ${r.on.start}, full ring ${r.on.full}, knock ${r.on.knock}, after ${r.on.after}; juice off full ring ${r.off.full}`;
   if (name === 'music') return `levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v.rmsDb}`).join(', ')} dB; ${r.stats.notes} notes, ${r.stats.stolen} stolen, ${r.stats.dropped} dropped, peak ${r.stats.peakVoices} voices`;
   if (name === 'screens') return `menu ${r.menuDb} dB, profile ${r.profileDb} dB, after ${r.afterDb} dB`;
   if (name === 'loudness') return `${r.softDb} / ${r.midDb} / ${r.hardDb} dB, below-screen ${r.belowDb} dB`;

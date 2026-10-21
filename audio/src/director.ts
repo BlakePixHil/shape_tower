@@ -877,8 +877,10 @@ export class AudioDirector {
           this.stopDrumroll(when);
           this.mixer.setOverlay('hold', true, when);
         }
+        // the mix drains as the ring fills, with the screen going grey (gameplay.md §7.3)
+        if (this.juice) this.mixer.setHoldDepth(progress, when);
         while (this.holdTicks < 8 && progress >= this.holdTicks / 8) {
-          this.play('hold.tick', { when, gainDb: -14, rate: semis(scaleNote({ root: 0, mode: this.key.mode }, this.holdTicks)), category: 'ui', priority: 2, vary: false });
+          this.play('hold.tick', { when, gainDb: -15 + (this.juice ? 3 * progress : 1), rate: semis(scaleNote({ root: 0, mode: this.key.mode }, this.holdTicks)), category: 'ui', priority: 2, vary: false });
           this.haptic('holdTick');
           this.holdTicks++;
         }
@@ -981,6 +983,11 @@ export class AudioDirector {
       case 'hitstop': {
         if (!this.juice) break;
         const ms = clamp(num(p, 'ms', 50), 0, 500) / 1000;
+        // a knock during the hold: the music catches its breath through the freeze and the slow-down after it
+        if (this.holding && this.cool.ready('holdbreath', when, 0.5)) {
+          this.duck('music', -5, when, ms + 0.25);
+          this.duck('ambience', -4, when, ms + 0.25);
+        }
         for (const pl of this.playing.values()) {
           if (!pl.slowmo) continue;
           pl.src.playbackRate.setValueAtTime(pl.baseRate * this.rateFactor * 0.5, when);

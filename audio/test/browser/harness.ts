@@ -619,6 +619,32 @@ const scenarios = {
     return out;
   },
 
+  /** The checkpoint hold drains the music as its ring fills, and the music catches its breath on a knock. */
+  async hold() {
+    const out: Record<string, Record<string, number>> = {};
+    for (const on of [true, false]) {
+      const { ctx, d } = await makeDirector(6);
+      d.setJuice(on);
+      // a steady tone on the music bus stands in for the band, and every other bus is muted
+      for (const b of ['sfx', 'ui', 'ambience', 'voices'] as const) d.mixer.setVolume(b, 0, 0);
+      const tone = ctx.createOscillator();
+      tone.frequency.value = 100; // well under the lowpass, so only the gain is measured
+      const g = ctx.createGain();
+      g.gain.value = 0.1;
+      tone.connect(g).connect(d.mixer.input('music'));
+      tone.start(0);
+      for (let k = 0; k <= 8; k++) d.handle('checkpoint_hold', { progress: k / 8 }, 1 + k * 0.25);
+      d.handle('hitstop', { ms: 100 }, 3.8);
+      d.handle('slowmo', { on: true, timeScale: 0.5 }, 3.9);
+      d.handle('slowmo', { on: false }, 4.12);
+      d.handle('checkpoint_cancelled', {}, 4.5);
+      const buf = await ctx.startRendering();
+      const at = (a: number, b: number) => db(analyse(buf, a, b).rms);
+      out[on ? 'on' : 'off'] = { base: at(0.5, 0.9), start: at(1.3, 1.6), full: at(3.4, 3.75), knock: at(3.85, 4.05), after: at(5.2, 5.8) };
+    }
+    return out;
+  },
+
   /** A gust's warning whoosh builds to its push; a warning a hold cancels stops building. */
   async gusts() {
     const { ctx, d } = await makeDirector(9);

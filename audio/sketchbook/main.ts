@@ -452,12 +452,24 @@ let checkpointN = 0;
 
 const MOMENTS: Moment[] = [
   {
-    title: 'Claim a checkpoint', desc: 'Drumroll near the line, the hold ring fills for 2 s, then flag, fanfare, stone wave, new foundation and 6 leftover bricks.',
+    title: 'Claim a checkpoint', desc: 'Drumroll near the line, then the hold ring fills for 2 s while the music drains and muffles, then flag, fanfare, stone wave, new foundation and 6 leftover bricks.',
     run: (t) => {
       audio.handle('checkpoint_near', { blocks: 1 }, t);
       for (let k = 0; k <= 10; k++) audio.handle('checkpoint_hold', { progress: k / 10 }, t + 1.2 + k * 0.2);
       audio.handle('checkpoint_claimed', { n: ++checkpointN, leftover: 6 }, t + 3.3);
       return 6.5;
+    },
+  },
+  {
+    title: 'A knock during the hold', desc: 'Halfway through the hold a shape bumps the tower: the moment freezes, slows, and the music catches its breath, then the ring fills and the checkpoint is claimed.',
+    run: (t) => {
+      for (let k = 0; k <= 10; k++) audio.handle('checkpoint_hold', { progress: k / 10 }, t + k * 0.2);
+      audio.handle('contact_hit', { bodyA: 'p1', bodyB: 'tower', approachSpeed: 3, materialA: 'wood' }, t + 1.1);
+      audio.handle('hitstop', { ms: 90 }, t + 1.1);
+      audio.handle('slowmo', { on: true, timeScale: 0.5 }, t + 1.19);
+      audio.handle('slowmo', { on: false }, t + 1.41);
+      audio.handle('checkpoint_claimed', { n: ++checkpointN, leftover: 4 }, t + 2.1);
+      return 5;
     },
   },
   {
