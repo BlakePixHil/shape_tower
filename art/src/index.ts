@@ -37,6 +37,8 @@ export { RAIL_COLORS, altitudeRail, checkpointChip, offscreenChip, setOffscreenC
 export { HAZARDS, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob, setPlumb, setWindsock, windsock, type HazardChipOptions, type HazardType } from './ui/hazard.ts';
 export { biomeCard, type BiomeCardOptions } from './ui/biomecard.ts';
 export { prewarmUi } from './ui/prewarm.ts';
+export { bagButton, bagLayerUrl, bagSwap, drawBag, setBag, type BagState } from './ui/bag.ts';
+export { SHAPES_ALERT, SHAPES_LOW, alertEdge, setAlertEdge, setShapeCounter, shapeAlert, shapeCounter } from './ui/budget.ts';
 export { warmUrls } from './urls.ts';
 export { HATS, drawHat, hatUrl, type Hat, type HatInfo } from './ui/hats.ts';
 export {

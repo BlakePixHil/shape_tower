@@ -8,6 +8,7 @@ import { ART_SHAPES } from '../shapes.ts';
 import { O, circlePath, heart, ink, part, rrPath, turn, twinkle } from '../sticker.ts';
 import { type Ctx, TAU, ctx2d, makeCanvas } from '../util.ts';
 import { canvasUrl } from '../urls.ts';
+import { drawBag } from './bag.ts';
 
 export const UI_ICONS = [
   'pause', 'play', 'settings', 'sound', 'mute', 'music', 'haptics', 'close', 'back', 'share', 'info', 'home', 'restart',
@@ -16,6 +17,7 @@ export const UI_ICONS = [
   'stats', 'tower', 'biome', 'streak', 'perfect', 'row', 'clutch', 'score',
   'wind', 'junk', 'meteor', 'swirl', 'plumb',
   'combo', 'avalanche', 'toolbox', 'undo', 'needle', 'purist',
+  'bag', 'shapes',
 ] as const;
 export type UiIcon = (typeof UI_ICONS)[number];
 
@@ -183,6 +185,17 @@ const DRAW: Record<UiIcon, (c: Ctx) => void> = {
     for (const [x, y] of [[-1.5, -1.9], [-0.5, -1.9], [0.5, -1.9], [-0.5, -0.9]]) cell(c, 'T', x * u, y * u, u);
     const tray = new Path2D(); tray.moveTo(-0.38, -0.02); tray.lineTo(-0.38, 0.3); tray.quadraticCurveTo(-0.38, 0.38, -0.3, 0.38); tray.lineTo(0.3, 0.38); tray.quadraticCurveTo(0.38, 0.38, 0.38, 0.3); tray.lineTo(0.38, -0.02);
     tube(c, tray, 0.08, PAPER);
+  },
+  bag: c => drawBag(c, c => {
+    // A T peeking out of the opening, tipped as if it just dropped in.
+    const u = 0.17;
+    c.translate(0, -0.2); c.rotate(-0.16); c.translate(0, 0.2);
+    for (const [x, y] of [[-1.5, -2], [-0.5, -2], [0.5, -2], [-0.5, -1]]) cell(c, 'T', x * u, y * u, u);
+  }),
+  shapes: c => {
+    // Three blocks stacked: what the counter counts.
+    const u = 0.3;
+    cell(c, 'I', -u - 0.01, 0.06, u); cell(c, 'O', 0.01, 0.06, u); cell(c, 'T', -u / 2, 0.06 - u - 0.02, u);
   },
   daily: c => {
     fill(c, rrPath(-0.34, -0.28, 0.68, 0.64, 0.09), PAPERS);

@@ -1037,7 +1037,9 @@
       "toolbox",
       "undo",
       "needle",
-      "purist"
+      "purist",
+      "bag",
+      "shapes"
     ],
     "hazards": {
       "gust": {
