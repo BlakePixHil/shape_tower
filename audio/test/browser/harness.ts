@@ -622,9 +622,10 @@ const scenarios = {
   /** The checkpoint hold drains the music as its ring fills, and the music catches its breath on a knock. */
   async hold() {
     const out: Record<string, Record<string, number>> = {};
-    for (const on of [true, false]) {
+    for (const mode of ['on', 'off', 'zen'] as const) {
       const { ctx, d } = await makeDirector(6);
-      d.setJuice(on);
+      d.setJuice(mode !== 'off');
+      d.setZen(mode === 'zen');
       // a steady tone on the music bus stands in for the band, and every other bus is muted
       for (const b of ['sfx', 'ui', 'ambience', 'voices'] as const) d.mixer.setVolume(b, 0, 0);
       const tone = ctx.createOscillator();
@@ -640,7 +641,7 @@ const scenarios = {
       d.handle('checkpoint_cancelled', {}, 4.5);
       const buf = await ctx.startRendering();
       const at = (a: number, b: number) => db(analyse(buf, a, b).rms);
-      out[on ? 'on' : 'off'] = { base: at(0.5, 0.9), start: at(1.3, 1.6), full: at(3.4, 3.75), knock: at(3.85, 4.05), after: at(5.2, 5.8) };
+      out[mode] = { base: at(0.5, 0.9), start: at(1.3, 1.6), full: at(3.4, 3.75), knock: at(3.85, 4.05), after: at(5.2, 5.8) };
     }
     return out;
   },

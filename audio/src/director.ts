@@ -133,6 +133,8 @@ export class AudioDirector {
   private storage?: StorageLike | null;
   /** juice on: flourishes, haptics, ducking and a soundtrack that reacts (setJuice) */
   private juice = true;
+  /** a Zen run (setZen): no countdown pressure, so the checkpoint hold keeps its suspense to itself */
+  private zen = false;
 
   // run state
   private running = false;
@@ -291,6 +293,15 @@ export class AudioDirector {
   setJuice(on: boolean): void {
     this.juice = on;
     this.music.reactive = on;
+  }
+
+  /**
+   * Zen runs (no bricks, no hearts) keep checkpoints and holds but have no countdown pressure,
+   * so, like the game's view, the hold doesn't drain the mix or catch its breath on a knock.
+   * Set it before the run starts, with setJuice.
+   */
+  setZen(on: boolean): void {
+    this.zen = on;
   }
 
   get juiceOn(): boolean {
@@ -878,9 +889,10 @@ export class AudioDirector {
           this.mixer.setOverlay('hold', true, when);
         }
         // the mix drains as the ring fills, with the screen going grey (gameplay.md §7.3)
-        if (this.juice) this.mixer.setHoldDepth(progress, when);
+        const suspense = this.juice && !this.zen;
+        if (suspense) this.mixer.setHoldDepth(progress, when);
         while (this.holdTicks < 8 && progress >= this.holdTicks / 8) {
-          this.play('hold.tick', { when, gainDb: -15 + (this.juice ? 3 * progress : 1), rate: semis(scaleNote({ root: 0, mode: this.key.mode }, this.holdTicks)), category: 'ui', priority: 2, vary: false });
+          this.play('hold.tick', { when, gainDb: -15 + (suspense ? 3 * progress : 1), rate: semis(scaleNote({ root: 0, mode: this.key.mode }, this.holdTicks)), category: 'ui', priority: 2, vary: false });
           this.haptic('holdTick');
           this.holdTicks++;
         }
@@ -984,7 +996,7 @@ export class AudioDirector {
         if (!this.juice) break;
         const ms = clamp(num(p, 'ms', 50), 0, 500) / 1000;
         // a knock during the hold: the music catches its breath through the freeze and the slow-down after it
-        if (this.holding && this.cool.ready('holdbreath', when, 0.5)) {
+        if (this.holding && !this.zen && this.cool.ready('holdbreath', when, 0.5)) {
           this.duck('music', -5, when, ms + 0.25);
           this.duck('ambience', -4, when, ms + 0.25);
         }
