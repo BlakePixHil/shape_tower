@@ -70,6 +70,7 @@ const celebrate = juice => page.evaluate(async juice => {
   sc.hooks.onJuice = (n, p) => { names.push(n); orig?.(n, p); if (n === 'height_milestone') setTimeout(() => { activeAfter = sc.party.active; }, 0); };
   const sim = sc.sim;
   sim.tuning.infiniteHearts = true; // nothing this test drops may end the run
+  sim.tuning.infiniteBudget = true; // nor running out of shapes (#34)
   sc.nextMilestone = sim.height().committed + 0.5; sc.bestHeight = sim.height().committed + 1.2; sc.pbCrossed = false;
   // Stack over the foundation's middle until both fire. A loaded machine runs few frames, so this
   // waits on the events, up to a minute, not on a fixed number of drops.

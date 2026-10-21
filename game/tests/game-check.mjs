@@ -55,21 +55,27 @@ step('Play starts a run with the level-1 settings', started.started && !started.
 const sim = (fn, arg) => page.evaluate(fn, arg);
 const t0 = Date.now();
 let col = 0;
+// Art's rail keys its drawing on top | checkpoints known | claimed | best. Shapes keep landing on
+// the pile while this waits, and a jostled pile can count 0 for a while (headless runs the sim at
+// about 0.3x), so the rail is read all along and the step keeps the highest top it showed (#34).
+const readRail = () => page.evaluate(() => { const c = document.querySelector('.ui-rail canvas'); return { key: c?.dataset.key ?? null, shown: !!c && getComputedStyle(c.parentElement).display !== 'none' }; });
+let rail = { key: null, shown: false };
+const keepRail = r => { if (r.key && (!rail.key || Number(r.key.split('|')[0]) > Number(rail.key.split('|')[0]))) rail = r; };
 while (Date.now() - t0 < 12000) {
   const s = await sim(() => { const s = window.__wobble.scene.sim; return { ctrl: s.ctrl && { hard: s.ctrl.hard }, f: s.foundation, placed: s.stats.placed }; });
   if (s.ctrl && !s.ctrl.hard) {
     const x = s.f.x - s.f.width / 2 + 1 + (col++ % Math.max(1, s.f.width - 2));
     await sim(x => { const sm = window.__wobble.scene.sim; sm.intent({ type: 'moveTo', x }); sm.intent({ type: 'hardDrop' }); }, x);
   }
+  keepRail(await readRail());
   if (s.placed >= 6) break;
   await page.waitForTimeout(200);
 }
-// Hard drops 200 ms apart can leave nothing settled yet (committed height 0), so wait for the
-// tower to count before reading the rail. Under load a jostled pile can take well over 8 s.
-await page.waitForFunction(() => Number(document.querySelector('.ui-rail canvas')?.dataset.key?.split('|')[0]) > 0, null, { timeout: 25000 }).catch(() => {});
+for (const until = Date.now() + 25000; Number((rail.key ?? '0').split('|')[0]) <= 0 && Date.now() < until;) {
+  await page.waitForTimeout(250);
+  keepRail(await readRail());
+}
 await shot('04-play');
-const rail = await page.evaluate(() => { const c = document.querySelector('.ui-rail canvas'); return { key: c?.dataset.key ?? null, shown: !!c && getComputedStyle(c.parentElement).display !== 'none' }; });
-// Art's rail keys its drawing on top | checkpoints known | claimed | best.
 const [railTop, railCps, railClaimed] = (rail.key ?? '').split('|').map(Number);
 step('the altitude rail shows the stretch, the next checkpoint and the tower top', rail.shown && railCps === 1 && railClaimed === 0 && railTop > 0, JSON.stringify(rail));
 await page.click('[data-id="pause"]');
