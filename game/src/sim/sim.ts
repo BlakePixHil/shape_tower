@@ -281,12 +281,14 @@ export class Sim {
 
   constructor(opts: SimOptions = {}) {
     this.tuning = { ...DEFAULT_TUNING, ...(opts.tuning ?? {}) };
+    // Zen (gameplay.md §12): nothing to count and nothing to lose, so nothing to win back either.
+    if (this.tuning.zen) { this.tuning.infiniteBudget = true; this.tuning.infiniteHearts = true; }
     this.seed = (opts.seed ?? 1) >>> 0;
     this.rng = makeStreams(this.seed);
     this.autoSpawn = opts.autoSpawn ?? true;
     this.opening = opts.rookieOpening === false ? [] : [...ROOKIE_OPENING];
     this.hearts = this.tuning.hearts;
-    this.secondWind = opts.secondWind === 'ready' ? 'ready' : opts.secondWind === 'off' ? 'off' : 'earn';
+    this.secondWind = this.tuning.zen ? 'off' : opts.secondWind === 'ready' ? 'ready' : opts.secondWind === 'off' ? 'off' : 'earn';
     this.bubbleIn = this.bubbleGap();
     const make = ENGINES[opts.engine ?? 'box2d'];
     if (!make) throw new Error(`physics engine "${opts.engine}" is not loaded: await useRapier() from testApi.ts first (or registerEngine after initRapier)`);
@@ -439,14 +441,17 @@ export class Sim {
     return `${this.stepIndex}|${parts.join(';')}`;
   }
 
-  /** XP for the run so far (gameplay.md §10.1, before daily and streak boosts). */
+  /**
+   * XP for the run so far (gameplay.md §10.1, before daily and streak boosts). Zen pays exactly half
+   * and quitting doesn't halve it again, because quitting is how a Zen run ends (§12, QA Q33).
+   */
   xp(quit = false): number {
     const H = Math.max(0, Math.floor(this.stats.maxHeight - this.foundations[0].top));
     let cp = 0;
     for (const g of this.stats.grades) cp += 30 * GRADE_FACTOR[g];
     let raw = 3 * H + cp + this.stats.perfects + 8 * this.stats.rows + 15 * this.stats.biomes + 2 * this.stats.clutches;
     if (this.stats.placed >= 10) raw += 10;
-    if (quit) raw *= 0.5;
+    if (quit || this.tuning.zen) raw *= 0.5;
     const floor = this.time >= 30 ? 5 : 1;
     return Math.max(floor, Math.round(raw));
   }
@@ -1266,7 +1271,7 @@ export class Sim {
       lostNow++;
     }
     this.pendingLost = [];
-    if (!lostNow) return;
+    if (!lostNow || t.zen) return; // Zen has no hearts: a lost piece is only lost
     if (!t.infiniteHearts) this.hearts = Math.max(0, this.hearts - lostNow);
     this.bus.emit('heart_lost', { count: lostNow, left: this.hearts });
     if (this.hearts === 1) this.bus.emit('last_heart', {});

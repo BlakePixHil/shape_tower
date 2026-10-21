@@ -116,7 +116,8 @@ export function award(p: Profile, base: number, opts: { newBest: boolean; quit: 
   const now = opts.now ?? new Date();
   const today = day(now);
   const before = { level: p.level, xp: p.xp };
-  const lines: [string, string][] = [['Run', `+${base}`]];
+  // Zen's run line says why it's small: the sim already paid it at half (gameplay.md §12).
+  const lines: [string, string][] = [[opts.mode === 'zen' ? 'Zen run (half XP)' : 'Run', `+${base}`]];
   let xp = base;
   if (opts.newBest) {
     const b = opts.quit ? 25 : 50;
@@ -152,12 +153,17 @@ export function award(p: Profile, base: number, opts: { newBest: boolean; quit: 
   return { lines, gained: xp, before, after: { level: p.level, xp: p.xp }, levelsGained };
 }
 
-/** Adds a finished run to the lifetime stats (saved with the next award). */
-export function addRunStats(p: Profile, r: { height: number; biome: number; bricks: number; perfects: number; rows: number; checkpoints: number; clutches: number }, now = new Date()): void {
+/**
+ * Adds a finished run to the lifetime stats (saved with the next award). `records: false` (Zen) adds
+ * only the totals: best height, best biome and postcards stay what real runs earned (QA F17.4).
+ */
+export function addRunStats(p: Profile, r: { height: number; biome: number; bricks: number; perfects: number; rows: number; checkpoints: number; clutches: number }, now = new Date(), records = true): void {
   const s = p.stats;
-  for (let i = 0; i < Math.min(10, r.biome); i++) p.postcards[i] ??= day(now);
-  s.bestHeight = Math.max(s.bestHeight, r.height);
-  s.bestBiome = Math.max(s.bestBiome, r.biome);
+  if (records) {
+    for (let i = 0; i < Math.min(10, r.biome); i++) p.postcards[i] ??= day(now);
+    s.bestHeight = Math.max(s.bestHeight, r.height);
+    s.bestBiome = Math.max(s.bestBiome, r.biome);
+  }
   s.bricks += r.bricks;
   s.perfects += r.perfects;
   s.rows += r.rows;

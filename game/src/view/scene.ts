@@ -292,8 +292,10 @@ export class PlayScene extends Phaser.Scene {
     for (const e of this.sim.drainEvents()) this.onEvent(e);
   }
 
+  /** The saved best under this run's key (Endless's before the first run). */
   private loadBest(): number {
-    try { return Number(localStorage.getItem(BEST_KEY) ?? 0) || 0; } catch { return 0; }
+    if (!this.bestKey) return 0;
+    try { return Number(localStorage.getItem(this.bestKey) ?? 0) || 0; } catch { return 0; }
   }
 
   start(): void { this.started = true; }

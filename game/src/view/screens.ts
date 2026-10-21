@@ -5,7 +5,7 @@
 
 import {
   MENU_MODES, avatarPanel, injectUiCss, levelUp, mainMenu, onAction, pauseCard, prewarmUi, profilePanel, readAvatar, readSettings, rewardAt, setXpBar, settingsPanel,
-  showAllXpLines, showXpLine, summaryCard, type SettingGroup, type SettingValue,
+  showAllXpLines, showXpLine, summaryCard, uiIconUrl, type SettingGroup, type SettingValue,
 } from '@art/index.ts';
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
@@ -62,14 +62,17 @@ const LAYOUT: SettingGroup[] = [
   ] },
 ];
 
-const CAUSES: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit' };
+const CAUSES: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit', zen: 'Nicely built!' };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const xpOf = (p: Profile) => ({ level: p.level, into: p.xp, need: levelStep(p.level) });
 
 export interface SummaryStats {
+  /** Why it ended: bricks, hearts, quit, or zen (a finished Zen tower). */
   cause: string;
   height: number;
   newBest: boolean;
+  /** The "New best!" chip's text when it isn't Endless's best (Zen keeps its own). */
+  bestLabel?: string;
   /** Highest biome reached, 0 = Meadow (its postcard goes on the card). */
   biome: number;
   checkpoints: number;
@@ -165,8 +168,15 @@ export class Screens {
 
   // ---------------------------------------------------------------- pause
 
-  pause(o: { onResume(): void; onRestart(): void; onSettings(): void; onQuit(): void }): void {
-    this.open('pause', pauseCard(), { resume: o.onResume, restart: o.onRestart, settings: o.onSettings, quit: o.onQuit });
+  /** The pause card. In Zen, Quit is Finish: it's how a Zen run ends, and it doesn't halve XP (gameplay.md §12). */
+  pause(o: { zen?: boolean; onResume(): void; onRestart(): void; onSettings(): void; onQuit(): void }): void {
+    const el = pauseCard({ quitHalves: !o.zen });
+    if (o.zen) {
+      const quit = el.querySelector('[data-action="quit"]')!;
+      quit.innerHTML = `<img alt="" src="${uiIconUrl('flag', 24)}">Finish`;
+      quit.insertAdjacentHTML('afterend', `<p class="ui-note"><img alt="" src="${uiIconUrl('zen', 16)}">Finish to see your tower and bank its XP</p>`);
+    }
+    this.open('pause', el, { resume: o.onResume, restart: o.onRestart, settings: o.onSettings, quit: o.onQuit });
   }
 
   // ---------------------------------------------------------------- settings
@@ -225,6 +235,8 @@ export class Screens {
     });
     // There's no share sheet yet, so the share button stays out.
     el.querySelector('[data-action="share"]')?.remove();
+    const chip = el.querySelector('.ui-best');
+    if (chip && s.bestLabel) chip.lastChild!.textContent = s.bestLabel;
     this.open('summary', el, { again: o.onAgain, profile: o.onProfile, home: o.onHome });
     const extra = el.querySelector<HTMLElement>('.ui-sum-extra')!;
     if (o.achievements?.length) extra.appendChild(summaryStrip(o.achievements));
