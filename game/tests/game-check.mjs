@@ -65,8 +65,8 @@ while (Date.now() - t0 < 12000) {
   await page.waitForTimeout(200);
 }
 // Hard drops 200 ms apart can leave nothing settled yet (committed height 0), so wait for the
-// tower to count before reading the rail.
-await page.waitForFunction(() => Number(document.querySelector('.ui-rail canvas')?.dataset.key?.split('|')[0]) > 0, null, { timeout: 8000 }).catch(() => {});
+// tower to count before reading the rail. Under load a jostled pile can take well over 8 s.
+await page.waitForFunction(() => Number(document.querySelector('.ui-rail canvas')?.dataset.key?.split('|')[0]) > 0, null, { timeout: 25000 }).catch(() => {});
 await shot('04-play');
 const rail = await page.evaluate(() => { const c = document.querySelector('.ui-rail canvas'); return { key: c?.dataset.key ?? null, shown: !!c && getComputedStyle(c.parentElement).display !== 'none' }; });
 // Art's rail keys its drawing on top | checkpoints known | claimed | best.
