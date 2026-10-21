@@ -34,17 +34,18 @@ const shots = {};
 const shot = async name => { if (shots[name]) return; shots[name] = true; await page.screenshot({ path: `${out}/${String(Object.keys(shots).length + 1).padStart(2, '0')}-${name}.png` }); };
 const used = [];
 const tapped = new Set();
-let col = 0;
 const t0 = Date.now();
 while (Date.now() - t0 < 100_000) {
   const s = await state();
   if (s.state !== 'playing') break;
   if (s.bubble && !shots.bubble) await shot('bubble');
   if (s.ctrl && !s.ctrl.hard) {
-    const x = s.bubble ? s.bubble.x : s.f.x - s.f.width / 2 + 1 + (col++ % Math.max(1, s.f.width - 2));
-    await sim(x => window.__wobble.scene.sim.intent({ type: 'moveTo', x }), x);
-    // Let it fall through the bubble before dropping.
-    if (!s.bubble || s.ctrl.y < s.bubble.y - 1.2) await sim(() => window.__wobble.scene.sim.intent({ type: 'hardDrop' }));
+    // Bubbles sit beside the foundation: steer out through one while the shape is above it, then
+    // back over the foundation, and drop only once it is there.
+    const chase = s.bubble && s.ctrl.y > s.bubble.y - 0.8;
+    const x = chase ? s.bubble.x : s.f.x - s.f.width / 2 + 1 + (s.placed % Math.max(1, s.f.width - 2));
+    if (Math.abs(s.ctrl.xTarget - x) > 0.01) await sim(x => window.__wobble.scene.sim.intent({ type: 'moveTo', x }), x);
+    else if (!chase && Math.abs(s.ctrl.x - x) < 0.01) await sim(() => window.__wobble.scene.sim.intent({ type: 'hardDrop' }));
   }
   // Tap each kind of power once, through the HUD, after a few pieces are down.
   for (let k = 0; k < 2; k++) {
