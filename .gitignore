@@ -6,3 +6,6 @@ playwright-report/
 .vite/
 .DS_Store
 *.log
+
+# The phone app's web copy and APKs
+game/dist-app/

@@ -8,14 +8,21 @@
     "typecheck": "tsc -p .",
     "sim:smoke": "node --experimental-strip-types --no-warnings tests/sim-smoke.ts",
     "gesture:check": "node --experimental-transform-types --no-warnings tests/gesture-check.ts",
-    "postinstall": "node scripts/patch-phaser-box2d.mjs"
+    "postinstall": "node scripts/patch-phaser-box2d.mjs",
+    "build:app": "ST_APP=game vite build && node scripts/app-web.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/haptics": "8.0.2",
+    "@capacitor/status-bar": "8.0.4",
     "@dimforge/rapier2d-deterministic-compat": "^0.21.0",
     "phaser": "^4.2.1",
     "phaser-box2d": "1.1.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.3",
     "@playwright/test": "^1.64.1",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",
