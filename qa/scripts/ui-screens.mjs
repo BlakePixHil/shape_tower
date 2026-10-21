@@ -33,7 +33,8 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}/index.html`;
 
-const SCREENS = ['menu', 'pause', 'summary', 'levelup', 'profile', 'settings'];
+// 'daily' needs an art build with the Daily Tower card (#60); '&done=1' shows a played day.
+const SCREENS = ['menu', 'pause', 'summary', 'levelup', 'profile', 'settings', 'daily', 'daily&done=1'];
 const SIZES = [
   { name: 'small 16:9', width: 360, height: 640 },
   { name: 'tall 19.5:9', width: 390, height: 844 },
@@ -96,7 +97,7 @@ for (const size of SIZES) {
       }
       return { problems, controls: controls.length, fonts: [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family) };
     }, MIN_TAP);
-    const shot = `${out}/${screen}-${size.width}x${size.height}.png`;
+    const shot = `${out}/${screen.replace(/[&=]/g, '-')}-${size.width}x${size.height}.png`;
     await page.screenshot({ path: shot });
     const problems = [...new Set(found.problems), ...errors.map((e) => `page error: ${e}`)];
     if (problems.length) bad++;

@@ -55,7 +55,7 @@ The merge gate is `qa/scripts/gate.sh [checkout]`: every module's own checks (ga
 | `scripts/run-story.ts` | Replays a run record from a phone, checks its digests against Node, and prints each landing with the ghost the player saw, losses, hearts, bond breaks, power-ups and Second Wind |
 | `scripts/cross-build.ts` | Records bot runs on one build and replays them on another, to check that a change leaves earlier runs step for step the same (`--tuning` replays them with tuning changed, such as gusts on) |
 | `scripts/replay-child.ts` | Replays run records in a fresh process (F18.13) |
-| `scripts/gate.sh` | The merge gate on one checkout: every module's checks, the built game page played headless (game-check, power-check, budget-check, avatar-check, zen-check), the art build and its UI screens, and QA's fast set |
+| `scripts/gate.sh` | The merge gate on one checkout: every module's checks, the built game page played headless (game-check, power-check, budget-check, avatar-check, zen-check, achievements-browser, daily-check, splash-check, hold-check), the achievement and Daily checks in Node, the art build and its UI screens, and QA's fast set |
 | `scripts/ui-second-wind.mjs` | Drives a built game in headless Chromium and checks Second Wind in the HUD: two-tap arming, the glow, no pop-up at pause or game over, the greyed state, the day's free one |
 | `scripts/ui-screens.mjs` | Opens each UI kit screen of the built art preview at three phone and tablet sizes, saves screenshots, and checks for sideways scroll, controls off screen or under 44 px, cut-off text and page errors |
 
