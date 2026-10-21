@@ -78,7 +78,7 @@ async function boot(): Promise<void> {
       profile, build: BUILD,
       still: menuShown || settings.reduceMotion, // the logo drops in once per visit
       onPlay: play,
-      onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home); },
+      onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
       onSettings: () => { audio()?.screen?.('profile'); openSettings(home); },
       note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
     });
@@ -189,7 +189,7 @@ async function boot(): Promise<void> {
         questions,
         onAnswer: (id, answer) => rec?.answer(id, answer),
         onAgain: () => { rec?.exit('again'); play(); },
-        onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home); },
+        onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
         onHome: () => { rec?.exit('menu'); home(); },
         reducedMotion: settings.reduceMotion,
       });

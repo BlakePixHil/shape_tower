@@ -35,6 +35,12 @@ const shots = {};
 const shot = async name => { if (shots[name]) return; shots[name] = true; await page.screenshot({ path: `${out}/${String(Object.keys(shots).length + 1).padStart(2, '0')}-${name}.png` }); };
 const used = [];
 const tapped = new Set();
+// The Second Wind button pulses while ready and armed, and a slot pops when filled, so a click can
+// land mid-animation and find it "outside of the viewport" on a loaded machine: wait out the
+// animation (about 320 ms) and try once more.
+const tap = async (sel, opts = {}) => {
+  try { await page.click(sel, opts); } catch { await page.waitForTimeout(400); await page.click(sel, opts); }
+};
 // Stops when the work is done, not on the clock: headless frames are slow, so 100 s landed 15 to
 // 19 pieces and Second Wind came down to luck. Done is Second Wind used and a power used from the
 // HUD, then up to 60 s more for the bubbles to deal other kinds (all 5 tapped ends it at once).
@@ -59,7 +65,7 @@ while (Date.now() - t0 < 240_000) {
     if (!kind || tapped.has(kind) || s.placed < 4) continue;
     if (!shots['slots']) await shot('slots');
     tapped.add(kind);
-    await page.click(`[data-id="slot${k}"]`);
+    await tap(`[data-id="slot${k}"]`);
     await page.waitForTimeout(250);
     await shot(`used-${kind}`);
     const after = await state();
@@ -67,10 +73,10 @@ while (Date.now() - t0 < 240_000) {
     break;
   }
   if (s.placed >= 10 && s.wind === 'ready' && !shots['wind-armed']) {
-    await page.click('[data-id="wind"]', { force: true }); // it pulses when ready too
+    await tap('[data-id="wind"]', { force: true }); // it pulses when ready too
     await page.waitForTimeout(120);
     await shot('wind-armed');
-    await page.click('[data-id="wind"]', { force: true }); // it pulses while armed, so never "stable"
+    await tap('[data-id="wind"]', { force: true }); // it pulses while armed, so never "stable"
     await page.waitForTimeout(260);
     await shot('wind-used');
   }

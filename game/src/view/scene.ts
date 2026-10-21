@@ -6,7 +6,7 @@
 
 import * as Phaser from 'phaser';
 import {
-  ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, CheckpointLine, GuideView, HazardFx, JUNK_KINDS, PbMarker, POWER_COLORS, PowerBubble, SkyClock, VFX,
+  ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, Celebration, CheckpointLine, GuideView, HazardFx, JUNK_KINDS, PbMarker, POWER_COLORS, PowerBubble, SkyClock, VFX,
   WindView, windDrifters,
   biomeForCheckpoint, rimAmount, type Expression, type Finish, type GuideState, type TexRef, type VfxName,
 } from '@art/index.ts';
@@ -61,6 +61,8 @@ const ACROSS = 12;
 const ACROSS_MAX = 15;
 const TAU = Math.PI * 2;
 const PEDESTAL_LEGS = 0.4; // deck 0.6 + legs 0.4 = the sim's 1-block plinth
+/** Blocks of settled height between celebrations (height_milestone, gameplay.md §11.1). */
+const MILESTONE = 25;
 const D = { slab: 5, line: 8, piece: 10, fx: 30, front: 35, guide: 40, bubble: 45, ctrl: 50, text: 60 };
 
 // The main menu's demo tower: [shape, x, rot], dropped one at a time onto the plinth.
@@ -119,6 +121,8 @@ export class PlayScene extends Phaser.Scene {
   private taughtBubble = false;
   private wind!: WindView; // Art's gust telegraph and streaks: information, so they stay with juice off
   private hz!: HazardFx; // Art's space hazards (junk, meteors, dust devils): information too
+  private party!: Celebration; // Art's fireworks, balloons, rainbow and comets: juice, so off with it
+  private nextMilestone = MILESTONE;
   private hzShots = new Map<number, Shot['phase']>(); // what's drawn for each shot
   private hzDevil: { id: number; phase: 'warn' | 'blow' } | null = null;
   private dustPuffAt = 0; // sim s
@@ -149,13 +153,14 @@ export class PlayScene extends Phaser.Scene {
     this.ppb = this.W / ACROSS;
     // The canvas already renders at device resolution, so the kit bakes at 1 texture px per game px.
     this.art = new ArtTextures(this, { cellPx: this.ppb, texScale: 1 });
-    this.art.prewarm(Object.keys(SHAPES), { finishes: ['wood'], hazards: true });
+    this.art.prewarm(Object.keys(SHAPES), { finishes: ['wood'], hazards: true, celebrations: true });
     this.backdrop = new Backdrop(this, { width: this.W, height: this.H, texScale: 1, frontDepth: D.front, reduceMotion: this.view.reducedMotion });
     this.guide = new GuideView(this.art, D.guide);
     this.pb = new PbMarker(this.art, D.line - 0.1);
     this.particles = new Particles(this, D.fx);
     this.wind = new WindView(this.art, { width: this.W, height: this.H, drifters: 'leaves' });
     this.hz = new HazardFx(this.art, { depth: D.fx });
+    this.party = new Celebration(this.art, { width: this.W, height: this.H });
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
       ctrlX: () => (this.started && !this.paused && this.sim?.ctrl ? this.sim.ctrl.xTarget : null),
@@ -175,6 +180,7 @@ export class PlayScene extends Phaser.Scene {
       this.cameras.main.setSize(this.W, this.H);
       this.backdrop.resize(this.W, this.H);
       this.wind.resize(this.W, this.H);
+      this.party.resize(this.W, this.H);
     });
     this.events.once('shutdown', () => this.gestures.destroy());
     try { this.bestHeight = Number(localStorage.getItem('shape-tower-best') ?? 0) || 0; } catch { /* none */ }
@@ -201,6 +207,8 @@ export class PlayScene extends Phaser.Scene {
     this.particles?.clear();
     this.wind?.clear();
     this.hz?.clear();
+    this.party?.clear();
+    this.nextMilestone = MILESTONE;
     this.hzShots.clear();
     this.hzDevil = null;
     this.dustPuffAt = 0;
@@ -305,6 +313,7 @@ export class PlayScene extends Phaser.Scene {
     this.backdrop.reduceMotion = v.reducedMotion;
     this.wind.reduceMotion = v.reducedMotion;
     this.hz.reduceMotion = v.reducedMotion;
+    if (this.party) this.party.reduceMotion = v.reducedMotion;
     for (const l of this.lines) l.reduceMotion = v.reducedMotion;
     this.pb.reduceMotion = v.reducedMotion;
     this.guide.opacity = v.guideOpacity ?? 1;
@@ -911,9 +920,29 @@ export class PlayScene extends Phaser.Scene {
     this.drawGuide(now);
     this.drawBubble(dt);
     this.drawHazards(dt);
+    this.celebrate(committed);
     this.particles.update(dt);
     this.wind.update(dt);
+    this.party.update(dt);
     this.updateHud(committed);
+  }
+
+  /**
+   * Every MILESTONE blocks of settled height: height_milestone for Sound, and the celebration that
+   * suits the sky (Art's kit): balloons up to Cloudlands, a rainbow in the Storm Belt and the
+   * Stratosphere, a comet shower from Orbit on. Juice off keeps the event and drops the show.
+   */
+  private celebrate(committed: number): void {
+    const h = committed - this.sim.foundations[0].top;
+    if (this.demoing || h < this.nextMilestone) return;
+    const at = this.nextMilestone;
+    while (h >= this.nextMilestone) this.nextMilestone += MILESTONE;
+    this.hooks.onJuice?.('height_milestone', { h: at });
+    if (!this.juice) return;
+    const biome = biomeFor(this.sim.checkpoint).id - 1;
+    if (biome <= 2) this.party.balloons();
+    else if (biome <= 4) this.party.rainbow();
+    else this.party.comets();
   }
 
   private updateCamera(dt: number, now: number): void {
@@ -1024,6 +1053,7 @@ export class PlayScene extends Phaser.Scene {
         this.pbCrossed = true;
         this.pb.pop();
         this.hooks.onJuice?.('pb_crossed', { height: this.bestHeight });
+        if (this.juice) this.party.fireworks();
         this.toast('NEW BEST!', this.cam.x, this.bestHeight + 1.5, GOLD, 24);
         for (let i = 0; i < 40; i++) {
           const a = Math.random() * TAU, v = u * (3 + Math.random() * 6);
