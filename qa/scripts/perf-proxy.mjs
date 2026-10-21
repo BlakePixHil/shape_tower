@@ -165,10 +165,10 @@ async function play(t) {
   await page.evaluate((seed0) => {
     const { scene, game } = window.__wobble;
     // frames: [interval, Phaser's smoothed delta, whole step ms, scene update ms, sim steps, their ms, physics ms,
-    // QA's bot ms, s since setup (about the profile's clock), s into the run]. The bot plays inside the scene update,
-    // so its time is taken out of every judged figure.
+    // QA's bot ms, s since setup (about the profile's clock), s into the run, the sim events of the frame]. The bot
+    // plays inside the scene update, so its time is taken out of every judged figure.
     const qa = (window.__qaPerf = { frames: [], phys: [], awakeAt: [], heap: [], longtasks: [], runs: [], seed: seed0, t0: performance.now() });
-    let fSteps = 0, fStepMs = 0, fPhys = 0, fUpd = 0, fBot = 0;
+    let fSteps = 0, fStepMs = 0, fPhys = 0, fUpd = 0, fBot = 0, fEv = [];
     const playing = () => scene.started && !scene.paused && scene.sim && scene.sim.state === 'playing';
     // Each run's seed: the scene takes it from the first Math.random() in newRun.
     const newRun = scene.newRun;
@@ -186,6 +186,7 @@ async function play(t) {
       if (this.started && sim !== botSim) {
         botSim = sim;
         bot = new window.__qa.Bot({ seed: sim.seed, naturalFall: 0.2, powers: true }, window.__qa.extents);
+        sim.bus.on('*', (e) => fEv.push(e.name));
         const step = sim.step.bind(sim);
         sim.step = (...a) => {
           const t0 = performance.now();
@@ -213,10 +214,10 @@ async function play(t) {
     const cb = game.loop.callback;
     game.loop.callback = (time, delta) => {
       const on = playing();
-      fSteps = 0; fStepMs = 0; fPhys = 0; fUpd = 0; fBot = 0;
+      fSteps = 0; fStepMs = 0; fPhys = 0; fUpd = 0; fBot = 0; fEv = [];
       const t0 = performance.now();
       cb(time, delta);
-      if (on) qa.frames.push([game.loop.rawDelta, delta, performance.now() - t0, fUpd, fSteps, fStepMs, fPhys, fBot, (t0 - qa.t0) / 1000, scene.sim.stepIndex / 60]);
+      if (on) qa.frames.push([game.loop.rawDelta, delta, performance.now() - t0, fUpd, fSteps, fStepMs, fPhys, fBot, (t0 - qa.t0) / 1000, scene.sim.stepIndex / 60, [...new Set(fEv)].join(' ')]);
     };
     setInterval(() => { if (performance.memory) qa.heap.push([performance.now(), performance.memory.usedJSHeapSize]); }, 1000);
     try { new PerformanceObserver((l) => { for (const e of l.getEntries()) qa.longtasks.push([e.startTime, e.duration]); }).observe({ type: 'longtask', buffered: true }); } catch { /* none */ }
@@ -328,7 +329,7 @@ for (const t of benchOnly ? [] : tiers) {
     stepMs: r2(stepAvg),
     bot: { p50: r2(pct(botMs, 0.5)), p95: r2(pct(botMs, 0.95)), max: r2(Math.max(0, ...botMs)) },
     // The slowest frames, split: whole, the scene update, sim steps (count, ms, physics), the bot.
-    worst: est.map((e, i) => [e, i]).sort((x, y) => y[0] - x[0]).slice(0, 5).map(([e, i]) => { const f = qa.frames[i]; return { est: r2(e), tot: r2(f[2]), upd: r2(f[3]), steps: f[4], stepMs: r2(f[5]), phys: r2(f[6]), bot: r2(f[7]), at: r2(f[8]), runS: r2(f[9]) }; }),
+    worst: est.map((e, i) => [e, i]).sort((x, y) => y[0] - x[0]).slice(0, 5).map(([e, i]) => { const f = qa.frames[i]; return { est: r2(e), tot: r2(f[2]), upd: r2(f[3]), steps: f[4], stepMs: r2(f[5]), phys: r2(f[6]), bot: r2(f[7]), at: r2(f[8]), runS: r2(f[9]), events: f[10] }; }),
     // What the game's run record sees (Phaser's 10-frame average) against the raw intervals.
     smoothing: { rawOver33: r2(100 * frames.filter((f) => f > 33.4).length / Math.max(1, frames.length)), recordOver33: r2(100 * qa.frames.filter((f) => f[1] > 33.4).length / Math.max(1, frames.length)), rawMax: r2(Math.max(0, ...frames)), recordMax: r2(Math.max(0, ...qa.frames.map((f) => f[1]))) },
     physics: { steps: qa.phys.length, maxAwake, p95: r2(pct(qa.phys, 0.95)), max: r2(Math.max(0, ...qa.phys)), to60: { n: band.to60.length, p95: r2(pct(band.to60, 0.95)), max: r2(Math.max(0, ...band.to60)) }, to150: { n: band.to150.length, p95: r2(pct(band.to150, 0.95)), max: r2(Math.max(0, ...band.to150)) }, over150: { n: band.over150.length, p95: r2(pct(band.over150, 0.95)) } },
@@ -372,7 +373,7 @@ const lines = [
   ...s1.map((x) => `| ${TIERS[x.tier].name} | ${x.engine} | ${r2(x.p60)} ms | ${r2(x.p152)} ms | ${r2(x.p95at60)} / ${r2(x.p95at152)} ms |`),
   '',
   ...results.flatMap((r) => [`## ${r.name}`, '', ...r.checks.map((c) => `- ${c.ok ? 'PASS' : 'FAIL'} ${c.what}: ${c.got}`), `- ${r.runs} runs (seeds ${r.seeds.join(', ')}), juice ${r.juice ? 'on' : 'off'}, best ${r.checkpoints} checkpoints, ${r.placed} shapes in the longest run`, `- ${r.frames.count} frames; their intervals here (SwiftShader-bound, not judged): p50 ${r.frames.intervalP50}, p95 ${r.frames.intervalP95} ms; the sim kept ${r.simPace}× real time`,
-    `- the delta the game records: ${r.smoothing.recordOver33}% over 33 ms and longest ${r.smoothing.recordMax} ms, where the raw intervals have ${r.smoothing.rawOver33}% and ${r.smoothing.rawMax} ms`, `- QA's bot, taken out of every figure above: p50 ${r.bot.p50}, p95 ${r.bot.p95}, max ${r.bot.max} ms per frame`, `- slowest frames (whole / scene update / steps: count, ms, physics / bot, in ms; then when, as s since setup on the busy-stretch clock and s into the run): ${r.worst.map((w) => `${w.tot} / ${w.upd} / ${w.steps}, ${w.stepMs}, ${w.phys} / ${w.bot} at ${w.at} s (run ${w.runS} s)`).join('; ')}`, `- long tasks: ${r.longtasks.count} (${r.longtasks.over100} over 100 ms, longest ${r.longtasks.max} ms)`, `- heap: ${r.heapMB.start} MB at start, ${r.heapMB.afterWarmup} MB after 30 s, ${r.heapMB.end} MB at the end`,
+    `- the delta the game records: ${r.smoothing.recordOver33}% over 33 ms and longest ${r.smoothing.recordMax} ms, where the raw intervals have ${r.smoothing.rawOver33}% and ${r.smoothing.rawMax} ms`, `- QA's bot, taken out of every figure above: p50 ${r.bot.p50}, p95 ${r.bot.p95}, max ${r.bot.max} ms per frame`, `- slowest frames (whole / scene update / steps: count, ms, physics / bot, in ms; then when, as s since setup on the busy-stretch clock and s into the run; then the sim events in that frame): ${r.worst.map((w) => `${w.tot} / ${w.upd} / ${w.steps}, ${w.stepMs}, ${w.phys} / ${w.bot} at ${w.at} s (run ${w.runS} s)${w.events ? ` [${w.events}]` : ''}`).join('; ')}`, `- long tasks: ${r.longtasks.count} (${r.longtasks.over100} over 100 ms, longest ${r.longtasks.max} ms)`, `- heap: ${r.heapMB.start} MB at start, ${r.heapMB.afterWarmup} MB after 30 s, ${r.heapMB.end} MB at the end`,
     ...r.stretches.map((x) => `- busy ${x.ms} ms at ${x.at} s: ${x.self.map((f) => `${f.f} ${f.ms}`).join(', ')}; mostly ${x.stack?.f} (${x.stack?.ms} ms)`), '']),
 ];
 writeFileSync(`${out}/perf-proxy.md`, lines.join('\n'));
