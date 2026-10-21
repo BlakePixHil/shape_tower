@@ -209,6 +209,7 @@ export class Sim {
     this.bus.emit('run_start', { seed: this.seed });
     this.bus.emit('biome_entered', { id: 1 });
     if (this.secondWind === 'ready') this.bus.emit('second_wind_ready', { how: 'start' });
+    if (this.tuning.startPower) this.grantPower('level_perk');
   }
 
   // ------------------------------------------------------------------ public API
@@ -522,7 +523,7 @@ export class Sim {
 
   private doHold(): void {
     const c = this.ctrl!;
-    if (this.holdUsed) return;
+    if (this.holdUsed || !this.tuning.holdUnlocked) return;
     const swapIn = this.held ?? this.takeNext();
     this.held = c.shape;
     this.ctrl = null;

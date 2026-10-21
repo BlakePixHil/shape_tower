@@ -9,6 +9,10 @@ export interface ViewSettings {
   faces: boolean;
   splitTap: boolean;
   ghostTint: boolean;
+  /** Gate 1's juice switch: false turns off shake, hit-stop, slow motion, particles and toasts. */
+  juice?: boolean;
+  /** Landing guide opacity, 0.5 to 1.5 (Settings). */
+  guideOpacity?: number;
 }
 
 export const DEFAULT_VIEW: ViewSettings = { reducedMotion: false, shake: 1, faces: true, splitTap: false, ghostTint: true };

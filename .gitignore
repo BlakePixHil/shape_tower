@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-game/
 test-results/
 playwright-report/
 .vite/

@@ -26,6 +26,8 @@ const CSS = `
 @keyframes st-pop { 0% { transform: scale(0); } 70% { transform: scale(1.25); } 100% { transform: scale(1); } }
 .st-card { background: #FFF7E8; border: 3px solid ${INK}; border-radius: 14px; box-shadow: 0 4px 0 ${INK}; display: grid; place-items: center; position: relative; }
 .st-card canvas { display: block; }
+.st-card.locked canvas { opacity: 0; }
+.st-card.locked::after { content: '🔒 Lv 2'; position: absolute; inset: 0; display: grid; place-items: center; font: 700 12px 'Fredoka', sans-serif; color: #5B4F7A; white-space: pre; }
 .st-card .st-cap { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); font: 700 10px 'Fredoka', sans-serif; background: ${INK}; color: #FFF7E8; border-radius: 6px; padding: 0 5px; letter-spacing: 0.06em; }
 .st-chip { background: #FFF7E8; border: 3px solid ${INK}; border-radius: 12px; box-shadow: 0 3px 0 ${INK}; font: 700 15px 'Fredoka', sans-serif; padding: 2px 9px; display: flex; gap: 5px; align-items: center; font-variant-numeric: tabular-nums; }
 .st-chip.warn { background: #FFAA2B; }
@@ -215,6 +217,9 @@ export class Hud {
     this.draw(this.next[0], shapes[0] ?? null);
     this.draw(this.next[1], shapes[1] ?? null, true);
   }
+
+  /** The Hold card shows a padlock until level 2 (gameplay.md §10.3). */
+  lockHold(locked: boolean): void { this.holdCard.classList.toggle('locked', locked); }
 
   setHold(shape: string | null, used: boolean): void {
     const key = `${shape}|${used}`;

@@ -66,6 +66,8 @@ export interface Tuning {
   slackFloor: number;
   budgetGrace: number;        // s
   rookieBricks: number;
+  holdUnlocked: boolean;      // the Hold slot opens at level 2 (gameplay.md §10.3)
+  startPower: boolean;        // level 6 perk: the run starts with a random power-up in a slot
   // Hearts
   hearts: number;
   cascadeWindow: number;
@@ -144,6 +146,8 @@ export const DEFAULT_TUNING: Tuning = {
   slackFloor: 1.15,
   budgetGrace: 3,
   rookieBricks: 0,
+  holdUnlocked: true,
+  startPower: false,
   hearts: 3,
   cascadeWindow: 1.5,
   cascadeCap: 6,
