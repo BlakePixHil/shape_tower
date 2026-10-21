@@ -1,5 +1,6 @@
 // Replays a run record from a phone (the prototype's `runs` collection) and prints what happened:
 // each landing with the ghost the player saw just before it, losses, hearts, claims, bond breaks,
+// power-ups and Second Wind,
 // and any piece moving upward faster than F3.3 allows. It also checks the record's digests (P2).
 // Usage: tsx scripts/run-story.ts <record.json> [--zoom <pieceId,...>]
 //   --zoom prints the controlled shape and its ghost for the 14 steps before those landings.
@@ -15,9 +16,11 @@ const zoom = new Set(flag === '--zoom' && zoomArg ? zoomArg.split(',').map(Numbe
 const rec = JSON.parse(readFileSync(recPath, 'utf8'));
 // The game's own Sim class, not the test API: a recorded run uses auto spawn and the real rules.
 const { Sim } = await import(pathToFileURL(gameSimPath()).href);
-const sim = new Sim({ seed: rec.seed, tuning: rec.tuning, autoSpawn: true, rookieOpening: rec.rookieOpening ?? false });
+const sim = new Sim({ seed: rec.seed, tuning: rec.tuning, autoSpawn: true, rookieOpening: rec.rookieOpening ?? false, secondWind: rec.secondWind });
 
-const SHOWN = new Set(['piece_landed', 'piece_lost', 'heart_lost', 'heart_restored', 'last_heart', 'bond_broken', 'checkpoint_claimed', 'checkpoint_cancelled', 'row_solid', 'run_over', 'clutch', 'hold_swap']);
+const SHOWN = new Set(['piece_landed', 'piece_lost', 'heart_lost', 'heart_restored', 'last_heart', 'bond_broken', 'checkpoint_claimed', 'checkpoint_cancelled', 'row_solid', 'run_over', 'clutch', 'hold_swap',
+  // Power-ups and Second Wind (from 81540e9).
+  'power_collected', 'power_granted', 'power_used', 'power_refused', 'power_ended', 'second_wind_ready', 'second_wind']);
 const t = (s: number) => `${(s / 60).toFixed(1)}s`;
 const round = (_k: string, v: unknown) => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);
 const lastSteps: string[] = [];

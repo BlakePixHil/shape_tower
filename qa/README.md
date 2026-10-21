@@ -36,10 +36,16 @@ Each run writes a JSON and a Markdown report per suite to `qa/reports/` (not com
 | `src/measure.ts` | Tower runs, overlap and speed tracking, quiet detection |
 | `src/replay.ts` | Scripted runs and hash comparison for determinism |
 | `src/known-issues.ts` | Open bugs that make a check fail today, so they don't block unrelated pushes |
+| `src/bot.ts` | A stacking bot that plays the real game through intents only, optionally steering through bubbles and using powers and Second Wind |
+| `src/game-api.ts` | Direct access to the game's own modules, for suites that test game rules rather than the physics contract |
 | `tests/guide.test.ts` | G1 to G6, G8 and G11 |
-| `tests/physics.test.ts` | F3.1 to F3.7: towers, creep, tunnelling, explosions, sleeping, determinism |
+| `tests/physics.test.ts` | F3.1 to F3.8: towers, creep, tunnelling, explosions, sleeping, determinism, stone |
+| `tests/bots.test.ts` | F3.9: bots play whole runs, Mortar on and off, and the sim never throws |
+| `tests/powers.test.ts` | F18: each power-up and its refusal, bubbles, picks, grants, Second Wind, physics under powers, rule checks over bot runs, replays with powers |
 | `tests/harness.test.ts` | Proves the harness catches a lying guide, a falling tower and a nondeterministic sim |
-| `scripts/run-story.ts` | Replays a run record from a phone, checks its digests against Node, and prints each landing with the ghost the player saw, losses, hearts and bond breaks |
+| `scripts/run-story.ts` | Replays a run record from a phone, checks its digests against Node, and prints each landing with the ghost the player saw, losses, hearts, bond breaks, power-ups and Second Wind |
+| `scripts/cross-build.ts` | Records bot runs on one build and replays them on another, to check that a change leaves earlier runs step for step the same |
+| `scripts/replay-child.ts` | Replays run records in a fresh process (F18.13) |
 
 ## Conventions
 
