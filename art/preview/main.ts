@@ -4,8 +4,12 @@
 // &sp=<sky position> &tension=<0..1> &gallery=1 (every shape, rotation and look).
 // &cp=near|hold|claim holds one checkpoint-line phase (else it cycles near, hold, claim).
 // &vfx=1 shows every effect texture, tinted, over a day and a night sky, with a looping claim burst.
-// &tour=1 climbs from the Meadow through Treetops into Cloudlands, playing each arrival.
+// &tour=1 climbs from the Meadow through Treetops into Cloudlands, playing each arrival; &from=<sp> starts the
+// climb there and carries on up to Deep Cosmos (e.g. &tour=1&from=2.6).
 // &arrive=1 replays the current biome's arrival every 4 s (with &sp=1.2 or &sp=2.2).
+// &landmarks=1 shows the four Deep Cosmos landmark textures on the Deep Cosmos sky.
+// &at=<s> plays the current biome's arrival once and freezes the backdrop that many seconds into it.
+// &pal=<0..3> picks the Deep Cosmos nebula palette; &palcycle=1 moves to the next one every 7 s, with its landmark.
 // &powers=1 shows the power bubbles (spawn, bob, collect or fade), the power effects and a DOM power
 // bar with every icon and Second Wind state. &pw=idle holds the bubbles; &fx=sweep|glue|slowmo|gust holds one effect.
 // &pstrip=1 shows frozen frames of a bubble's spawn, idle, collect and fade, and the power effect textures.
@@ -13,8 +17,8 @@
 
 import * as Phaser from 'phaser';
 import {
-  ART_SHAPES, ArtTextures, BIOMES, INK, POWER, POWER_COLORS, POWER_KINDS, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
-  PowerBubble, SkyClock, pedestalHeight, pose, powerBarCss, powerIconUrl, rimAmount,
+  ART_SHAPES, ArtTextures, BIOMES, INK, LANDMARKS, POWER, POWER_COLORS, POWER_KINDS, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
+  PowerBubble, SkyClock, bakeLandmark, pedestalHeight, pose, powerBarCss, powerIconUrl, rimAmount, skyColors,
   type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
 } from '../src/index.ts';
 
@@ -39,6 +43,7 @@ class Preview extends Phaser.Scene {
   private lineBorn = 0;
   private pb!: PbMarker;
   private lastBiome = 0;
+  private palSet = false;
 
   constructor() { super('preview'); }
 
@@ -50,6 +55,7 @@ class Preview extends Phaser.Scene {
     if (qs.has('gallery')) { this.gallery(W); return; }
     if (qs.has('vfx')) { this.vfxSheet(W, H); return; }
     if (qs.has('pstrip')) { this.powerStrip(W, H); return; }
+    if (qs.has('landmarks')) { this.landmarkSheet(W, H); return; }
 
     this.cameras.main.setZoom(num('zoom', 1));
     this.backdrop = new Backdrop(scene, { width: W, height: H });
@@ -86,6 +92,20 @@ class Preview extends Phaser.Scene {
   // ---- power-ups ----
 
   /** Frozen frames of a bubble's life (spawn, collect, fly to a slot, fade) over a day and a night sky. */
+  private landmarkSheet(W: number, H: number): void {
+    const [a, , c] = skyColors(9.5), g = this.add.graphics();
+    g.fillGradientStyle(hexNum(a), hexNum(a), hexNum(c), hexNum(c), 1).fillRect(0, 0, W, H);
+    const k = 2, cells = [[0.5, 0.17], [0.27, 0.45], [0.72, 0.45], [0.5, 0.78]];
+    LANDMARKS.forEach((L, n) => {
+      const key = `lm${n}`, cv = bakeLandmark(n, W, H, k);
+      this.textures.addCanvas(key, cv);
+      const fit = Math.min(1, (n === 0 ? W : W * 0.5) / (cv.width / k), H * 0.3 / (cv.height / k));
+      const [fx, fy] = cells[n];
+      this.add.image(W * fx, H * fy, key).setScale(fit / k);
+      this.add.text(W * fx, H * fy + H * 0.13, `${L.name} (${L.dur} s)`, { fontFamily: 'sans-serif', fontSize: '11px', color: '#FFF7E8' }).setOrigin(0.5, 0.5);
+    });
+  }
+
   private powerStrip(W: number, H: number): void {
     const g = this.add.graphics();
     g.fillStyle(0x8FD3FF, 1).fillRect(0, 0, W, H * 0.62);
@@ -270,19 +290,31 @@ class Preview extends Phaser.Scene {
   }
 
   update(time: number, deltaMs: number): void {
-    if (qs.has('gallery') || qs.has('pstrip')) return;
+    if (qs.has('gallery') || qs.has('pstrip') || qs.has('landmarks')) return;
     if (qs.has('vfx')) { this.vfxUpdate((time - this.time0) / 1000, Math.min(0.05, deltaMs / 1000)); return; }
     const dt = Math.min(0.05, deltaMs / 1000), t = (time - this.time0) / 1000;
     const cell = this.cell, cam = this.cameras.main;
-    const tour = qs.has('tour');
+    const tour = qs.has('tour'), from = num('from', 0);
     cam.scrollY = -(tour ? Math.max(0, t - 1) * 2.2 : num('climb', 0)) * cell;
 
     const clock = this.sky.update(dt, 0, 0.2);
-    const sp = tour ? Math.min(2.6, Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : clock;
-    const ground = (this.groundY - cam.worldView.y) * cam.zoom;
-    this.backdrop.update(dt, ground, sp);
+    const sp = tour ? Math.min(qs.has('from') ? 9.7 : 2.6, from + Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : clock;
+    // From scrollY, not worldView, which only catches up after the first frame renders.
+    const ground = (this.groundY - (cam.scrollY + cam.height * (1 - 1 / cam.zoom) / 2)) * cam.zoom;
+    if (qs.has('at')) {
+      // Frozen frame: play the arrival once and step the backdrop to `at` seconds into it, then hold.
+      if (!this.palSet) {
+        this.backdrop.update(0, ground, sp);
+        this.backdrop.arrival(Math.floor(sp + 0.02));
+        for (let e = 0; e < num('at', 0); e += 1 / 60) this.backdrop.update(1 / 60, ground, sp);
+      }
+      this.backdrop.update(0, ground, sp);
+    } else this.backdrop.update(dt, ground, sp);
+    if (qs.has('at')) this.palSet = true;
+    if (qs.has('pal') && !this.palSet) { this.palSet = true; this.backdrop.setCosmos(BIOMES[9].firstCp + 6 * num('pal', 0)); }
+    if (qs.has('palcycle') && Math.floor(t / 7) !== Math.floor((t - dt) / 7)) this.backdrop.setCosmos(BIOMES[9].firstCp + 6 * Math.floor(t / 7));
     const bi = Math.floor(sp + 0.02);
-    if (tour && bi > this.lastBiome) this.backdrop.arrival(bi);
+    if (tour && bi > this.lastBiome && t > 0.5) this.backdrop.arrival(bi);
     if (qs.has('arrive') && Math.floor((t - 0.5) / 4) !== Math.floor((t - 0.5 - dt) / 4)) this.backdrop.arrival(bi);
     this.lastBiome = bi;
     const rim = rimAmount(sp);

@@ -2,16 +2,19 @@
 // is fixed, and each prop layer slides with the world at its scroll factor. Works under a zoomed
 // camera: positions and scales are corrected so the backdrop always fills the screen 1:1.
 //
-// Biomes with props so far: Meadow, Treetops, Cloudlands. The sky blends through all ten, and the
-// star field fades in from the Stratosphere up. A biome's props are baked when the climb is
-// about halfway through the biome before it, and freed two biomes later (§9.7).
+// Every biome has props, and the star field fades in from the Stratosphere up. A biome's props are
+// baked when the climb is about halfway through the biome before it, and freed two biomes later
+// (§9.7). Deep Cosmos is endless: its nebula changes palette every 6 checkpoints (setCosmos).
 
-import { presence, skyColors, starAmount } from '../biomes.ts';
+import { BIOMES, presence, skyColors, starAmount } from '../biomes.ts';
 import { bakeCloudlands, bakePunchThrough } from '../cloudlands.ts';
+import { COSMOS_PALETTES, LANDMARKS, bakeCosmos, bakeLandmark } from '../cosmos.ts';
 import { type BackdropPart, bakeMeadow } from '../meadow.ts';
+import { bakeDustDevil, bakeMoon, bakeOrbit, bakeRedPlanet, bakeRingArc, bakeRinged } from '../space.ts';
 import { STAR_LAYERS, bakeStarTile } from '../stars.ts';
+import { bakeFlare, bakeRumble, bakeStorm, bakeStratosphere } from '../storm.ts';
 import { bakeTreetops, bird } from '../treetops.ts';
-import { clamp, ctx2d, hash, makeCanvas } from '../util.ts';
+import { TAU, clamp, ctx2d, hash, makeCanvas } from '../util.ts';
 import type { CanvasTextureLike, ImageLike, SceneLike, TileSpriteLike } from './types.ts';
 
 export interface BackdropOptions {
@@ -28,10 +31,20 @@ export interface BackdropOptions {
   reduceMotion?: boolean;
 }
 
-/** Prop bakers by biome index. Biomes past the end show the sky (and stars) only. */
-const BAKERS: ((W: number, H: number, k: number) => BackdropPart[])[] = [bakeMeadow, bakeTreetops, bakeCloudlands];
+/** Prop bakers by biome index. */
+const BAKERS: ((W: number, H: number, k: number) => BackdropPart[])[] = [
+  bakeMeadow, bakeTreetops, bakeCloudlands, bakeStorm, bakeStratosphere, bakeOrbit, bakeMoon, bakeRedPlanet, bakeRinged, bakeCosmos,
+];
 
-interface Live { part: BackdropPart; img: ImageLike; key: string; phase: number }
+/** A flash's brightness at time t: a fast rise, a flicker and a slow decay, `dur` s long every `every` s. */
+function flashAt(t: number, f: NonNullable<BackdropPart['flash']>): number {
+  const ph = ((t % f.every) + f.every) % f.every;
+  if (ph >= f.dur) return 0;
+  const x = ph / f.dur, env = x < 0.12 ? x / 0.12 : (1 - (x - 0.12) / 0.88) ** 2;
+  return env * (0.75 + 0.25 * Math.sin(x * 40)) * f.alpha;
+}
+
+interface Live { part: BackdropPart; img: ImageLike; key: string; keys: string[]; phase: number }
 interface Stars { img: TileSpriteLike; key: string; i: number }
 interface Fx { imgs: ImageLike[]; keys: string[]; t: number; dur: number; step: (f: Fx, p: number) => void }
 
@@ -52,6 +65,8 @@ export class Backdrop {
   private lastSp = NaN;
   private biomes = new Map<number, Live[]>();
   private entry = new Map<number, number>();
+  private entryT = new Map<number, number>();
+  private pal = { cur: 0, prev: 0, t: -99 };
   private stars: Stars[] = [];
   private fx: Fx[] = [];
   private ground0: number | null = null;
@@ -101,24 +116,36 @@ export class Backdrop {
     this.stream(sp, lift);
 
     for (const [bi, layers] of this.biomes) {
-      const a = presence(bi, sp), e = this.entry.get(bi) ?? lift;
+      const a = presence(bi, sp), e = this.entry.get(bi) ?? lift, age = this.t - (this.entryT.get(bi) ?? this.t);
       for (const L of layers) {
-        const P = L.part;
-        L.img.setVisible(a > 0.01).setAlpha(a);
-        if (a <= 0.01) continue;
-        const still = this.reduceMotion;
+        const P = L.part, still = this.reduceMotion;
+        let alpha = a, enterDy = 0;
+        if (P.palette !== undefined) alpha *= this.palWeight(P.palette);
+        if (P.flash) alpha *= still ? 0 : flashAt(this.t + (P.flash.offset ?? 0), P.flash);
+        if (P.pulse) alpha *= still ? (1 + P.pulse[1]) / 2 : P.pulse[1] + (1 - P.pulse[1]) * (0.5 + 0.5 * Math.sin(this.t * P.pulse[0] * TAU + L.phase));
+        if (P.enter) {
+          const f = clamp((age - (P.enter.delay ?? 0)) / P.enter.dur, 0, 1), ee = 1 - (1 - f) ** 3;
+          if (P.enter.fade) alpha *= ee;
+          if (P.enter.dy && !still) enterDy = P.enter.dy * (1 - ee);
+        }
+        L.img.setVisible(alpha > 0.01).setAlpha(alpha);
+        if (alpha <= 0.01) continue;
+        const r = this.k * (P.res ?? 1);
         let x = P.x;
         if (P.drift && !still) {
-          const half = L.img.width / this.k / 2, span = this.W + half * 2;
+          const half = L.img.width / r / 2, span = this.W + half * 2;
           x = (((P.x + this.t * P.drift + half) % span) + span) % span - half;
         }
         let y = P.anchor === 'entry' ? P.y + (lift - e) * P.factor : this.ground0 + P.y + lift * P.factor;
+        if (P.fall && !still) y += this.t * P.fall;
         if (P.wrapY) {
-          const h = L.img.height / this.k, oy = P.originY ?? 0, top = y - oy * h;
-          y = ((((top + h) % P.wrapY) + P.wrapY) % P.wrapY) - h + oy * h;
+          const h = L.img.height / r, oy = P.originY ?? 0, top = y - oy * h, w = P.wrapY;
+          y = (P.tile ? -((((-top) % w) + w) % w) : ((((top + h) % w) + w) % w) - h) + oy * h;
         }
+        y += enterDy;
         if (P.bob && !still) y += Math.sin(this.t * 1.7 + L.phase) * P.bob;
-        at(L.img, x, y, 1 / this.k);
+        if (L.keys.length > 1) L.img.setTexture(L.keys[still ? 0 : Math.floor(this.t * (P.fps ?? 4) + L.phase) % L.keys.length]);
+        at(L.img, x, y, 1 / r);
         if (P.spin) L.img.setRotation(still ? 0 : this.t * P.spin);
         else if (P.sway) L.img.setRotation(still ? 0 : Math.sin(this.t * 1.3 + L.phase) * P.sway);
       }
@@ -152,6 +179,24 @@ export class Backdrop {
   arrival(biome: number): void {
     if (biome === 1) this.flockScatter();
     else if (biome === 2) this.punchThrough();
+    else if (biome === 3) this.stormRumble();
+    else if (biome === 4) this.sunFlare();
+    else if (biome === 5) this.horizonDrop();
+    else if (biome === 7) this.dustSweep();
+    else if (biome === 8) this.ringSweep();
+    else if (biome === 9) this.landmark(this.pal.cur);
+    // Moon (6): the Moon rises into frame on its own as the biome arrives.
+  }
+
+  /**
+   * Deep Cosmos: call on each checkpoint claim (any biome is fine). Every 6 checkpoints into Deep
+   * Cosmos the nebula cross-fades to the next of its 4 palettes and a surprise landmark drifts by.
+   */
+  setCosmos(checkpoint: number): void {
+    const p = Math.floor(Math.max(0, checkpoint - BIOMES[9].firstCp) / 6) % COSMOS_PALETTES.length;
+    if (p === this.pal.cur) return;
+    this.pal = { prev: this.pal.cur, cur: p, t: this.t };
+    if (this.biomes.has(9)) this.landmark(p);
   }
 
   destroy(): void {
@@ -165,6 +210,12 @@ export class Backdrop {
   }
 
   // ---- internals ----
+
+  private palWeight(p: number): number {
+    const f = clamp((this.t - this.pal.t) / 3, 0, 1);
+    if (p === this.pal.cur) return this.pal.prev === p ? 1 : f;
+    return p === this.pal.prev ? 1 - f : 0;
+  }
 
   private paintSky(sp: number): void {
     this.lastSp = sp;
@@ -183,8 +234,8 @@ export class Backdrop {
       else if (!want && this.biomes.has(i)) this.unload(i);
     }
     for (let i = 1; i < 10; i++) {
-      if (presence(i, sp) > 0 && !this.entry.has(i)) this.entry.set(i, lift);
-      else if (sp < i - 0.3) this.entry.delete(i);
+      if (presence(i, sp) > 0 && !this.entry.has(i)) { this.entry.set(i, lift); this.entryT.set(i, this.t); }
+      else if (sp < i - 0.3) { this.entry.delete(i); this.entryT.delete(i); }
     }
   }
 
@@ -194,17 +245,21 @@ export class Backdrop {
     const layers: Live[] = [];
     for (const part of bake(this.W, this.H, this.k).sort((p, q) => p.z - q.z)) {
       const key = `st:bg:${this.id}:${part.key}:${this.W}x${this.H}`;
-      if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
-      this.scene.textures.addCanvas(key, part.canvas);
-      const img = this.scene.add.image(0, 0, key).setOrigin(part.originX ?? 0, part.originY ?? 0).setScrollFactor(0)
-        .setDepth(this.depth + 0.01 + i * 0.1 + part.z * 0.01).setVisible(false);
-      layers.push({ part, img, key, phase: hash(part.z * 13.7 + part.x) * 6.28 });
+      const keys = (part.frames ?? [part.canvas]).map((cv, n) => {
+        const fk = n ? `${key}#${n}` : key;
+        if (this.scene.textures.exists(fk)) this.scene.textures.remove(fk);
+        this.scene.textures.addCanvas(fk, cv);
+        return fk;
+      });
+      const depth = part.front ? this.frontDepth - 0.5 + part.z * 0.001 : this.depth + 0.01 + i * 0.1 + part.z * 0.01;
+      const img = this.scene.add.image(0, 0, key).setOrigin(part.originX ?? 0, part.originY ?? 0).setScrollFactor(0).setDepth(depth).setVisible(false);
+      layers.push({ part, img, key, keys, phase: hash(part.z * 13.7 + part.x) * 6.28 });
     }
     this.biomes.set(i, layers);
   }
 
   private unload(i: number): void {
-    for (const L of this.biomes.get(i) ?? []) { L.img.destroy(); this.scene.textures.remove(L.key); }
+    for (const L of this.biomes.get(i) ?? []) { L.img.destroy(); for (const k of L.keys) this.scene.textures.remove(k); }
     this.biomes.delete(i);
   }
 
@@ -255,6 +310,84 @@ export class Backdrop {
         const img = imgs[i].setTexture(keys[Math.floor(tt * 12 + b.ph * 2) % 2]);
         img.setPosition(cx + (x - cx) / z, cy + (y - cy) / z).setScale(b.sc / k / z).setAlpha(Math.min(1, (1 - p) * 4));
       });
+    } });
+  }
+
+  /** Put an fx image at screen point (x, y) at screen scale sc, whatever the camera zoom. */
+  private place(img: ImageLike, x: number, y: number, sc: number): ImageLike {
+    const cam = this.scene.cameras.main, z = cam.zoom || 1, cx = cam.width / 2, cy = cam.height / 2;
+    return img.setPosition(cx + (x - cx) / z, cy + (y - cy) / z).setScale(sc / z, sc / z);
+  }
+
+  private fxImage(key: string, depth: number, ox = 0.5, oy = 0.5): ImageLike {
+    return this.scene.add.image(0, 0, key).setOrigin(ox, oy).setScrollFactor(0).setDepth(depth).setVisible(false);
+  }
+
+  /** Storm Belt: the sky dims for a beat while a low rumble of light rolls across the far clouds. */
+  private stormRumble(): void {
+    const dimKey = this.fxTexture('dim', () => { const cv = makeCanvas(4, 4), c = ctx2d(cv); c.fillStyle = '#141A2C'; c.fillRect(0, 0, 4, 4); return cv; });
+    const dim = this.fxImage(dimKey, this.depth + 1.5, 0, 0);
+    const roll = this.fxImage(this.fxTexture('rumble', () => bakeRumble(this.W, this.H, this.k)), this.depth + 0.355);
+    const still = this.reduceMotion;
+    this.fx.push({ imgs: [dim, roll], keys: [], t: 0, dur: 1.8, step: (_f, p) => {
+      const z = this.scene.cameras.main.zoom || 1;
+      this.place(dim, 0, 0, 1).setDisplaySize(this.W / z, this.H / z).setVisible(true).setAlpha(Math.sin(p * Math.PI) * 0.32);
+      if (!still) this.place(roll, this.W * (-0.3 + 1.6 * p), this.H * 0.42, 1 / this.k).setVisible(true).setAlpha(Math.sin(p * Math.PI) * 0.2);
+    } });
+  }
+
+  /** Stratosphere: a sun flare sweeps across the screen as the tower clears the storm tops. */
+  private sunFlare(): void {
+    if (this.reduceMotion) return;
+    const img = this.fxImage(this.fxTexture('flare', () => bakeFlare(this.W, this.H, this.k)), this.depth + 1.5).setBlendMode(1);
+    this.fx.push({ imgs: [img], keys: [], t: 0, dur: 1.6, step: (_f, p) => {
+      const e = p * p * (3 - 2 * p);
+      this.place(img, this.W * (0.95 - 0.9 * e), this.H * (0.78 - 0.45 * e), 1 / this.k).setVisible(true).setAlpha(Math.sin(p * Math.PI) * 0.55);
+    } });
+  }
+
+  /** Orbit: the blue glow of the horizon drops away below, then a quiet beat. */
+  private horizonDrop(): void {
+    const key = this.fxTexture('horizon', () => {
+      const w = 8, h = 256, cv = makeCanvas(w, h), c = ctx2d(cv), g = c.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, 'rgba(120,190,255,0)'); g.addColorStop(0.12, 'rgba(120,190,255,0)'); g.addColorStop(0.7, 'rgba(120,190,255,0.45)'); g.addColorStop(1, 'rgba(150,210,255,0.7)');
+      c.fillStyle = g; c.fillRect(0, 0, w, h); return cv;
+    });
+    const img = this.fxImage(key, this.depth + 1.5, 0, 0), still = this.reduceMotion;
+    this.fx.push({ imgs: [img], keys: [], t: 0, dur: 2.6, step: (_f, p) => {
+      const z = this.scene.cameras.main.zoom || 1, e = 1 - (1 - p) ** 2;
+      this.place(img, 0, this.H * (0.35 + (still ? 0 : 0.65 * e)), 1).setDisplaySize(this.W / z, this.H * 0.65 / z).setVisible(true).setAlpha(1 - e);
+    } });
+  }
+
+  /** Red Planet: a big dust devil sweeps across the far layer. */
+  private dustSweep(): void {
+    if (this.reduceMotion) return;
+    const keys = [0, 1, 2].map(f => this.fxTexture(`devil${f}`, () => bakeDustDevil(f, this.W / 12 * 3, this.k)));
+    const img = this.fxImage(keys[0], this.depth + 0.735, 0.5, 1);
+    this.fx.push({ imgs: [img], keys, t: 0, dur: 3.4, step: (f, p) => {
+      img.setTexture(keys[Math.floor(f.t * 10) % 3]);
+      this.place(img, this.W * (-0.2 + 1.4 * p), this.H * 0.7, 1 / this.k).setVisible(true).setAlpha(Math.min(1, Math.sin(p * Math.PI) * 1.6) * 0.55);
+    } });
+  }
+
+  /** Ringed Giant: a bright ring arc sweeps across the far layer, behind the tower. */
+  private ringSweep(): void {
+    if (this.reduceMotion) return;
+    const img = this.fxImage(this.fxTexture('ringarc', () => bakeRingArc(this.W, this.H, this.k)), this.depth + 0.835).setBlendMode(1);
+    this.fx.push({ imgs: [img], keys: [], t: 0, dur: 2.6, step: (_f, p) => {
+      const e = p * p * (3 - 2 * p);
+      this.place(img, this.W * (1.4 - 0.9 * e), this.H * 0.3, 1 / this.k).setVisible(true).setAlpha(Math.sin(p * Math.PI) * 0.6).setRotation(-0.21 + 0.1 * (1 - e));
+    } });
+  }
+
+  /** Deep Cosmos: surprise landmark n drifts by in the far layer. */
+  private landmark(n: number): void {
+    const L = LANDMARKS[n % LANDMARKS.length], still = this.reduceMotion;
+    const img = this.fxImage(this.fxTexture(`landmark${n}`, () => bakeLandmark(n, this.W, this.H, this.k)), this.depth + 0.915);
+    this.fx.push({ imgs: [img], keys: [], t: 0, dur: L.dur, step: (_f, p) => {
+      const q = L.path(still ? 0.5 : p, this.W, this.H), env = Math.min(1, p * 6, (1 - p) * 6);
+      this.place(img, q.x, q.y, q.sc / this.k).setVisible(true).setAlpha(env * q.alpha).setRotation(still ? 0 : q.rot);
     } });
   }
 

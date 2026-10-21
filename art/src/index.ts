@@ -12,6 +12,9 @@ export { SLAB_DEPTH, bakeGradeStamp, bakePedestal, bakeSlab, drawPedestal, drawS
 export { bakeMeadow, type BackdropPart } from './meadow.ts';
 export { bakeTreetops } from './treetops.ts';
 export { bakeCloudlands, bakePunchThrough } from './cloudlands.ts';
+export { bakeFlare, bakeRumble, bakeStorm, bakeStratosphere } from './storm.ts';
+export { bakeDustDevil, bakeMoon, bakeOrbit, bakeRedPlanet, bakeRingArc, bakeRinged } from './space.ts';
+export { COSMOS_PALETTES, LANDMARKS, bakeCosmos, bakeLandmark, type CosmosPalette, type Landmark, type LandmarkPose } from './cosmos.ts';
 export { STAR_LAYERS, bakeStarTile, type StarLayer } from './stars.ts';
 export { VFX, VFX_NAMES, bakeVfx, type VfxName } from './vfx.ts';
 export { POWER, POWER_COLORS, POWER_ICON_NAMES, POWER_KINDS, bakeBubble, bakeBubbleGloss, bakePowerIcon, drawPowerIcon, powerBarCss, powerIconUrl, type PowerIcon, type PowerKind } from './powers.ts';

@@ -17,7 +17,7 @@ The Shape Tower art kit. Everything is drawn in code with Canvas 2D (no image fi
 | Biomes | `src/biomes.ts` | All ten biomes, the sky blend, `SkyClock`, rim and star amounts. |
 | Foundations | `src/slab.ts` | The Meadow's wooden pedestal, a graded slab for each biome, grade stamps. |
 | Checkpoint line | `src/checkpoint.ts` | Rope, bunting in the shape colors, numbered plaque, hold-steady ring and label, the claimed line's flag, and the best-height marker. |
-| Backdrops | `src/meadow.ts`, `src/treetops.ts`, `src/cloudlands.ts`, `src/stars.ts` | Parallax layers for the Meadow (sun, clouds, hills, windmill farmhouse, trees, fence, cow, grass), Treetops (mountains, canopies, balloons, kites, birds) and Cloudlands (cloud banks, castle, rainbow, blimp, plane), plus a three-depth star field. Biomes 4 to 10 show their sky and stars until their props land. |
+| Backdrops | `src/meadow.ts`, `src/treetops.ts`, `src/cloudlands.ts`, `src/storm.ts`, `src/space.ts`, `src/cosmos.ts`, `src/stars.ts` | Parallax layers for all ten biomes: the Meadow (sun, clouds, hills, windmill farmhouse, trees, fence, cow, grass), Treetops (mountains, canopies, balloons, kites, birds), Cloudlands (cloud banks, castle, rainbow, blimp, plane), Storm Belt (thunderheads, far lightning, a weather station, a windsock, rain at the edges), Stratosphere (Earth's curve, a low sun, aurora, a weather balloon), Orbit (Earth's limb, a space station, satellites), Moon (Earthrise, the Moon rising with a flag and a waving astronaut), Red Planet (mesas, a canyon, a rover, dust devils), Ringed Giant (the giant and its ring, ice chunks, ring dust in front at the edges) and Deep Cosmos (four nebula palettes, galaxies, tetromino constellations, a comet, space jellies, four surprise landmarks), plus a three-depth star field. |
 | Effects | `src/vfx.ts` | Particle textures: dust and cloud puffs, stardust, sparkle, impact ring, shockwave, flash, speed line, whoosh, wobble lines, crack, stone chip, confetti and mini-shape confetti, XP orb, rays, and the power-up effects (broom sweep, honey drop, bond spark, ripple, gust, bubble shard). |
 | Power-ups | `src/powers.ts` | Icons for Clean Slate, Quick-Set, Undo, Glue, Slow-Mo and Second Wind, the power bubble, and the CSS for the DOM power bar and Second Wind's states. |
 | Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `PowerBubble`, `Backdrop`. |
@@ -113,7 +113,21 @@ The preview's `powers=1` shows all of it live, with a DOM power bar in every sta
 
 ### Backdrop
 
-The backdrop bakes each biome's props when the climb is about halfway through the biome before it, and frees them two biomes later, so only two or three biomes are in memory. Props above the Meadow are placed relative to the screen at the moment their biome arrives, then sink at their scroll factor as the tower climbs. On `biome_entered`, call `backdrop.arrival(biomeIndex)` to play the arrival moment: a bird flock for Treetops, the cloud punch-through for Cloudlands. The punch-through passes in front of the tower at `frontDepth` (default 950); keep that under the guide.
+The backdrop bakes each biome's props when the climb is about halfway through the biome before it, and frees them two biomes later, so only two or three biomes are in memory. Props above the Meadow are placed relative to the screen at the moment their biome arrives, then sink at their scroll factor as the tower climbs. On `biome_entered`, call `backdrop.arrival(biomeIndex)` to play the arrival moment:
+
+| Biome | Arrival |
+|---|---|
+| Treetops | A bird flock scatters past the camera. |
+| Cloudlands | A cloud layer punches down past the camera, whiting out the edges for a beat. |
+| Storm Belt | The sky dims and a rumble of light rolls across the far clouds. |
+| Stratosphere | A sun flare sweeps across; the aurora unfurls a second later. |
+| Orbit | The blue glow of the horizon drops away, then a quiet beat. |
+| Moon | The Moon rises into frame with its flag and astronaut (no call needed beyond `arrival`). |
+| Red Planet | A big dust devil sweeps across the far layer. |
+| Ringed Giant | A bright ring arc sweeps across behind the tower. |
+| Deep Cosmos | The cosmic whale swims by. |
+
+The punch-through and the Ringed Giant's near ring dust pass in front of the tower at `frontDepth` (default 950); keep that under the guide. Deep Cosmos is endless: call `backdrop.setCosmos(checkpoint)` on every checkpoint claim (any biome is fine). Every 6 checkpoints into Deep Cosmos the nebula cross-fades to the next of its four palettes (`COSMOS_PALETTES`, each with a `name` for a toast if you want one) and that palette's landmark drifts by: the whale, a Butterblock constellation that smiles, a comet swarm, a derelict wheel station. With `reduceMotion`, flashes, drift, sway and sweeping arrivals are off and landmarks hold still while they fade in and out.
 
 ### Conventions
 
@@ -156,7 +170,8 @@ Add these to the preview URL:
 - `cp=near|hold|claim` holds one checkpoint-line phase (otherwise it cycles).
 - `vfx=1` shows every effect texture over a day and a night sky, with a looping claim burst.
 - `powers=1` shows the bubbles spawning, bobbing, flying to their slots or fading, each power's effect in turn, and a DOM power bar with every icon and Second Wind state. `pw=idle` holds the bubbles; `fx=sweep|glue|slowmo|gust` holds one effect. `pstrip=1` shows frozen frames of the bubble's life.
-- `tour=1` climbs from the Meadow through Treetops into Cloudlands and plays each arrival. `arrive=1` replays the current biome's arrival every 4 s.
+- `tour=1` climbs from the Meadow through Treetops into Cloudlands and plays each arrival; add `from=<sky position>` to start there and carry on to Deep Cosmos (for example `tour=1&from=2.6`). `arrive=1` replays the current biome's arrival every 4 s. `at=<s>` plays it once and freezes that many seconds in (for screenshots).
+- `pal=<0..3>` picks the Deep Cosmos palette (with `sp=9.3`); `palcycle=1` moves to the next one every 7 s with its landmark. `landmarks=1` shows the four landmark textures.
 - Options also work after a `#` (for example `#tour`), for hosts that drop the query string.
 - `gallery=1` shows every shape in every rotation, with worried, stone and space-rim looks.
 - `climb=<blocks>` scrolls up, `zoom=<n>` zooms the camera, `sp=<0..9.7>` sets the sky position, `tension=<0..1>` fixes tension.
