@@ -20,6 +20,7 @@ The Shape Tower art kit. Everything is drawn in code with Canvas 2D (no image fi
 | Backdrops | `src/meadow.ts`, `src/treetops.ts`, `src/cloudlands.ts`, `src/storm.ts`, `src/space.ts`, `src/cosmos.ts`, `src/stars.ts` | Parallax layers for all ten biomes: the Meadow (sun, clouds, hills, windmill farmhouse, trees, fence, cow, grass), Treetops (mountains, canopies, balloons, kites, birds), Cloudlands (cloud banks, castle, rainbow, blimp, plane), Storm Belt (thunderheads, far lightning, a weather station, a windsock, rain at the edges), Stratosphere (Earth's curve, a low sun, aurora, a weather balloon), Orbit (Earth's limb, a space station, satellites), Moon (Earthrise, the Moon rising with a flag and a waving astronaut), Red Planet (mesas, a canyon, a rover, dust devils), Ringed Giant (the giant and its ring, ice chunks, ring dust in front at the edges) and Deep Cosmos (four nebula palettes, galaxies, tetromino constellations, a comet, space jellies, four surprise landmarks), plus a three-depth star field. |
 | Effects | `src/vfx.ts` | Particle textures: dust and cloud puffs, stardust, sparkle, impact ring, shockwave, flash, speed line, whoosh, wobble lines, crack, stone chip, confetti and mini-shape confetti, XP orb, rays, and the power-up effects (broom sweep, honey drop, bond spark, ripple, gust, bubble shard). |
 | Power-ups | `src/powers.ts` | Icons for Clean Slate, Quick-Set, Undo, Glue, Slow-Mo and Second Wind, the power bubble, and the CSS for the DOM power bar and Second Wind's states. |
+| UI kit | `src/ui/` | The DOM "sticker toy" UI (art-direction.md §8): `uiCss()` (Paper panels, Ink outlines, buttons that press and bounce, chips, XP bar, toggles, sliders), 43 icons, level badges in seven tiers with titles, the logo, biome postcards, the player's avatar, and builders for the main menu, pause card, run summary, level-up takeover, profile and settings. |
 | Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `PowerBubble`, `Backdrop`. |
 
 ## Using it from game/
@@ -129,6 +130,35 @@ The backdrop bakes each biome's props when the climb is about halfway through th
 
 The punch-through and the Ringed Giant's near ring dust pass in front of the tower at `frontDepth` (default 950); keep that under the guide. Deep Cosmos is endless: call `backdrop.setCosmos(checkpoint)` on every checkpoint claim (any biome is fine). Every 6 checkpoints into Deep Cosmos the nebula cross-fades to the next of its four palettes (`COSMOS_PALETTES`, each with a `name` for a toast if you want one) and that palette's landmark drifts by: the whale, a Butterblock constellation that smiles, a comet swarm, a derelict wheel station. With `reduceMotion`, flashes, drift, sway and sweeping arrivals are off and landmarks hold still while they fade in and out.
 
+### Screens
+
+The screens are DOM overlays built from plain data; the game keeps the logic. Each builder returns an element to append to `document.body`, and every button carries a `data-action`.
+
+```ts
+import { injectUiCss, loadUiFonts, onAction, pauseCard, summaryCard, showXpLine, setXpBar, levelUp } from '@art/index.ts';
+
+injectUiCss();
+await loadUiFonts();               // badges and logo letters are drawn text
+
+const pause = document.body.appendChild(pauseCard());          // quitHalves: false in Zen
+onAction(pause, action => { /* 'resume' | 'restart' | 'settings' | 'quit' */ });
+```
+
+| Builder | Takes | Actions |
+|---|---|---|
+| `mainMenu(d)` | `name`, `level`, `into`, `need`, `avatar?`, `modes?` (default Daily Tower at level 3, Zen at 8), `still?` | `profile`, `settings`, `play`, each mode's `id` (locked modes have `.locked` and `data-locked` and don't fire) |
+| `pauseCard(o?)` | `quitHalves?` (default true) | `resume`, `restart`, `settings`, `quit` |
+| `summaryCard(d)` | `cause`, `height` (m), `newBest?`, `biome`, `score`, `checkpoints`, `perfects`, `rows`, `clutches`, `xp` (the bar before the run), `lines` (`Award.lines`), `gained` | `again`, `profile`, `home`, `share` |
+| `levelUp(o)` | `level`, `from?`, `unlock?` (default `rewardAt(level)`; `null` for none) | `continue` |
+| `profilePanel(d)` | `name`, `level`, `into`, `need`, `avatar?`, `stats`, `postcards` (per biome: the date first reached, `''` for none, `null` if not reached) | `close` |
+| `settingsPanel(values, layout?)` | current values by key; `SETTINGS_LAYOUT` has music, sfx, haptics, controls, splitTap, safeDrop, leftHand, sensitivity, reducedMotion, shake, patterns | `close`; `readSettings(panel)` gives the values back |
+
+The run summary's tally: the XP lines start hidden. Call `showXpLine(card, i)` for each line in turn (the total is the last; it returns false past the end) and `setXpBar(card, { level, into, need })` as the bar fills; on a level-up, fill to `need`, then set the next level and append `levelUp({ level })`. `showAllXpLines(card)` skips the tally. Extra rows (QA's one-tap questions) go in `card.querySelector('.ui-sum-extra')`.
+
+Parts for your own screens: `xpBar(state)`, `badgeUrl(level, px)`, `titleFor(level)`, `newTitleAt(level)`, `rewardAt(level)` and `UNLOCKS` (what each level gives, gameplay.md §10.3), `uiIconUrl(name, px)` for any of `UI_ICONS`, `avatarUrl({ shape, face }, px)`, `postcardElement({ biome, width, date, locked })`, `logoElement()` and `bakeLogo(width)` for a still canvas. Control glyphs (pause, close, arrows) are Ink, for Paper buttons.
+
+Add `.ui-still` to a screen (or turn on the OS's Reduce Motion) to stop its animations; pass `still: true` to `mainMenu` to skip the logo's drop-in.
+
 ### Conventions
 
 - Shape keys, cells and rotations match `game/src/sim/shapes.ts`: cells are `[col, row]` with y up, rotation `q` is quarter turns counter-clockwise, and the pivot is the centre of the cells' bounding box.
@@ -172,6 +202,7 @@ Add these to the preview URL:
 - `powers=1` shows the bubbles spawning, bobbing, flying to their slots or fading, each power's effect in turn, and a DOM power bar with every icon and Second Wind state. `pw=idle` holds the bubbles; `fx=sweep|glue|slowmo|gust` holds one effect. `pstrip=1` shows frozen frames of the bubble's life.
 - `tour=1` climbs from the Meadow through Treetops into Cloudlands and plays each arrival; add `from=<sky position>` to start there and carry on to Deep Cosmos (for example `tour=1&from=2.6`). `arrive=1` replays the current biome's arrival every 4 s. `at=<s>` plays it once and freezes that many seconds in (for screenshots).
 - `pal=<0..3>` picks the Deep Cosmos palette (with `sp=9.3`); `palcycle=1` moves to the next one every 7 s with its landmark. `landmarks=1` shows the four landmark textures.
+- `ui=menu|pause|summary|levelup|profile|settings` opens that screen over the Meadow (its buttons work); `ui=icons|badges|logo` shows a sheet of the kit's parts. `lv=<level>` sets the player's level, `still=1` turns the animations off. Without `ui`, a Screens row sits above the biome picker.
 - Options also work after a `#` (for example `#tour`), for hosts that drop the query string.
 - `gallery=1` shows every shape in every rotation, with worried, stone and space-rim looks.
 - `climb=<blocks>` scrolls up, `zoom=<n>` zooms the camera, `sp=<0..9.7>` sets the sky position, `tension=<0..1>` fixes tension.

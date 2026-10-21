@@ -20,6 +20,21 @@ export { VFX, VFX_NAMES, bakeVfx, type VfxName } from './vfx.ts';
 export { POWER, POWER_COLORS, POWER_ICON_NAMES, POWER_KINDS, bakeBubble, bakeBubbleGloss, bakePowerIcon, drawPowerIcon, powerBarCss, powerIconUrl, type PowerIcon, type PowerKind } from './powers.ts';
 export { BUNTING_KEYS, CHECKPOINT, bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from './checkpoint.ts';
 export { hexNum, labToHex, oklab } from './util.ts';
+export { BIOME_BAKERS, type BiomeBaker } from './backdrops.ts';
+
+// DOM UI kit (art-direction.md §8): CSS, icons, badges, logo, postcards and screen builders.
+export { injectUiCss, uiCss } from './ui/css.ts';
+export { UI_ICONS, bakeUiIcon, drawUiIcon, uiIconUrl, type UiIcon } from './ui/icons.ts';
+export { BADGE_TIERS, TITLES, badgeTier, badgeUrl, bakeBadge, drawBadge, newTitleAt, titleFor, type BadgeTier } from './ui/badge.ts';
+export { LOGO_ROWS, bakeLogo, logoElement, logoPeekerUrl, logoTileUrl } from './ui/logo.ts';
+export { bakePostcard, postcardElement, postcardUrl, type PostcardOptions } from './ui/postcard.ts';
+export {
+  MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarUrl, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel, readSettings,
+  rewardAt, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, xpBar,
+  type AvatarSpec, type LevelUpOptions, type MenuData, type MenuMode, type PauseOptions, type ProfileData, type ProfileStats,
+  type SettingGroup, type SettingItem, type SettingValue, type SummaryData, type Unlock, type XpState,
+} from './ui/screens.ts';
+
 
 export { ArtTextures, type ArtTexturesOptions, type FacePart, type TexRef } from './phaser/textures.ts';
 export { BlocklingView, type BlocklingOptions } from './phaser/blockling.ts';
