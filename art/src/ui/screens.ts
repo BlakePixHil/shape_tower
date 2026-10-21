@@ -269,8 +269,10 @@ export function avatarUrl(a: AvatarSpec = {}, cssPx = 56, dpr = DPR()): string {
   c.beginPath(); c.arc(R, R, R - lw / 2, 0, Math.PI * 2); c.fillStyle = g; c.fill();
   c.save(); c.clip();
   c.fillStyle = '#7FD36B'; c.fillRect(0, px * 0.8, px, px);
-  // A hat (about a block across) sits over the face; shrink the Blockling so both fit the disc.
-  const p = pose(key, 0), hw = 1.35, s = Math.min((px * 0.56) / Math.max(p.w, p.h, 1.6), hat ? (px * 0.7) / (p.h + hat.h * hw) : Infinity);
+  // A hat (about a block across) sits over the face; shrink the Blockling so both fit the disc. The flat
+  // I would be a sliver at that size, so it spans most of the disc's width instead.
+  const p = pose(key, 0), hw = 1.35, fit = p.w >= p.h * 3 ? (px * 0.8) / p.w : (px * 0.56) / Math.max(p.w, p.h, 1.6);
+  const s = Math.min(fit, hat ? (px * 0.7) / (p.h + hat.h * hw) : Infinity);
   c.translate(R - (p.w * s) / 2, px * 0.8 - p.h * s + s * 0.04);
   drawPiece(c, key, 0, s, { face, shadow: false, detail: s >= 20 });
   if (hat) {
