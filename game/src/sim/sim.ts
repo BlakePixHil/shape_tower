@@ -419,13 +419,15 @@ export class Sim {
     if (this.gustNext < 0) this.gustNext = this.time + 4 + this.rng.hazards.int(21) / 10;
     if (g.phase === 'idle') {
       if (this.time < this.gustNext || calm) return 0;
-      const first = t.hazardIntro && this.gustsSeen === 0;
+      // first: the run's first gust (Sound's heads-up chime). intro: also the player's first ever,
+      // so it blows at half strength with a card.
+      const first = this.gustsSeen === 0, intro = first && t.hazardIntro;
       g.dir = this.rng.hazards.int(2) ? 1 : -1;
-      g.strength = spec.strength * t.gustScale * (first ? 0.5 : 1);
+      g.strength = spec.strength * t.gustScale * (intro ? 0.5 : 1);
       g.dur = 2 + this.rng.hazards.int(11) / 10;
       g.startStep = this.stepIndex + Math.round(GUST_WARNING / DT);
       g.phase = 'warn';
-      this.bus.emit('hazard_warning', { type: 'gust', dir: g.dir, eta: GUST_WARNING, strength: g.strength, first });
+      this.bus.emit('hazard_warning', { type: 'gust', dir: g.dir, eta: GUST_WARNING, strength: g.strength, first, intro });
       return 0;
     }
     if (g.phase === 'warn') {

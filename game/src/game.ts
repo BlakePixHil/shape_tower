@@ -71,7 +71,7 @@ async function boot(): Promise<void> {
       profile, build: BUILD,
       onPlay: play,
       onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home); },
-      onSettings: () => openSettings(home),
+      onSettings: () => { audio()?.screen?.('profile'); openSettings(home); },
       note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
     });
   }

@@ -430,7 +430,7 @@ export class PlayScene extends Phaser.Scene {
       }
       case 'budget_low': this.hooks.hud.pulseBricks(); break;
       case 'hazard_warning':
-        if (p.first) this.hooks.hud.hazardCard('Gusts ahead! Keep it wide.');
+        if (p.intro) this.hooks.hud.hazardCard('Gusts ahead! Keep it wide.');
         break;
       case 'checkpoint_cancelled': this.pop('Wobbly!', this.sim.foundation.x, this.sim.lineY + 0.6, AMBER, 18); break;
       case 'checkpoint_claimed':
