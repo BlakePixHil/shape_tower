@@ -58,8 +58,8 @@ ${(Object.keys(TIER_COLORS) as Tier[]).map(t => `.tr-badge.t-${t} { --face: ${TI
 .tr-item { display: flex; align-items: center; gap: 10px; background: #fff; border: 3px solid ${INK}; border-radius: 12px; padding: 6px 8px; }
 .tr-item.locked { background: #FBF5EA; border-color: rgba(34,24,58,0.45); }
 .tr-item .tr-mid { flex: 1; min-width: 0; }
-.tr-item b { display: block; font: 700 15px/1.2 'Fredoka', sans-serif; }
-.tr-item span { display: block; font: 600 12px/1.25 'Nunito', sans-serif; color: ${INK_SOFT}; }
+.tr-item .tr-name { display: block; font: 700 15px/1.2 'Fredoka', sans-serif; }
+.tr-item .tr-text { display: block; font: 600 12px/1.25 'Nunito', sans-serif; color: ${INK_SOFT}; }
 .tr-item .tr-meta em { font-style: normal; }
 .tr-item .tr-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; font: 700 11px/1.2 'Fredoka', sans-serif; color: ${INK_SOFT}; letter-spacing: 0.04em; text-transform: uppercase; }
 .tr-item .tr-bar { height: 8px; margin-top: 4px; }
@@ -200,7 +200,7 @@ export function achievementsPanel(p: Profile): HTMLElement {
         : pr ? `<span class="tr-meta"><em>${TIER_NAMES[a.tier]}</em><em>${num(pr[0])} / ${num(pr[1])}</em></span><span class="tr-bar"><i style="width:${((pr[0] / pr[1]) * 100).toFixed(1)}%"></i></span>`
         : `<span class="tr-meta"><em>${TIER_NAMES[a.tier]}</em></span>`;
       return `<div class="tr-item${got ? '' : ' locked'}" data-id="${hide ? '' : a.id}">${badgeHtml(a, !!got, 44)}<div class="tr-mid">
-        <b>${hide ? '???' : esc(a.name)}</b><span>${hide ? 'Secret: keep playing' : esc(a.text)}</span>${meta}</div></div>`;
+        <b class="tr-name">${hide ? '???' : esc(a.name)}</b><span class="tr-text">${hide ? 'Secret: keep playing' : esc(a.text)}</span>${meta}</div></div>`;
     }).join('');
     return `<h3>${g.name}<em>${have} / ${list.length}</em></h3><div class="tr-list">${items}</div>`;
   }).join('');
