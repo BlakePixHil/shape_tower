@@ -201,6 +201,11 @@ export function uiCss(): string {
 .ui-profile { width: min(360px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 16px; scrollbar-width: none; }
 .ui-prof-head { display: flex; gap: 12px; align-items: center; text-align: left; margin-bottom: 12px; }
 .ui-prof-head .ui-avatar { --s: 72px; }
+.ui-av-edit { appearance: none; position: relative; flex: none; margin: 0; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 50%; }
+.ui-av-edit:active { transform: scale(0.95); }
+.ui-av-edit:focus-visible { outline: 3px solid var(--xp); outline-offset: 2px; }
+.ui-av-edit i { position: absolute; right: -4px; bottom: -2px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--gold); border: 3px solid var(--ink); box-sizing: border-box; }
+.ui-av-edit i img { width: 18px; height: 18px; }
 .ui-prof-head b { display: block; font: 700 24px/1.1 var(--display); }
 .ui-prof-head .ui-row { justify-content: flex-start; gap: 8px; margin-top: 6px; }
 .ui-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
@@ -236,6 +241,25 @@ export function uiCss(): string {
 .ui-seg label + label span { border-left: 3px solid var(--ink); }
 .ui-seg input:checked + span { background: var(--gold); }
 .ui-seg input:focus-visible + span { outline: 3px solid var(--xp); outline-offset: -5px; }
+
+/* Avatar picker: a big avatar, then rows of round picks (gold ring when chosen; locked ones grey with their level) */
+.ui-avpick { width: min(360px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 16px; scrollbar-width: none; }
+.ui-av-big { --s: 112px; margin: 4px auto 0; }
+.ui-picks { display: flex; flex-wrap: wrap; gap: 5px; }
+.ui-pick { position: relative; cursor: pointer; }
+.ui-pick input { position: absolute; opacity: 0; pointer-events: none; }
+.ui-pick span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: #fff; border: 3px solid var(--ink); box-shadow: 0 3px 0 var(--ink); transition: transform 120ms; }
+.ui-pick img { width: 34px; height: 34px; border-radius: 50%; }
+.ui-pick input:checked + span { background: var(--gold); box-shadow: 0 0 0 3px var(--gold), 0 3px 0 3px var(--ink); transform: scale(1.06); }
+.ui-pick input:focus-visible + span { outline: 3px solid var(--xp); outline-offset: 3px; }
+.ui-pick:active span { transform: translateY(3px) scale(0.95); box-shadow: 0 0 0 var(--ink); }
+.ui-pick.locked { cursor: default; }
+.ui-pick.locked span { background: var(--paper-2); border-color: var(--ink-soft); box-shadow: 0 3px 0 var(--ink-soft); transform: none; }
+.ui-pick.locked img { filter: grayscale(1); opacity: 0.45; }
+.ui-pick i { position: absolute; right: -6px; bottom: -4px; display: flex; align-items: center; gap: 1px; font: 700 11px/1 var(--display); font-style: normal;
+  background: var(--paper); border: 2px solid var(--ink-soft); border-radius: 8px; padding: 2px 4px 2px 2px; color: var(--ink-soft); }
+.ui-pick i img { width: 12px; height: 12px; border-radius: 0; }
+.ui-avpick .ui-btn.primary { margin-top: 16px; width: 100%; }
 
 /* Hazard telegraph chip: amber, at the edge the hazard comes from, countdown ring and push chevrons */
 .ui-hazard { position: fixed; top: var(--y, 30%); z-index: 15; pointer-events: none; display: flex; align-items: center; gap: 2px; background: var(--amber);
