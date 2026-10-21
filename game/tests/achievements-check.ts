@@ -119,8 +119,9 @@ function climb(to: number, from = 1): [string, Record<string, unknown>?][] {
     has(play([claim(1, 'A', 8)]), 'thrifty') && !has(play([claim(1, 'A', 7)]), 'thrifty') && !has(play([claim(1, 'B', 10)]), 'thrifty'));
   check('Just Enough: 0 left yes, 1 left no, endless budget no',
     has(play([claim(1, 'B', 0)]), 'last_brick') && !has(play([claim(1, 'B', 1)]), 'last_brick') && !has(play([claim(1, 'B', 0)], { tuning: { infiniteBudget: true } }), 'last_brick'));
-  check('Needle Threader: 3-wide C yes, 4-wide C no, 3-wide B no',
-    has(play([claim(1, 'C', 3, 3)]), 'needle') && !has(play([claim(1, 'C', 3, 4)]), 'needle') && !has(play([claim(1, 'B', 3, 3)]), 'needle'));
+  check('Needle Threader: the narrowest slab for the claim at C (6 wide at CP 1, 3 at CP 11) yes, a block wider no, B no',
+    has(play([claim(1, 'C', 3, 6)]), 'needle') && !has(play([claim(1, 'C', 3, 7)]), 'needle') && !has(play([claim(1, 'B', 3, 6)]), 'needle') &&
+    has(play([claim(11, 'C', 3, 3)]), 'needle') && !has(play([claim(11, 'C', 3, 4)]), 'needle'));
   check('Clutch: one earns Clutch!, two not Nerves of Steel, three yes',
     has(play([['clutch']]), 'clutch') && !has(play([['clutch'], ['clutch']]), 'clutch_3') && has(play([['clutch'], ['clutch'], ['clutch']]), 'clutch_3'));
 }

@@ -1263,8 +1263,8 @@ export class PlayScene extends Phaser.Scene {
     // A lift clear of a new slab eases up over 250 ms instead of jumping.
     const lt = Math.min(1, (now - this.ctrl.liftAt) / 250);
     const y = this.prevCtrlY + (this.curCtrlY - this.prevCtrlY) * alpha + this.ctrl.lift * (1 - lt) * (1 - lt) * (1 - lt);
-    // Hovering through a checkpoint hold: a soft cushion of puffs under the shape.
-    if (this.sim.hovering && !c.hard && !c.soft && now - this.ctrl.cushionAt > 110) {
+    // Hovering through a checkpoint hold, or waiting at the top early in a run: a soft cushion of puffs under the shape.
+    if ((this.sim.hovering || this.sim.waiting) && !c.hard && !c.soft && now - this.ctrl.cushionAt > 110) {
       this.ctrl.cushionAt = now;
       const e = extents(c.shape, c.rot);
       this.particles.spawn((c.x + e.minX + Math.random() * (e.maxX - e.minX)) * this.ppb, -(y + e.minY - 0.1) * this.ppb, 0, this.ppb * 0.8, this.fx('dot', 0.3, 0.05, { tint: 0xffffff, life: 0.45, alpha: 0.6, blend: Phaser.BlendModes.ADD }));

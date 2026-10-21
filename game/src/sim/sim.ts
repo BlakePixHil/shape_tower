@@ -8,7 +8,7 @@ import { makeStreams, type RngStreams } from './rng.ts';
 import { SHAPES, bottomCells, colliderBoxes, extents, geometry, rotQ, rotate, type ColliderBox, type Rot } from './shapes.ts';
 import {
   DEFAULT_TUNING, GRADE_FACTOR, REMIX_POOL, biomeFor, bondDelayFor, budgetFor, fallSpeedFor, gapFor, gradeFor,
-  hazardsFor, maxSlabWidthFor, mortarStrengthFor, setStreakFor, type FoundationGrade, type HazardKind, type LateHazard,
+  hazardsFor, maxSlabWidthFor, minSlabWidthFor, mortarStrengthFor, setStreakFor, startWaitFor, type FoundationGrade, type HazardKind, type LateHazard,
   type StretchHazards, type Tuning,
 } from './tuning.ts';
 
@@ -158,6 +158,7 @@ interface Controlled {
   brittle: boolean;
   steerAt: number;            // sim time the player last moved or turned it
   touchedAt: number | null;   // sim time it first touched down without landing (touchdown grace)
+  waitUntil: number;          // sim time it starts to fall: early stretches give a new shape a moment at the top
 }
 
 interface Foundation { id: number; x: number; width: number; top: number; thickness: number; grade?: FoundationGrade }
@@ -355,10 +356,10 @@ export class Sim {
   }
 
   /** Spawn the next shape now, ignoring timers (QA sandboxes, debug). */
-  spawnControlled(opts: { shape?: string; x?: number; rot?: number; brittle?: boolean } = {}): void {
+  spawnControlled(opts: { shape?: string; x?: number; rot?: number; brittle?: boolean; wait?: boolean } = {}): void {
     if (this.ctrl) return;
     const n = opts.shape ? { shape: opts.shape, brittle: !!opts.brittle } : this.takeNext();
-    this.spawn(n.shape, opts.x, opts.rot ?? 0, n.brittle);
+    this.spawn(n.shape, opts.x, opts.rot ?? 0, n.brittle, opts.wait ?? false);
   }
 
   /** Put a piece straight into the world, for canonical towers. */
@@ -413,6 +414,11 @@ export class Sim {
   /** The shape in hand waits: a checkpoint hold is running, or the claimed slab is still dropping in. */
   get hovering(): boolean {
     return this.tuning.holdHover && (this.hold.active || this.time < this.claimPauseUntil);
+  }
+
+  /** The shape in hand is still waiting at the top before it falls (an early stretch's start wait). */
+  get waiting(): boolean {
+    return !!this.ctrl && this.time < this.ctrl.waitUntil;
   }
 
   tension(): number { return this.tensionValue; }
@@ -916,7 +922,9 @@ export class Sim {
     const fall = fallSpeedFor(t, this.checkpoint) * (t.lateHazards ? this.stretch.fallMult : 1) * (this.slowLeft > 0 ? t.slowFactor : 1);
     // While a checkpoint is being held, and while the new slab drops in, the shape in hand hovers
     // so the player can react to the claim. Soft and hard drops still bring it down.
-    const hover = !c.hard && !c.soft && this.hovering;
+    // A dropped shape stops waiting for good, so letting go of a soft drop doesn't park it again.
+    if (c.hard || c.soft) c.waitUntil = -Infinity;
+    const hover = !c.hard && !c.soft && (this.hovering || this.time < c.waitUntil);
     c.speed = c.hard ? t.hardDropSpeed : hover ? 0 : fall * (c.soft ? t.softDropMult : 1);
     const ny = c.y - c.speed * DT;
     if (this.free(c.shape, c.x, ny, c.rot)) {
@@ -968,9 +976,14 @@ export class Sim {
       id: p.id, shape: c.shape, impact: Math.min(1, speed / 12), x: c.x,
       pose: { x: c.x, y, rot: c.rot }, touchedIds: touched, knocked, glue: p.glue, brittle: p.brittle,
     });
-    const left = this.budget - this.used;
-    if (!t.infiniteBudget && (left === 5 || left === 3 || left === 1)) this.bus.emit('budget_low', { left });
+    this.budgetCheck();
     this.afterPlacement();
+  }
+
+  /** The low-shape warnings (gameplay.md §7.2), after a shape lands or misses the tower. */
+  private budgetCheck(): void {
+    const left = this.budget - this.used;
+    if (!this.tuning.infiniteBudget && (left === 5 || left === 3 || left === 1)) this.bus.emit('budget_low', { left });
   }
 
   private missed(c: Controlled): void {
@@ -982,6 +995,7 @@ export class Sim {
     this.lastPlaced = null;
     this.nextSpawnAt = this.time + this.tuning.spawnDelay;
     this.markLost(p);
+    this.budgetCheck();
     this.afterPlacement();
   }
 
@@ -1014,7 +1028,7 @@ export class Sim {
     this.bus.emit('hold_swap', { shape: this.held, brittle: this.heldBrittle });
   }
 
-  private spawn(shape: string, x: number | undefined, rot: number, brittle = false): void {
+  private spawn(shape: string, x: number | undefined, rot: number, brittle = false, wait = true): void {
     const f = this.foundation;
     const e = extents(shape, rot);
     const w = e.maxX - e.minX;
@@ -1022,11 +1036,12 @@ export class Sim {
     const sx = x ?? snap(left + Math.round((f.width - w) / 2) - e.minX, this.tuning.snapStep);
     const top = Math.max(this.height().provisional, f.top);
     const sy = top + this.tuning.spawnHeight - e.minY;
-    this.ctrl = { shape, x: sx, y: sy, rot, xTarget: sx, soft: false, hard: false, speed: 0, brittle, steerAt: -Infinity, touchedAt: null };
+    const waitUntil = wait ? this.time + startWaitFor(this.tuning, this.checkpoint) : -Infinity;
+    this.ctrl = { shape, x: sx, y: sy, rot, xTarget: sx, soft: false, hard: false, speed: 0, brittle, steerAt: -Infinity, touchedAt: null, waitUntil };
     this.ctrl.xTarget = this.clampX(this.ctrl, sx);
     this.ctrl.x = this.ctrl.xTarget;
     this.holdUsed = false;
-    this.bus.emit('piece_spawned', { shape, next: this.queue.slice(0, 2), brittle, nextBrittle: this.nextBrittle() });
+    this.bus.emit('piece_spawned', { shape, next: this.queue.slice(0, 2), brittle, nextBrittle: this.nextBrittle(), wait: Math.max(0, waitUntil - this.time) });
     if (this.tuning.powerUps && !this.bubble && this.bubbleIn <= 0 && this.slots.includes(null)) this.makeBubble(top);
   }
 
@@ -1592,7 +1607,7 @@ export class Sim {
     const coverage = covered * 0.25;
     const centre = covered ? sumX / covered : this.foundation.x;
     const grade = gradeFor(coverage, maxSlabWidthFor(n));
-    const width = Math.max(t.minSlabWidth, Math.min(maxSlabWidthFor(n + 1), Math.round(coverage) + 1));
+    const width = Math.max(minSlabWidthFor(t, n), Math.min(maxSlabWidthFor(n + 1), Math.round(coverage) + 1));
     // Keep slab edges on the half-block grid: even widths centre on whole blocks, odd on half blocks.
     const cx = width % 2 === 0 ? Math.round(centre) : Math.round(centre - 0.5) + 0.5;
     const slab = this.addFoundation(cx, width, towerTop + 0.01 + t.slabThickness, t.slabThickness);
@@ -1658,7 +1673,7 @@ export class Sim {
     const t = this.tuning;
     if (t.infiniteBudget || this.used < this.budget) { const n = this.takeNext(); this.spawn(n.shape, undefined, 0, n.brittle); return; }
     // Out of bricks: a grace period while things settle (gameplay.md §7.2).
-    if (this.outOfBricksAt === null) this.outOfBricksAt = this.time;
+    if (this.outOfBricksAt === null) { this.outOfBricksAt = this.time; this.bus.emit('bricks_out', { grace: t.budgetGrace }); }
     if (this.time - this.outOfBricksAt >= t.budgetGrace) this.endRun('bricks');
   }
 
