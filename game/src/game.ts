@@ -2,18 +2,22 @@
 // settings, on the same shell as the Wobble Lab. Tuning is gameplay.md §14's defaults; the only
 // per-player changes are the level unlocks (§10.3), gentle first runs (§8.4) and Settings.
 
-import type { AudioDirector } from '@audio';
+import { JUICE_EVENTS, type AudioDirector } from '@audio';
+import { BY_ID, RunTracker, grantHistory, grantStreaks, payAchievements, type Achievement } from './meta/achievements.ts';
 import type { Sim } from './sim/sim.ts';
 import { biomeFor, type Tuning } from './sim/tuning.ts';
 import type { LabState } from './view/panel.ts';
-import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, saveProfile, spendDailyWind } from './view/profile.ts';
+import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, saveProfile, spendDailyWind, updateStreak } from './view/profile.ts';
 import { Screens, type UiSound } from './view/screens.ts';
 import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor } from './view/settings.ts';
 import { BUILD, startShell } from './view/shell.ts';
+import { TrophyToasts } from './view/trophies.ts';
 import { setupNative } from './native.ts';
 
 /** Calls Sound adds in its next module version, made safe until then. */
 type Director = AudioDirector & { setJuice?(on: boolean): void; screen?(name: 'menu' | 'profile' | 'none'): void };
+
+const TIER_RANK = { bronze: 0, silver: 1, gold: 2, platinum: 3 };
 
 async function boot(): Promise<void> {
   const settings = loadSettings();
@@ -26,6 +30,13 @@ async function boot(): Promise<void> {
   let dailyWind = false;
   let screens: Screens | null = null; // made once the shell is up; the audio can arrive first
   let skipTap: ((e: PointerEvent) => void) | null = null;
+
+  // Achievements (gameplay.md §18): what the player's history already proves, then one tracker per run.
+  if (grantHistory(profile).length) saveProfile(profile);
+  let tracker: RunTracker | null = null;
+  let trackNext = false; // the next run_start begins a tracked run (the menu's demo tower isn't one)
+  let unlockSound: (a: Achievement, inRun: boolean) => void = () => {};
+  const toasts = new TrophyToasts({ reducedMotion: () => settings.reduceMotion, juice: () => juice, sound: a => unlockSound(a, true) });
 
   /** The tuning a new run starts with. */
   const runTuning = (): Partial<Tuning> => {
@@ -42,7 +53,14 @@ async function boot(): Promise<void> {
       return dailyWind ? 'ready' : 'earn';
     },
     newPostcard: b => profile.postcards[b] === null,
-    onEvent(e) {
+    onEvent(e, sim) {
+      if (e.name === 'biome_entered') toasts.holdFor(2400); // its title card sits where the toast goes
+      if (e.name === 'run_start' && trackNext) {
+        trackNext = false;
+        // One earned as the run ends (So Close!, a last best) shows only in the summary strip.
+        tracker = new RunTracker(sim, profile, { bestBefore: shell.bestBefore, onUnlock: a => { if (sim.state === 'playing') toasts.push(a); }, save: () => saveProfile(profile) });
+      }
+      if (tracker?.sim === sim) tracker.handle(e);
       if (dailyWind && e.name === 'piece_landed') { dailyWind = false; spendDailyWind(profile); }
       if (e.name === 'hazard_start') {
         const type = String(e.payload.type ?? 'gust');
@@ -55,7 +73,15 @@ async function boot(): Promise<void> {
   });
   const { scene, hud } = shell;
   const audio = () => shell.audio as Director | null;
+  // Sound's achievement sting once it ships (it adds the event to JUICE_EVENTS); the UI badge stamp until then.
+  unlockSound = (a, inRun) => {
+    const au = audio();
+    if ((JUICE_EVENTS as readonly string[]).includes('achievement')) au?.handle('achievement', { id: a.id, tier: a.tier, inRun });
+    else au?.ui('badge');
+  };
   (window as unknown as { __wobble: Record<string, unknown> }).__wobble.profile = profile;
+  // For QA's browser checks: the toasts and this run's achievement tracker.
+  (window as unknown as { __wobble: Record<string, unknown> }).__wobble.trophies = { toasts, get tracker() { return tracker; } };
 
   hud.labBtn.style.display = 'none';
   const showHud = (on: boolean) => { hud.root.style.display = on ? '' : 'none'; };
@@ -70,6 +96,7 @@ async function boot(): Promise<void> {
   let menuShown = false;
   function home(): void {
     stopSkip();
+    toasts.clear();
     showHud(false);
     scene.paused = false;
     scene.demo();
@@ -97,6 +124,9 @@ async function boot(): Promise<void> {
     audio()?.screen?.('none');
     hud.lockHold(profile.level < 2);
     showHud(true);
+    toasts.clear();
+    tracker = null;
+    trackNext = true;
     scene.newRun();
     scene.paused = false;
     scene.start();
@@ -161,9 +191,17 @@ async function boot(): Promise<void> {
     const newBest = height > bestBefore + 0.05 && bestBefore > 0;
     const biome = biomeFor(sim.checkpoint).id;
     addRunStats(profile, { height, biome, bricks: sim.stats.placed, perfects: sim.stats.perfects, rows: sim.stats.rows, checkpoints: sim.stats.checkpoints, clutches: sim.stats.clutches });
-    const a = award(profile, Number(p.xp ?? 0), { newBest, quit });
+    // Achievements: streaks count once today is in the streak, then everything earned and not yet paid
+    // goes into this tally as flat XP lines (gameplay.md §18.1).
+    tracker = null;
+    toasts.clear();
+    updateStreak(profile);
+    grantStreaks(profile);
+    const paid = payAchievements(profile);
+    const earned = paid.ids.map(id => BY_ID.get(id)!);
+    const a = award(profile, Number(p.xp ?? 0), { newBest, quit, extra: paid });
     const rec = shell.record;
-    rec?.finish(sim, { xp: a.gained, xpBase: Number(p.xp ?? 0), level: profile.level, runNumber: profile.runs, newBest: a.lines.some(l => l[0] === 'New best'), view: { ...state.view }, juiceRun, player: profile.player });
+    rec?.finish(sim, { xp: a.gained, xpBase: Number(p.xp ?? 0), level: profile.level, runNumber: profile.runs, newBest: a.lines.some(l => l[0] === 'New best'), view: { ...state.view }, juiceRun, player: profile.player, achievements: paid.ids });
     const questions: { id: string; text: string; kind?: 'yesno' | 'faces' }[] = [
       { id: 'feel', text: 'How did that run feel?', kind: 'faces' },
       { id: 'see', text: 'Could you see what happened?' },
@@ -186,6 +224,7 @@ async function boot(): Promise<void> {
           checkpoints: sim.stats.checkpoints, perfects: sim.stats.perfects, rows: sim.stats.rows, clutches: sim.stats.clutches, score: sim.score,
         },
         award: a,
+        achievements: earned,
         questions,
         onAnswer: (id, answer) => rec?.answer(id, answer),
         onAgain: () => { rec?.exit('again'); play(); },
@@ -193,6 +232,8 @@ async function boot(): Promise<void> {
         onHome: () => { rec?.exit('menu'); home(); },
         reducedMotion: settings.reduceMotion,
       });
+      // One sting for the strip: the highest tier earned.
+      if (earned.length) unlockSound(earned.reduce((b, x) => (TIER_RANK[x.tier] > TIER_RANK[b.tier] ? x : b)), false);
     });
   }
 
