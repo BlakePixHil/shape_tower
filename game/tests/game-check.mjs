@@ -64,6 +64,9 @@ while (Date.now() - t0 < 12000) {
   if (s.placed >= 6) break;
   await page.waitForTimeout(200);
 }
+// Hard drops 200 ms apart can leave nothing settled yet (committed height 0), so wait for the
+// tower to count before reading the rail.
+await page.waitForFunction(() => Number(document.querySelector('.ui-rail canvas')?.dataset.key?.split('|')[0]) > 0, null, { timeout: 8000 }).catch(() => {});
 await shot('04-play');
 const rail = await page.evaluate(() => { const c = document.querySelector('.ui-rail canvas'); return { key: c?.dataset.key ?? null, shown: !!c && getComputedStyle(c.parentElement).display !== 'none' }; });
 // Art's rail keys its drawing on top | checkpoints known | claimed | best.
@@ -140,5 +143,8 @@ step('tapping the Hold card holds the shape', !!held, String(held));
 const exits = await sim(() => window.__dbWrites.filter(w => w.op === 'update' && w.data.exit).map(w => w.data.exit));
 step('leaving the card records exit', exits[0] === 'menu', JSON.stringify(exits));
 
-console.log(JSON.stringify({ steps, failed: steps.filter(s => !s.ok).map(s => s.name), errors: errors.slice(0, 10) }, null, 1));
+const failed = steps.filter(s => !s.ok).map(s => s.name);
+console.log(JSON.stringify({ steps, failed, errors: errors.slice(0, 10) }, null, 1));
 await browser.close();
+// A failed step or a page error fails the run, so QA's gate can rely on the exit code.
+if (failed.length || errors.length) process.exitCode = 1;
