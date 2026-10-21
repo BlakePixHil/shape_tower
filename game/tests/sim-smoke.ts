@@ -403,6 +403,46 @@ const loose = (t: ReturnType<typeof createSim>) => t.pieces().filter(p => p.stat
   t.dispose();
 }
 
+// Bubbles sit beside the foundation, so a player who only builds on it rarely collects one (QA).
+{
+  const t = createSim({ autoSpawn: true, seed: 5, tuning: { infiniteBudget: true, infiniteHearts: true } });
+  let spawned = 0, collected = 0, landed = 0, inside = 0;
+  for (let i = 0; i < 60 * 120; i++) {
+    const c = t.sim.ctrl;
+    if (c && !c.hard && c.speed > 0) {
+      // Build across the current foundation, wherever the last claim put it.
+      const x = t.sim.foundation.x - 1 + (landed % 3);
+      if (Math.abs(c.xTarget - x) > 0.01) t.intent({ type: 'moveTo', x });
+      else t.intent({ type: 'softDrop', on: true });
+    }
+    t.step();
+    for (const e of t.drainEvents()) {
+      if (e.name === 'bubble_spawned') {
+        spawned++;
+        const f = t.sim.foundation, b = e.payload as { x: number };
+        if (Math.abs(b.x - f.x) < Math.min(f.width / 2 + 1, 5.25) - 1e-9) inside++;
+      }
+      if (e.name === 'power_collected') collected++;
+      if (e.name === 'piece_landed') landed++;
+    }
+    for (let s = 0; s < 2; s++) t.sim.slots[s] = null;
+  }
+  check('Bubbles sit beside the foundation and building on it rarely collects one', spawned >= 4 && inside === 0 && collected <= spawned / 4, `${landed} landed, ${spawned} bubbles, ${inside} over the foundation, ${collected} collected`);
+  t.dispose();
+}
+
+// With Mortar off, Glue is never offered and a Glue already in a slot is refused (QA-006).
+{
+  const t = createSim({ autoSpawn: true, seed: 11, tuning: { mortar: false, bubbleGap: 1 } });
+  const kinds = new Set<string>();
+  for (let i = 0; i < 400; i++) kinds.add((t.sim as unknown as { pickKind(): string }).pickKind());
+  t.sim.slots[0] = 'glue';
+  t.intent({ type: 'power', slot: 0 });
+  const refused = t.drainEvents().some(e => e.name === 'power_refused');
+  check('Mortar off: Glue is never offered and a slotted Glue is refused', !kinds.has('glue') && kinds.size === 4 && refused && t.sim.slots[0] === 'glue' && t.sim.glueLeft === 0, `kinds ${[...kinds]}, refused ${refused}`);
+  t.dispose();
+}
+
 // A shape falling through a bubble fills the first free slot; a full pair of slots leaves it.
 {
   const t = createSim({});
