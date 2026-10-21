@@ -7,11 +7,13 @@ import { JuiceBus } from './bus.ts';
 import { makeStreams, type RngStreams } from './rng.ts';
 import { SHAPES, bottomCells, colliderBoxes, extents, geometry, rotQ, rotate, type ColliderBox, type Rot } from './shapes.ts';
 import {
-  DEFAULT_TUNING, GRADE_FACTOR, biomeFor, bondDelayFor, budgetFor, fallSpeedFor, gapFor, gradeFor,
+  DEFAULT_TUNING, GRADE_FACTOR, biomeFor, bondDelayFor, budgetFor, fallSpeedFor, gapFor, gradeFor, gustFor,
   maxSlabWidthFor, mortarStrengthFor, type FoundationGrade, type Tuning,
 } from './tuning.ts';
 
 export const DT = 1 / 60;
+/** Seconds between a gust's warning and its push (gameplay.md §8.3: at least 2 s). */
+export const GUST_WARNING = 2;
 /** How far under the checkpoint line a resting stack still counts as reaching it (contact slop). */
 export const LINE_SLOP = 0.05;
 
@@ -150,7 +152,7 @@ export class Sim {
   hearts: number;
   score = 0;
   combo = 0;
-  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false };
+  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0 };
 
   // Steering
   ctrl: Controlled | null = null;
@@ -178,6 +180,10 @@ export class Sim {
   private pendingLost: Piece[] = [];
   private hold = { active: false, progress: 0 };
   private hazardScale = 1;
+  /** The gust in progress (gameplay.md §8.3): warned 2 s ahead, then it blows for 2 to 3 s. */
+  gust: { phase: 'idle' | 'warn' | 'blow'; dir: -1 | 1; strength: number; startStep: number; dur: number } = { phase: 'idle', dir: 1, strength: 0, startStep: 0, dur: 0 };
+  private gustNext = -1;         // sim time the next gust may be warned (-1: not scheduled)
+  private gustsSeen = 0;
   private lastGhost: Ghost | null = null;
   private lastGhostKey = '';
   private tensionValue = 0;
@@ -209,6 +215,7 @@ export class Sim {
     this.bus.emit('run_start', { seed: this.seed });
     this.bus.emit('biome_entered', { id: 1 });
     if (this.secondWind === 'ready') this.bus.emit('second_wind_ready', { how: 'start' });
+    if (this.tuning.startPower) this.grantPower('level_perk');
   }
 
   // ------------------------------------------------------------------ public API
@@ -385,13 +392,66 @@ export class Sim {
     const target = this.hold.active ? 0 : 1;
     const rate = this.hold.active ? DT / 0.5 : DT / 1.0;
     this.hazardScale += Math.max(-rate, Math.min(rate, target - this.hazardScale));
-    const wind = this.tuning.wind * this.hazardScale;
+    const wind = (this.tuning.wind + this.updateGust()) * this.hazardScale;
     if (wind === 0) return;
     const g = this.tuning.gravity * this.gravityScale;
     for (const p of this.pieces.values()) {
       if (p.state === 'stone' || p.state === 'lost') continue;
       this.engine.applyForce(p.id, wind * g * this.engine.mass(p.id), 0);
     }
+  }
+
+  /**
+   * Runs the gust schedule and returns this step's push in g (+ pushes right). A gust is warned
+   * 2 s ahead, never starts during a hold or the claim pause (a warning cut short by a hold is
+   * called off and comes again after it), and only pushes pieces: the steered shape has no body.
+   */
+  private updateGust(): number {
+    const t = this.tuning, g = this.gust;
+    const spec = t.gusts && this.state === 'playing' ? gustFor(this.checkpoint) : null;
+    if (!spec) {
+      if (g.phase !== 'idle') { g.phase = 'idle'; this.bus.emit('hazard_end', { type: 'gust' }); }
+      this.gustNext = -1;
+      return 0;
+    }
+    const calm = this.hold.active || this.time < this.claimPauseUntil;
+    // The first gust of a stretch comes 4 to 6 s in, after the biome title.
+    if (this.gustNext < 0) this.gustNext = this.time + 4 + this.rng.hazards.int(21) / 10;
+    if (g.phase === 'idle') {
+      if (this.time < this.gustNext || calm) return 0;
+      // first: the run's first gust (Sound's heads-up chime). intro: also the player's first ever,
+      // so it blows at half strength with a card.
+      const first = this.gustsSeen === 0, intro = first && t.hazardIntro;
+      g.dir = this.rng.hazards.int(2) ? 1 : -1;
+      g.strength = spec.strength * t.gustScale * (intro ? 0.5 : 1);
+      g.dur = 2 + this.rng.hazards.int(11) / 10;
+      g.startStep = this.stepIndex + Math.round(GUST_WARNING / DT);
+      g.phase = 'warn';
+      this.bus.emit('hazard_warning', { type: 'gust', dir: g.dir, eta: GUST_WARNING, strength: g.strength, first, intro });
+      return 0;
+    }
+    if (g.phase === 'warn') {
+      if (calm) {
+        g.phase = 'idle';
+        this.gustNext = this.time;
+        this.bus.emit('hazard_end', { type: 'gust', cancelled: true });
+      } else if (this.stepIndex >= g.startStep) {
+        g.phase = 'blow';
+        this.gustsSeen++;
+        this.stats.gusts++;
+        this.bus.emit('hazard_start', { type: 'gust', strength: g.strength, dir: g.dir, duration: g.dur });
+      }
+      return 0;
+    }
+    const e = (this.stepIndex - g.startStep) * DT;
+    if (e >= g.dur) {
+      g.phase = 'idle';
+      this.gustNext = this.time + spec.interval * (85 + this.rng.hazards.int(31)) / 100;
+      this.bus.emit('hazard_end', { type: 'gust' });
+      return 0;
+    }
+    // Eases in over 0.4 s and out over the last 0.6 s.
+    return g.dir * g.strength * Math.max(0, Math.min(1, e / 0.4, (g.dur - e) / 0.6));
   }
 
   // ------------------------------------------------------------------ steering
@@ -522,7 +582,7 @@ export class Sim {
 
   private doHold(): void {
     const c = this.ctrl!;
-    if (this.holdUsed) return;
+    if (this.holdUsed || !this.tuning.holdUnlocked) return;
     const swapIn = this.held ?? this.takeNext();
     this.held = c.shape;
     this.ctrl = null;

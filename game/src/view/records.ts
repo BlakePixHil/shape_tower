@@ -29,7 +29,13 @@ export function device(): Record<string, unknown> {
   };
 }
 
-export interface RunStart { seed: number; tuning: Partial<Tuning>; rookieOpening: boolean; secondWind: SecondWindMode }
+export interface RunStart {
+  seed: number; tuning: Partial<Tuning>; rookieOpening: boolean; secondWind: SecondWindMode;
+  /** 'lab' or 'game', set by the shell. */
+  app?: string;
+  /** Gate 1: whether this run had juice (QA's protocol picks it). */
+  juice?: boolean;
+}
 
 /** Collects one run. Frame times go into 1 ms buckets (0 to 100, the last is 100+). */
 export class RunRecorder {
@@ -44,7 +50,7 @@ export class RunRecorder {
   private t0 = performance.now();
   private digests: string[] = [];
   private ref: Promise<DocRef | null> | null = null;
-  private answers: Record<string, string> = {};
+  private answers: Record<string, string | number> = {};
   private writing: Promise<unknown> = Promise.resolve();
 
   constructor(private start: RunStart, private build: string, private audio: () => AudioContext | null) {}
@@ -77,7 +83,7 @@ export class RunRecorder {
       kind: 'run', build: this.build, engine: 'box2d', startedAt: this.startedAt,
       wallSeconds: Math.round((performance.now() - this.t0) / 100) / 10,
       seed: this.start.seed, tuning: this.start.tuning, tuningHash: hash(JSON.stringify(sim.tuning)), rookieOpening: this.start.rookieOpening,
-      secondWind: this.start.secondWind,
+      secondWind: this.start.secondWind, app: this.start.app ?? 'lab', juice: this.start.juice === false ? 'off' : 'on',
       steps: sim.stepIndex, simSeconds: Math.round(sim.time * 10) / 10, finalDigest: sim.digest(), digests: [...this.digests],
       inputs: sim.inputLog.map(i => ({ ...i })),
       cause: sim.cause, maxHeight: round(sim.stats.maxHeight - sim.foundations[0].top), checkpoints: sim.stats.checkpoints,
@@ -93,7 +99,12 @@ export class RunRecorder {
     this.writing = this.ref.then(r => r?.set(rec)).catch(e => console.warn('run record not saved', e));
   }
 
-  answer(id: string, value: string): void {
+  /** How the player left the run-over card (QA's play-again rate). */
+  exit(how: 'again' | 'menu'): void {
+    this.writing = this.writing.then(() => this.ref?.then(r => r?.update({ exit: how }))).catch(e => console.warn('exit not saved', e));
+  }
+
+  answer(id: string, value: string | number): void {
     this.answers[id] = value;
     const answers = { ...this.answers };
     this.writing = this.writing.then(() => this.ref?.then(r => r?.update({ answers }))).catch(e => console.warn('answer not saved', e));

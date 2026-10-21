@@ -9,6 +9,10 @@ export interface ViewSettings {
   faces: boolean;
   splitTap: boolean;
   ghostTint: boolean;
+  /** Gate 1's juice switch: false turns off shake, hit-stop, slow motion, particles and toasts. */
+  juice?: boolean;
+  /** Landing guide opacity, 0.5 to 1.5 (Settings). */
+  guideOpacity?: number;
 }
 
 export const DEFAULT_VIEW: ViewSettings = { reducedMotion: false, shake: 1, faces: true, splitTap: false, ghostTint: true };
@@ -57,6 +61,7 @@ const GROUPS: [string, [NumKey, string, number, number, number, boolean?][]][] =
     ['hearts', 'Hearts', 1, 6, 1, true],
     ['rowCoverage', 'Solid Row coverage', 0.7, 1, 0.01],
     ['wind', 'Wind (g, + is right)', -0.3, 0.3, 0.01],
+    ['gustScale', 'Gust strength ×', 0, 2, 0.1],
   ]],
   ['Power-ups', [
     ['bubbleGap', 'Shapes between bubbles', 2, 12, 1],
@@ -72,6 +77,7 @@ const TOGGLES: [BoolKey, string][] = [
   ['infiniteBudget', 'Infinite bricks'],
   ['infiniteHearts', 'Infinite hearts'],
   ['powerUps', 'Power-up bubbles and grants'],
+  ['gusts', 'Gusts from Treetops (checkpoint 3)'],
 ];
 
 const VIEW_TOGGLES: [keyof ViewSettings, string][] = [

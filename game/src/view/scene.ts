@@ -28,6 +28,8 @@ export interface SceneHooks {
   onEvent?(e: BusEvent, sim: Sim): void;
   /** A new sim was made (connect audio to its bus here). */
   onRunStart?(sim: Sim, info: RunStart): void;
+  /** The menu's demo tower was made: not a run, so nothing is recorded. */
+  onDemo?(sim: Sim): void;
   /** After every fixed step. */
   onStep?(sim: Sim): void;
   onRunOver?(sim: Sim, payload: Record<string, unknown>): void;
@@ -57,6 +59,10 @@ const ACROSS_MAX = 15;
 const TAU = Math.PI * 2;
 const PEDESTAL_LEGS = 0.4; // deck 0.6 + legs 0.4 = the sim's 1-block plinth
 const D = { slab: 5, line: 8, piece: 10, fx: 30, front: 35, guide: 40, bubble: 45, ctrl: 50, text: 60 };
+
+// The main menu's demo tower: [shape, x, rot], dropped one at a time onto the plinth.
+const DEMO: [string, number, number][] = [['O', -2, 0], ['O', 2, 0], ['I', 0, 0], ['T', -1.5, 2], ['L', 1.5, 0], ['O', 0, 0], ['I', 0, 1]];
+const DEMO_TUNING: Partial<Tuning> = { firstGap: 60, gapCap: 60, infiniteBudget: true, infiniteHearts: true, powerUps: false, gusts: false };
 const ORBIT = ART_BIOMES.findIndex(b => b.id === 'orbit'); // landings throw stardust from here up
 const STONE_CHIP = 0xb9b1a6;
 const WIND_BLUE = POWER_COLORS.wind;
@@ -65,7 +71,7 @@ export class PlayScene extends Phaser.Scene {
   sim!: Sim;
   hooks!: SceneHooks;
   paused = false;
-  private started = false;
+  started = false;
   private W = 0;
   private H = 0;
   private dpr = 1;
@@ -108,6 +114,18 @@ export class PlayScene extends Phaser.Scene {
   private bubbleView: { id: number; view: PowerBubble } | null = null;
   private poppedBubbles: PowerBubble[] = []; // still playing their collect or fade
   private taughtBubble = false;
+  private weather!: Particles; // hazard telegraphs: information, so they stay with juice off
+  private gustAcc = 0;
+  private demoing = false;
+  private demoIdx = 0;
+  private demoAt = 0;
+  // Run over: the camera glides down the whole tower (the panorama), with the sky following height.
+  private pano: { from: number; to: number; t0: number; dur: number; done: (() => void) | null } | null = null;
+  private skyMarks: { y: number; sp: number }[] = [];
+
+  private readyResolve: () => void = () => {};
+  /** Resolves once create() has run and the first sim exists. */
+  readonly ready = new Promise<void>(r => { this.readyResolve = r; });
 
   constructor() { super('play'); }
 
@@ -130,6 +148,7 @@ export class PlayScene extends Phaser.Scene {
     this.guide = new GuideView(this.art, D.guide);
     this.pb = new PbMarker(this.art, D.line - 0.1);
     this.particles = new Particles(this, D.fx);
+    this.weather = new Particles(this, D.fx, 80);
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
       ctrlX: () => (this.started && !this.paused && this.sim?.ctrl ? this.sim.ctrl.xTarget : null),
@@ -152,6 +171,7 @@ export class PlayScene extends Phaser.Scene {
     this.events.once('shutdown', () => this.gestures.destroy());
     try { this.bestHeight = Number(localStorage.getItem('shape-tower-best') ?? 0) || 0; } catch { /* none */ }
     this.newRun();
+    this.readyResolve();
   }
 
   private text(s: string, sizePt: number, color: string): Phaser.GameObjects.Text {
@@ -163,7 +183,7 @@ export class PlayScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- runs
 
-  newRun(): void {
+  newRun(demo = false): void {
     this.sim?.dispose();
     for (const s of this.sprites.values()) s.view.destroy();
     this.sprites.clear();
@@ -171,6 +191,7 @@ export class PlayScene extends Phaser.Scene {
     for (const s of this.slabs.values()) s.img.destroy();
     this.slabs.clear();
     this.particles?.clear();
+    this.weather?.clear();
     this.guide.hide();
     for (const l of this.lines) l.destroy();
     this.lines = [];
@@ -187,21 +208,70 @@ export class PlayScene extends Phaser.Scene {
     this.overPayload = null;
     this.pbCrossed = false;
     this.skyClock.set(0);
-    let first = false;
-    try { first = !localStorage.getItem('shape-tower-played'); localStorage.setItem('shape-tower-played', '1'); } catch { /* none */ }
-    const seed = (Math.random() * 0xffffffff) >>> 0;
-    const info: RunStart = { seed, tuning: { ...this.hooks.lab.tuning }, rookieOpening: first, secondWind: this.hooks.secondWind?.() ?? 'earn' };
-    this.sim = new Sim({ seed, tuning: { ...info.tuning }, autoSpawn: true, rookieOpening: first, secondWind: info.secondWind });
+    this.pano = null;
+    this.skyMarks = [{ y: -1, sp: 0 }];
     this.cam.x = 0;
     this.cam.y = -1 + 0.3 * this.H / this.ppb;
     this.cam.across = ACROSS;
     this.hooks.hud.reset();
+    this.demoing = demo;
+    if (demo) {
+      this.started = false;
+      this.demoIdx = 0;
+      this.demoAt = performance.now() + 500;
+      this.sim = new Sim({ seed: 7, tuning: { ...this.hooks.lab.tuning, ...DEMO_TUNING }, autoSpawn: false, rookieOpening: false, secondWind: 'off' });
+      this.hooks.onDemo?.(this.sim);
+      for (const e of this.sim.drainEvents()) this.onEvent(e);
+      return;
+    }
+    let first = false;
+    try { first = !localStorage.getItem('shape-tower-played'); localStorage.setItem('shape-tower-played', '1'); } catch { /* none */ }
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    const info: RunStart = { seed, tuning: { ...this.hooks.lab.tuning }, rookieOpening: first, secondWind: this.hooks.secondWind?.() ?? 'earn', juice: this.view.juice !== false };
+    this.sim = new Sim({ seed, tuning: { ...info.tuning }, autoSpawn: true, rookieOpening: first, secondWind: info.secondWind });
     this.hooks.hud.showHint();
     this.hooks.onRunStart?.(this.sim, info);
     for (const e of this.sim.drainEvents()) this.onEvent(e);
   }
 
   start(): void { this.started = true; }
+
+  /** The main menu's idle tower: a few shapes dropped one by one. No run, no controls. */
+  demo(): void { this.newRun(true); }
+
+  /**
+   * Run over: the camera glides from the top of the tower down to the ground through every biome
+   * visited, then calls done. Reduce Motion skips it.
+   */
+  panorama(done: () => void): void {
+    const visH = this.H / (this.W / this.cam.across);
+    const to = -1 + 0.3 * visH;
+    const from = this.cam.y;
+    if (this.view.reducedMotion || from - to < 2) { done(); return; }
+    const dur = Math.max(1.4, Math.min(4.5, 1.2 + (from - to) / 30)) * 1000;
+    this.skyMarks.push({ y: from, sp: this.skyClock.sp });
+    this.pano = { from, to, t0: performance.now() + 250, dur, done };
+  }
+
+  /** A tap during the panorama skips to the end. */
+  skipPanorama(): void {
+    const p = this.pano;
+    if (!p?.done) return;
+    p.t0 = performance.now() - p.dur;
+  }
+
+  /** The sky position for a camera height during the panorama: between the claims' marks. */
+  private skyAt(y: number): number {
+    const m = this.skyMarks;
+    if (y <= m[0].y) return m[0].sp;
+    for (let i = 1; i < m.length; i++) {
+      if (y <= m[i].y) {
+        const t = (y - m[i - 1].y) / Math.max(0.001, m[i].y - m[i - 1].y);
+        return m[i - 1].sp + (m[i].sp - m[i - 1].sp) * t;
+      }
+    }
+    return m[m.length - 1].sp;
+  }
 
   /** The HUD's power slots and Second Wind button. */
   usePower(slot: number): void { this.intent({ type: 'power', slot }); }
@@ -212,12 +282,16 @@ export class PlayScene extends Phaser.Scene {
   applyView(v: ViewSettings): void {
     this.view = v;
     if (this.bubbleView) this.bubbleView.view.reduceMotion = v.reducedMotion;
-    this.shaker.scale = v.reducedMotion ? 0 : v.shake;
-    this.timeCtl.enabled = !v.reducedMotion;
+    // Gate 1's juice off: no shake, hit-stop, slow motion, particles, squash or celebration toasts.
+    const juice = v.juice !== false;
+    this.shaker.scale = v.reducedMotion || !juice ? 0 : v.shake;
+    this.timeCtl.enabled = !v.reducedMotion && juice;
+    this.particles.enabled = juice;
     this.guide.reduceMotion = v.reducedMotion;
     this.backdrop.reduceMotion = v.reducedMotion;
     for (const l of this.lines) l.reduceMotion = v.reducedMotion;
     this.pb.reduceMotion = v.reducedMotion;
+    this.guide.opacity = v.guideOpacity ?? 1;
     for (const s of this.sprites.values()) s.view.setFaces(v.faces);
     this.ctrlSprite?.view.setFaces(v.faces);
   }
@@ -248,7 +322,12 @@ export class PlayScene extends Phaser.Scene {
     const dt = Math.min(deltaMs, 50) / 1000;
     this.hooks.onFrame?.(deltaMs);
     this.gestures.update(now);
-    const timeScale = this.started && !this.paused ? this.timeCtl.scale(now) : 0;
+    if (this.demoing && !this.paused && this.demoIdx < DEMO.length && now >= this.demoAt) {
+      const [shape, x, rot] = DEMO[this.demoIdx++];
+      this.sim.placePiece({ shape, x, y: this.sim.height().provisional + 3.5, rot, as: 'dynamic' });
+      this.demoAt = now + 750;
+    }
+    const timeScale = (this.started || this.demoing) && !this.paused ? this.timeCtl.scale(now) : 0;
     if (this.slowOn && this.timeCtl.scale(now) === 1) { this.slowOn = false; this.hooks.onJuice?.('slowmo', { on: false, timeScale: 1 }); }
     this.acc += dt * timeScale;
     let n = 0;
@@ -350,11 +429,18 @@ export class PlayScene extends Phaser.Scene {
         break;
       }
       case 'budget_low': this.hooks.hud.pulseBricks(); break;
+      case 'hazard_warning':
+        if (p.intro) this.hooks.hud.hazardCard('Gusts ahead! Keep it wide.');
+        break;
       case 'checkpoint_cancelled': this.pop('Wobbly!', this.sim.foundation.x, this.sim.lineY + 0.6, AMBER, 18); break;
-      case 'checkpoint_claimed': this.onClaim(p, now); break;
+      case 'checkpoint_claimed':
+        this.onClaim(p, now);
+        this.skyMarks.push({ y: this.sim.foundation.top, sp: this.skyClock.sp });
+        this.backdrop.setCosmos(this.sim.checkpoint); // Deep Cosmos changes palette every 6 checkpoints
+        break;
       case 'biome_entered':
         this.hooks.hud.titleCard(BIOME_TITLES[Number(p.id) - 1] ?? '');
-        this.backdrop.arrival(Number(p.id) - 1); // birds for Treetops, the cloud punch-through for Cloudlands
+        if (this.juice) this.backdrop.arrival(Number(p.id) - 1); // birds for Treetops, the cloud punch-through for Cloudlands
         break;
       case 'bubble_spawned': this.showBubble(now); break;
       case 'bubble_expired': this.dropBubble(false, p); break;
@@ -409,7 +495,7 @@ export class PlayScene extends Phaser.Scene {
       s.id = id;
       s.view.setDepth(D.piece);
       this.sprites.set(id, s);
-      s.squash = Math.max(0.25, impact);
+      s.squash = this.juice ? Math.max(0.25, impact) : 0;
       s.squashAt = now;
       s.view.setExpression('idle').impact(Math.max(0.4, impact));
     }
@@ -441,7 +527,7 @@ export class PlayScene extends Phaser.Scene {
     }
     this.rowWave = { x0, at: now };
     const words = ['', 'SOLID!', 'DOUBLE!', 'TRIPLE!', 'TOWERING!'];
-    this.pop(words[Math.min(4, count)], p.x as number, Math.max(...(p.rows as number[])) + 1.2, '#FFFFFF', 24 + count * 2);
+    this.toast(words[Math.min(4, count)], p.x as number, Math.max(...(p.rows as number[])) + 1.2, '#FFFFFF', 24 + count * 2);
     this.shaker.add(0.22 + 0.06 * count);
   }
 
@@ -453,7 +539,7 @@ export class PlayScene extends Phaser.Scene {
     // The bunting pops off, the rope turns gold and a flag plants beside the tower (§7.2).
     this.lines[this.lines.length - 1]?.claim((f.x - f.width / 2) * this.ppb, (f.x + f.width / 2) * this.ppb);
     this.stoneWave = { top: lineY, at: now };
-    if (!this.view.reducedMotion) this.hooks.hud.flash(0.2);
+    if (!this.view.reducedMotion && this.juice) this.hooks.hud.flash(0.2);
     // Flash, rays and a gold shockwave, then confetti and tiny shapes in every shape colour (§7.2).
     const fx0 = f.x * this.ppb, fy = -lineY * this.ppb;
     this.particles.spawn(fx0, fy, 0, 0, this.fx('flash', 2, 6, { life: 0.25, alpha: 0.9, blend: Phaser.BlendModes.ADD }));
@@ -467,7 +553,7 @@ export class PlayScene extends Phaser.Scene {
       this.particles.spawn((f.x - f.width / 2 + f.width * Math.random()) * this.ppb, fy, Math.cos(a) * v, Math.sin(a) * v,
         { ...o, life: 1.4 + Math.random() * 0.6, gravity: this.ppb * 12, drag: 1.2, spin: 10 * (Math.random() - 0.5) });
     }
-    this.pop(`CHECKPOINT ${p.n}!`, f.x, lineY + 2.2, GOLD, 26);
+    this.toast(`CHECKPOINT ${p.n}!`, f.x, lineY + 2.2, GOLD, 26);
     const leftover = p.leftover as number;
     if (leftover > 0) this.time.delayedCall(400, () => this.pop(`+${leftover} bricks left`, f.x, lineY + 1.2, '#FFFFFF', 16));
     this.shaker.add(0.3);
@@ -492,6 +578,23 @@ export class PlayScene extends Phaser.Scene {
     if (v && b && v.id === b.id) v.view.set(b.x * this.ppb, -b.y * this.ppb).ending(b.shapesLeft === 1).update(dt);
     for (const p of this.poppedBubbles) p.update(dt);
     this.poppedBubbles = this.poppedBubbles.filter(p => { if (p.done) p.destroy(); return !p.done; });
+  }
+
+  /** Wind streaks from the upwind edge: sparse while a gust is warned, denser while it blows. */
+  private drawGust(dt: number): void {
+    const g = this.sim.gust;
+    this.hooks.hud.setHazard(this.started ? g.phase : 'idle', g.dir);
+    if (g.phase === 'idle' || !this.started || this.paused) { this.gustAcc = 0; return; }
+    const rate = (g.phase === 'warn' ? 5 : 8 + 100 * g.strength) * (this.view.reducedMotion ? 0.3 : 1);
+    this.gustAcc += dt * rate;
+    const u = this.ppb, visH = this.H / (this.ppb * this.zoom), half = this.cam.across / 2;
+    while (this.gustAcc >= 1) {
+      this.gustAcc--;
+      const x = this.cam.x - g.dir * (half + 1 + Math.random() * 2);
+      const y = this.cam.y + (Math.random() - 0.5) * visH * 0.8;
+      const v = u * (14 + Math.random() * 6) * (this.view.reducedMotion ? 0.5 : 1);
+      this.weather.spawn(x * u, -y * u, g.dir * v, 0, this.fx('gust', 2, 2, { tint: 0xffffff, life: (half * 2 + 3) * u / v, alpha: g.phase === 'warn' ? 0.45 : 0.75, angle: g.dir > 0 ? 0 : Math.PI }));
+    }
   }
 
   /** The bubble bursts and its icon flies to the slot it fills (collected), or drifts away. */
@@ -563,7 +666,7 @@ export class PlayScene extends Phaser.Scene {
   private onSecondWind(now: number): void {
     const u = this.ppb, f = this.sim.foundation;
     const top = Math.max(this.sim.height().provisional, f.top);
-    if (!this.view.reducedMotion) this.hooks.hud.flash(0.35);
+    if (!this.view.reducedMotion && this.juice) this.hooks.hud.flash(0.35);
     this.hitstop(now, 80);
     this.pop('SECOND WIND!', f.x, top + 3, WIND_BLUE, 28);
     this.particles.spawn(f.x * u, -top * u, 0, 0, this.fx('ripple', 1.5, 6, { tint: num(WIND_BLUE), life: 0.7, alpha: 0.9, angle: 0, blend: Phaser.BlendModes.ADD }));
@@ -638,12 +741,20 @@ export class PlayScene extends Phaser.Scene {
 
   /** A toast beside a piece, on the side away from the drop column (art-direction.md §5.3). */
   private popNear(s: PieceSprite, text: string, color: string, size: number, dy = 0): void {
+    if (!this.juice) return;
     const pose = this.cur.get(s.id);
     if (!pose) return;
     const side = pose.x >= this.sim.foundation.x ? 1 : -1;
     const half = this.cam.across / 2 - 2;
     const x = Math.max(this.cam.x - half, Math.min(this.cam.x + half, pose.x + side * 2.6));
     this.pop(text, x, pose.y + 0.6 - dy, color, size);
+  }
+
+  private get juice(): boolean { return this.view.juice !== false; }
+
+  /** A celebration label (juice): skipped when juice is off. Information labels use pop(). */
+  private toast(text: string, x: number, y: number, color: string, size: number): void {
+    if (this.juice) this.pop(text, x, y, color, size);
   }
 
   private pop(text: string, x: number, y: number, color: string, size: number): void {
@@ -675,7 +786,7 @@ export class PlayScene extends Phaser.Scene {
     const f = sim.foundation;
     const cpProg = Math.max(0, Math.min(1, (committed - f.top) / Math.max(0.001, sim.lineY - f.top)));
     const prog = (Math.min(sim.checkpoint, last) - first + cpProg) / (last - first + 1);
-    const sp = this.skyClock.update(dt, bi, prog, this.view.reducedMotion);
+    const sp = this.pano ? this.skyAt(this.cam.y) : this.skyClock.update(dt, bi, prog, this.view.reducedMotion);
     const ppbScreen = this.ppb * this.zoom;
     this.backdrop.update(dt, this.H / 2 + (this.cam.y + 1) * ppbScreen, sp);
 
@@ -685,12 +796,22 @@ export class PlayScene extends Phaser.Scene {
     this.drawCtrl(dt, alpha, now, sp);
     this.drawGuide(now);
     this.drawBubble(dt);
+    this.drawGust(dt);
     this.particles.update(dt);
+    this.weather.update(dt);
     this.updateHud(committed);
   }
 
   private updateCamera(dt: number, now: number): void {
     const sim = this.sim;
+    const pano = this.pano;
+    if (pano) {
+      const t = Math.max(0, Math.min(1, (now - pano.t0) / pano.dur));
+      const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+      this.cam.y = pano.from + (pano.to - pano.from) * e;
+      if (t >= 1 && pano.done && now - pano.t0 >= pano.dur + 350) { const d = pano.done; pano.done = null; d(); }
+      return;
+    }
     // Zoom out up to 15 blocks when overhangs reach the screen edge (gameplay.md §11.2).
     let dev = 0;
     for (const v of this.views) if (v.state !== 'lost') dev = Math.max(dev, Math.abs(v.x - this.cam.x) + 2.2);
@@ -710,6 +831,8 @@ export class PlayScene extends Phaser.Scene {
     }
     // Early on the ground never takes more than the bottom fifth of the screen.
     target = Math.max(target, -1 + 0.3 * visH);
+    // The menu's demo tower stands on the plinth 30% up the screen, clear of the buttons.
+    if (this.demoing) target = 0.2 * visH;
     this.cam.peek += (this.cam.peekTarget - this.cam.peek) * (1 - Math.exp(-dt * 10));
     target -= this.cam.peek;
     // Rises on a spring; only goes down after a collapse, after a 1 s pause.
@@ -737,7 +860,7 @@ export class PlayScene extends Phaser.Scene {
       }
       // Deploy: drops in with a stretch, lands with a squash (art-direction.md §6.2).
       const t = (now - s.born) / 420;
-      if (s.born && t < 1.6) {
+      if (s.born && t < 1.6 && this.juice) {
         const fall = Math.max(0, 1 - t / 0.55);
         s.img.y = -(f.top + 3 * fall * fall) * this.ppb;
         const land = Math.max(0, t - 0.55) / 1.05;
@@ -787,7 +910,7 @@ export class PlayScene extends Phaser.Scene {
         this.pbCrossed = true;
         this.pb.pop();
         this.hooks.onJuice?.('pb_crossed', { height: this.bestHeight });
-        this.pop('NEW BEST!', this.cam.x, this.bestHeight + 1.5, GOLD, 24);
+        this.toast('NEW BEST!', this.cam.x, this.bestHeight + 1.5, GOLD, 24);
         for (let i = 0; i < 40; i++) {
           const a = Math.random() * TAU, v = u * (3 + Math.random() * 6);
           this.particles.spawn((this.cam.x + (Math.random() - 0.5) * 8) * u, by - u * 4, Math.cos(a) * v, Math.sin(a) * v, this.fx('dot', 0.2, 0.04, { tint: CONFETTI[i % CONFETTI.length], life: 1, gravity: u * 4, blend: Phaser.BlendModes.ADD }));

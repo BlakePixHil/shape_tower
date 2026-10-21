@@ -29,9 +29,12 @@ export interface ParticleOpts {
 export class Particles {
   private live: Particle[] = [];
   private pool: Phaser.GameObjects.Image[] = [];
+  /** Off when juice is off (Gate 1). */
+  enabled = true;
   constructor(private scene: Phaser.Scene, private depth: number, private cap = 250) {}
 
   spawn(x: number, y: number, vx: number, vy: number, o: ParticleOpts): void {
+    if (!this.enabled) return;
     if (this.live.length >= this.cap) {
       const old = this.live.shift()!;
       this.recycle(old.img);
