@@ -29,6 +29,7 @@ export const OVERLAYS = {
   pause: { music: { gainDb: -8, lowpass: 800 }, sfx: { gainDb: -60 }, voices: { gainDb: -60 }, ambience: { gainDb: -10, lowpass: 1200 } },
   lastHeart: { music: { gainDb: -2 } },
   slowmo: { music: { lowpass: 1200 }, ambience: { lowpass: 1500 } },
+  slowPower: { music: { lowpass: 2600 }, ambience: { gainDb: -2, lowpass: 3000 } },
 } satisfies Record<string, Snapshot>;
 export type Overlay = keyof typeof OVERLAYS;
 

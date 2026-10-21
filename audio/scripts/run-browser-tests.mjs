@@ -95,6 +95,25 @@ const checks = {
     assert.deepEqual(r.mixed, ['metal', 'glass'], 'each body follows its own biome');
     assert.deepEqual(r.onStone, ['glass', 'stone'], 'an explicit material wins');
   },
+  powers(r) {
+    assert.deepEqual(r.warnings, [], 'no warnings');
+    assert.ok(r.nonFinite === 0 && r.peak <= 1, `the mix stays clean (peak ${r.peak.toFixed(3)})`);
+    assert.deepEqual(r.bubble, ['bubble.spawn'], 'a bubble bloops in');
+    assert.deepEqual(r.expired, ['boop'], 'an expired bubble fades with a soft boop');
+    assert.ok(r.collect.includes('bubble.pop'), 'collecting pops the bubble');
+    assert.deepEqual(r.glue, ['glue.on'], 'Glue squelches on');
+    assert.ok(r.glueLanding.filter((n) => n === 'glue.squelch').length === 2 && !r.glueLanding.includes('bond.tink'), `glued landings and bonds squelch (${r.glueLanding})`);
+    assert.deepEqual(r.refused, ['rotate.blocked'], 'a refused power thunks');
+    assert.ok(r.slowIn.includes('slow.in') && r.slowOverlays.includes('slowPower'), 'Slow-Mo stretches in and softens the mix');
+    assert.ok(r.slowOut.includes('slow.out') && !r.afterOverlays.includes('slowPower'), 'Slow-Mo is released on power_ended');
+    assert.deepEqual(r.glueEnd, ['bubble.pop'], 'Glue ending is one soft pop');
+    assert.deepEqual(r.undo, ['undo'], 'Undo fwips');
+    assert.deepEqual(r.quickset, ['quickset'], 'Quick-Set cascades');
+    assert.deepEqual(r.clean, ['sweep', 'shimmer'], 'Clean Slate sweeps once, then sparkles');
+    assert.deepEqual(r.readyAtStart, [], 'Second Wind ready at run start is silent');
+    assert.equal(r.earned.filter((n) => n === 'shimmer').length, 2, `earning Second Wind and a granted power each get one soft cue (${r.earned})`);
+    assert.ok(r.secondWind.includes('windgust') && !r.secondWind.includes('heartup'), `Second Wind gusts, and its chord stands in for the heart chime (${r.secondWind})`);
+  },
   reruns(r) {
     assert.ok(r[0] === 'playing' && r[1] !== 'playing' && r[2] === 'playing' && r[3] === 'playing', `each run starts from its first spawn (${r.join(', ')})`);
   },
@@ -115,6 +134,7 @@ checks.sim = (r) => {
     assert.ok(started && run.hits > 0, `a later run, connected after its run_start, gets the playing mix (${r.mixLog.join(', ')})`);
   }
   assert.ok(r.mixLog.some((m) => m.endsWith('->results')), `a run ends on the results mix (${r.mixLog.join(', ')})`);
+  assert.ok(r.counts.power_used > 0 && r.counts.second_wind > 0, 'the bot used power-ups and Second Wind');
   // the bot stays in Meadow and Treetops: wood pieces on stone slabs
   assert.ok(r.played.wood > 0 && r.played.stone > 0, `pieces sound like wood and slabs like stone (${JSON.stringify(r.played)})`);
 };
@@ -142,7 +162,7 @@ process.exitCode = failed ? 1 : 0;
 
 function summary(name, r) {
   if (name === 'worker') return `worker bake ${r.workerMs} ms (longest main-thread stall ${r.workerStall} ms) vs main thread ${r.threadMs} ms (stall ${r.threadStall} ms)`;
-  if (name === 'sim') return `${r.runs.length} runs, ${r.counts.contact_hit} hits (${Object.entries(r.played).map(([m, n]) => `${m} ${n}`).join(', ')}), ${r.counts.piece_settled ?? 0} settles, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms`;
+  if (name === 'sim') return `${r.runs.length} runs, ${r.counts.contact_hit} hits (${Object.entries(r.played).map(([m, n]) => `${m} ${n}`).join(', ')}), ${r.counts.piece_settled ?? 0} settles, ${r.counts.power_used ?? 0} powers and ${r.counts.second_wind ?? 0} Second Winds used, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms`;
   if (name === 'bank') return `bake ${r.buildMs} ms, ${r.names} sounds, memory per biome ${r.memoryMB.join('/')} MB`;
   if (name === 'run') return `peak ${r.all.peak.toFixed(3)}, voices ${r.caps.total}/${r.capLimits.total}, contact ${r.contactCpuMs.mean.toFixed(3)} ms`;
   if (name === 'rest') return `resting tower ${r.quietPeakDb} dBFS`;

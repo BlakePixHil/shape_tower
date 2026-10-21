@@ -33,7 +33,8 @@ const SR = 48000;
   // Like the game's view: a new sim for every run, connected after its constructor has emitted
   // run_start, and a few seconds of results between runs.
   const newRun = (from: number) => {
-    const sim = createSim({ autoSpawn: true, seed: seed + runs.length });
+    // every other run starts with Second Wind ready, so the bot can use it
+    const sim = createSim({ autoSpawn: true, seed: seed + runs.length, secondWind: runs.length % 2 ? 'ready' : 'earn' });
     sim.drainEvents();
     plan.clear();
     runs.push({ from, hits: 0, overAt: null });
@@ -59,6 +60,9 @@ const SR = 48000;
       if (e.name === 'signals') foundationX = Number(e.payload.foundationX) || 0;
       if (e.name === 'contact_hit') run.hits++;
       if (e.name === 'run_over') run.overAt = step;
+      // the bot uses each power-up a moment after it gets it, and Second Wind on its last heart
+      if (e.name === 'power_collected' || e.name === 'power_granted') later(local + 40, { type: 'power', slot: e.payload.slot });
+      if (e.name === 'last_heart') later(local + 20, { type: 'secondWind' });
       if (e.name === 'piece_spawned') {
         // the bot: aim near the middle of the foundation, sometimes rotate, then drop
         const x = Math.round((foundationX + (rng() * 2 - 1) * 2.5) * 2) / 2;

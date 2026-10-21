@@ -340,6 +340,44 @@ const scenarios = {
     };
   },
 
+  /** Power-ups and Second Wind: each moment has its sound, Slow-Mo is released, and Second Wind never nags. */
+  async powers() {
+    const { ctx, d } = await makeDirector(15);
+    const w = warnings();
+    const played = spyPlays(d);
+    const at = (t: number, events: [string, Record<string, unknown>?][]) => {
+      played.length = 0;
+      for (const [name, p] of events) d.handle(name, p ?? {}, t);
+      return [...played];
+    };
+    const overlays = () => d.mixer.state().overlays;
+    at(0.1, [['piece_spawned', { shape: 'T' }]]);
+    const swept = (n: number) => ({ pieces: Array.from({ length: n }, (_, i) => ({ id: i, shape: 'O', x: i - n / 2, y: 1 })) });
+    const r = {
+      bubble: at(0.5, [['bubble_spawned', { id: 1, kind: 'glue', x: 1, y: 6 }]]),
+      collect: at(1.5, [['power_collected', { id: 1, kind: 'glue', slot: 0, x: 1, y: 6 }]]),
+      glue: at(2.5, [['power_used', { kind: 'glue', slot: 0, shapes: 3 }]]),
+      glueLanding: at(3, [['piece_landed', { shape: 'T', impact: 0.5, x: 0, glue: true }], ['bond_formed', { pos: { x: 0, y: 1 }, glue: true }]]),
+      refused: at(3.5, [['power_refused', { kind: 'glue', slot: 1 }]]),
+      slowIn: at(4, [['power_used', { kind: 'slowmo', slot: 1, shapes: 3 }]]),
+      slowOverlays: overlays(),
+      slowOut: at(5.5, [['power_ended', { kind: 'slowmo' }]]),
+      afterOverlays: overlays(),
+      glueEnd: at(5.6, [['power_ended', { kind: 'glue' }]]),
+      expired: at(7, [['bubble_expired', { id: 2, kind: 'undo', x: -1, y: 5 }]]),
+      undo: at(7.5, [['power_used', { kind: 'undo', slot: 0, id: 9, shape: 'L', x: -2, y: 3 }]]),
+      quickset: at(8, [['power_used', { kind: 'quickset', slot: 1, ids: [1, 2, 3] }]]),
+      clean: at(8.8, [['pieces_swept', swept(4)], ['power_used', { kind: 'clean', slot: 0, ...swept(4), refund: 4 }]]),
+      readyAtStart: at(9.5, [['second_wind_ready', { how: 'start' }]]),
+      earned: at(9.6, [['checkpoint_claimed', { n: 2, grade: 'S', leftover: 0 }], ['second_wind_ready', { how: 'earned' }], ['power_granted', { kind: 'undo', slot: 0, why: 'grade' }]]),
+      secondWind: at(12.5, [['pieces_swept', swept(6)], ['second_wind', { pieces: 6, refund: 6, hearts: 3, restored: 2, bricks: 20 }], ['heart_restored', { left: 3 }]]),
+    };
+    const buf = await ctx.startRendering();
+    w.restore();
+    const s = analyse(buf);
+    return { ...r, warnings: w.seen, nonFinite: s.nonFinite, peak: s.peak, peakVoices: d.voices.peakCount };
+  },
+
   /** Every new run is picked up from its first spawn, even with no run_start; a stray spawn at run_over is not. */
   async reruns() {
     const { d } = await makeDirector(1);

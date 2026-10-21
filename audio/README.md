@@ -54,6 +54,7 @@ It reads payloads defensively: missing or odd fields fall back to defaults, and 
 | `contact_slide` | `body`, `speed` (start, update and stop a scrape loop; it stops 250 ms after the last report) |
 | `piece_settled` | `grade` (`perfect`, `clean`, `messy`), optional `material` |
 | `piece_rotated` | `dir` (1 clockwise, -1 counter-clockwise), `blocked` |
+| power-ups (§13) | `bubble_spawned{x}`, `bubble_expired{x}`, `power_collected{x}`, `power_granted`, `power_used{kind, x}`, `power_refused`, `power_ended{kind}`, `pieces_swept{pieces}`, `second_wind_ready{how}`, `second_wind`, and `glue` on `piece_landed` and `bond_formed`. The sounds are in the audio section §6.11 |
 | others | as in gameplay.md §11.1: `heart_lost{count, left}`, `checkpoint_hold{progress}`, `checkpoint_claimed{n, leftover}`, `biome_entered{id}`, `hazard_*{type, dir, eta, strength}`, `slowmo{on, timeScale}`, `hitstop{ms}`, `level_up{level}`, and so on |
 
 Materials are `wood`, `stone`, `ice`, `rubber`, `jelly`, `metal`, `glass`, `ground` and `base`. When a body has no material, the director uses the material of the biome it was placed in (`biomeA`, `biomeB`, from the material ids in Art's finishes table, art-direction §4.6), so a piece keeps its sound after the biome changes. With neither, it uses the current biome's.
@@ -92,11 +93,11 @@ npm test     # typecheck, unit tests, then the browser tests in headless Chromiu
 
 `npm run build:sketchbook` builds the Sound Sketchbook (`dist/sketchbook.html`), one page where every sound and the main moments can be played by hand through the real director.
 
-The browser tests render real mixes offline and check them: a scripted run through every system, a 150-hit collapse, a resting tower, loudness by impact speed, mono, bad payloads, danger hysteresis, worker baking, memory per biome, impacts by placement biome, and back-to-back runs with no `run_start`. When `../game` is present with its packages installed, they also play Gameplay's real sim with a bot the way the game does (a new sim per run, connected after its constructor) and check the audio of every run.
+The browser tests render real mixes offline and check them: a scripted run through every system, a 150-hit collapse, a resting tower, loudness by impact speed, mono, bad payloads, danger hysteresis, worker baking, memory per biome, impacts by placement biome, every power-up moment, and back-to-back runs with no `run_start`. When `../game` is present with its packages installed, they also play Gameplay's real sim with a bot the way the game does (a new sim per run, connected after its constructor) and check the audio of every run. The bot also collects and uses power-ups, and uses Second Wind on its last heart.
 
 Current numbers (headless Chromium in the cloud container):
 
-- Peak decoded audio for sound effects is 23 MB in any biome (budget 25 MB); about 33 MB with ambience beds and the note cache.
+- Peak decoded audio for sound effects is 23.7 MB in any biome (budget 25 MB); about 34 MB with ambience beds and the note cache.
 - Baking the bank takes about 1.6 s. With the worker, the main thread never stalls for more than one frame.
 - Handling one event costs about 0.03 ms.
 - A 150-hit collapse peaks at 0.88 of full scale, never clips, and stays within the voice caps (8 impacts, 32 total).

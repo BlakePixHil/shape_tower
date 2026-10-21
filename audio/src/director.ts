@@ -145,6 +145,11 @@ export class AudioDirector {
   private drumroll?: Playing;
   private scrapes = new Map<string, { p: Playing; last: number }>();
   private hazardLoops = new Map<string, Playing>();
+  /** Slow-Mo power-up running (impacts sink a little, music and ambience soften) */
+  private slowPower = false;
+  private lastSweep: { p: Playing | null; at: number } = { p: null, at: -10 };
+  private secondWindAt = -10;
+  private lastGrantAt = -10;
   private bodyMaterial = new Map<string, Material>();
   private recent: { t: number; name: string }[] = [];
 
@@ -680,6 +685,7 @@ export class AudioDirector {
         const impact = clamp(num(p, 'impact', 0.4), 0, 1);
         const m = asMaterial(p?.material, this.material);
         this.haptic(m === 'rubber' ? 'rubber' : impact < 0.25 ? 'land1' : impact < 0.5 ? 'land2' : impact < 0.8 ? 'land3' : 'land4', 0.5 + impact / 2);
+        if (bool(p, 'glue')) this.play('glue.squelch', { when, gainDb: -14, rate: 0.85, pan: this.panX(num(p, 'x', this.signals.foundationX)), category: 'misc', priority: 3 });
         break;
       }
       case 'piece_settled':
@@ -708,7 +714,9 @@ export class AudioDirector {
 
       // building mechanics (6.9)
       case 'bond_formed':
-        if (this.cool.ready('bond', when, 0.2)) this.play('bond.tink', { when, gainDb: -28, category: 'misc', priority: 5 });
+        if (bool(p, 'glue')) {
+          if (this.cool.ready('glue', when, 0.12)) this.play('glue.squelch', { when, gainDb: -17, category: 'misc', priority: 4 });
+        } else if (this.cool.ready('bond', when, 0.2)) this.play('bond.tink', { when, gainDb: -28, category: 'misc', priority: 5 });
         break;
       case 'bond_broken': {
         const f = num(p, 'force', 10);
@@ -742,6 +750,7 @@ export class AudioDirector {
         break;
       case 'heart_restored':
         this.mixer.setOverlay('lastHeart', false, when);
+        if (when - this.secondWindAt < 0.1) break; // Second Wind's chord already says it
         this.play('heartup', { when, gainDb: -10, category: 'stinger', priority: 2 });
         this.haptic('heartRestored');
         break;
@@ -826,6 +835,56 @@ export class AudioDirector {
         break;
       }
 
+      // power-ups and Second Wind (6.11)
+      case 'bubble_spawned':
+        if (this.cool.ready('bubble', when, 0.5)) this.play('bubble.spawn', { when, gainDb: -15, pan: this.panX(num(p, 'x', this.signals.foundationX)), category: 'misc', priority: 3 });
+        break;
+      case 'bubble_expired':
+        this.play('boop', { when, gainDb: -24, rate: 1.6, pan: this.panX(num(p, 'x', this.signals.foundationX)), category: 'misc', priority: 4 });
+        break;
+      case 'power_collected':
+        this.play('bubble.pop', { when, gainDb: -9, pan: this.panX(num(p, 'x', this.signals.foundationX)), category: 'misc', priority: 2 });
+        this.powerChime(when + 0.04, -11);
+        this.haptic('double', 0.7);
+        break;
+      case 'power_granted': {
+        // a grade-S claim grants one as the claim fanfare settles
+        const at = Math.max(when, this.lastCheckpointAt + 1, this.lastGrantAt + 0.45);
+        this.lastGrantAt = at;
+        this.powerChime(at, -12);
+        this.play('shimmer', { when: at + 0.15, gainDb: -16, category: 'misc', priority: 4 });
+        this.haptic('double', 0.5, at - when);
+        break;
+      }
+      case 'power_used':
+        this.onPowerUsed(str(p, 'kind', ''), p, when);
+        break;
+      case 'power_refused':
+        this.play('rotate.blocked', { bus: 'ui', when, gainDb: -12, rate: 0.8, category: 'ui', priority: 2, slowmo: false });
+        this.haptic('rotateBlocked');
+        break;
+      case 'power_ended':
+        if (str(p, 'kind', '') === 'slowmo') this.setSlowPower(false, when);
+        else this.play('bubble.pop', { when, gainDb: -20, rate: 0.6, category: 'misc', priority: 4 });
+        break;
+      case 'pieces_swept': {
+        const count = Array.isArray(p?.pieces) ? p.pieces.length : 1;
+        this.lastSweep = { p: this.play('sweep', { when, gainDb: -13 + 5 * clamp(count / 10, 0, 1), category: 'misc', priority: 2 }), at: when };
+        break;
+      }
+      case 'second_wind_ready':
+        // never a nag: silent at run start, one soft cue when checkpoint 2 earns it
+        if (str(p, 'how', 'start') === 'earned') {
+          const at = Math.max(when, this.lastCheckpointAt + 2.2);
+          this.play('shimmer', { when: at, gainDb: -17, category: 'misc', priority: 3 });
+          const { inst, octave } = this.instFor();
+          this.playNote(inst, scaleNote(this.key, 7) + 12 * octave, { when: at + 0.05, gainDb: -17, category: 'note', priority: 3 });
+        }
+        break;
+      case 'second_wind':
+        this.onSecondWind(when);
+        break;
+
       // feel
       case 'hitstop': {
         const ms = clamp(num(p, 'ms', 50), 0, 500) / 1000;
@@ -876,6 +935,7 @@ export class AudioDirector {
   private startRun(when: number, chime: boolean): void {
     this.running = true;
     this.overAt = -Infinity;
+    this.slowPower = false;
     this.ladder.reset();
     this.ladder.newBiome();
     this.entryPlayed.clear();
@@ -905,6 +965,60 @@ export class AudioDirector {
     );
   }
 
+  /** A rising three-note chime in the biome's key and instrument (notes the biome already has). */
+  private powerChime(when: number, gainDb: number): void {
+    const { inst, octave } = this.instFor();
+    [4, 5, 7].forEach((d, i) => this.playNote(inst, scaleNote(this.key, d) + 12 * octave, { when: when + i * 0.07, gainDb: gainDb - i, category: 'note', priority: 2, slowmo: false }));
+  }
+
+  private onPowerUsed(kind: string, p: Payload, when: number): void {
+    switch (kind) {
+      case 'clean': // the broom stroke came with pieces_swept; this adds the clean sparkle
+        this.play('shimmer', { when: when + 0.35, gainDb: -12, category: 'misc', priority: 3 });
+        this.haptic('medium');
+        break;
+      case 'quickset':
+        this.play('quickset', { when, gainDb: -8, category: 'misc', priority: 1 });
+        this.mixer.duck('music', -4, when, 1.2);
+        this.haptic('solidRow');
+        break;
+      case 'undo':
+        this.play('undo', { when, gainDb: -9, pan: this.panX(num(p, 'x', this.signals.foundationX)), category: 'misc', priority: 2 });
+        this.haptic('light');
+        break;
+      case 'glue':
+        this.play('glue.on', { when, gainDb: -9, category: 'misc', priority: 2 });
+        this.haptic('double', 0.5);
+        break;
+      case 'slowmo':
+        this.setSlowPower(true, when);
+        break;
+      default:
+        this.play('ui.on', { bus: 'ui', when, gainDb: -12, category: 'ui', priority: 3, slowmo: false });
+    }
+  }
+
+  private setSlowPower(on: boolean, when: number): void {
+    if (on === this.slowPower) return;
+    this.slowPower = on;
+    this.mixer.setOverlay('slowPower', on, when, on ? 0.6 : 0.4);
+    this.play(on ? 'slow.in' : 'slow.out', { when, gainDb: on ? -10 : -13, category: 'misc', priority: 2 });
+    if (on) this.haptic('light');
+  }
+
+  private onSecondWind(when: number): void {
+    this.secondWindAt = when;
+    // the gust carries the pieces away, so it replaces the broom stroke that started this moment
+    if (this.lastSweep.p && when - this.lastSweep.at < 0.05) this.stopPlaying(this.lastSweep.p, when, 0.02);
+    this.play('windgust', { when, gainDb: -6, category: 'misc', priority: 1 });
+    const { inst, octave } = this.instFor();
+    this.playChord(inst, tonicChord(this.key, 3, octave), { when: when + 0.65, gainDb: -8, priority: 1 }, 0.03);
+    this.play('shimmer', { when: when + 0.75, gainDb: -12, category: 'misc', priority: 3 });
+    this.mixer.duck('music', -8, when, 2.5);
+    this.mixer.duck('ambience', -6, when, 2.5);
+    this.haptic('celebrate');
+  }
+
   private onContact(p: Payload, when: number): void {
     const v = num(p, 'approachSpeed', num(p, 'impulsePerMass', 0));
     if (!(v >= TUNING.minSpeed)) return;
@@ -924,7 +1038,7 @@ export class AudioDirector {
     const isLanding = when - this.landingAt < 0.08;
     const priority: Priority = isLanding ? 2 : tier >= 3 ? 3 : 4;
     const common: PlayOptions = {
-      when, rate: semis(clamp((4 - size) * 1.5, -3, 3)) * this.gravityRate(), pan: this.panX(pt.x),
+      when, rate: semis(clamp((4 - size) * 1.5, -3, 3) - (this.slowPower ? 1.5 : 0)) * this.gravityRate(), pan: this.panX(pt.x),
       category: 'impact', priority, attack: lowG ? 0.02 : 0,
     };
     this.play(this.impactName(matA, Math.max(1, tier)), { ...common, gainDb });
@@ -1063,6 +1177,7 @@ export class AudioDirector {
   private onGameOver(when: number): void {
     this.running = false;
     this.overAt = when;
+    this.slowPower = false;
     this.danger = false;
     this.holding = false;
     this.stopDrumroll(when);

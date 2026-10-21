@@ -551,6 +551,140 @@ export const SOUNDS: Record<string, SoundDef> = {
     },
   },
 
+  // power-ups and Second Wind (6.11)
+  'bubble.spawn': {
+    rate: 0.5,
+    variants: 2,
+    render: (sr, rng) => {
+      const sec = 0.4;
+      const f0 = rand(rng, 320, 380);
+      // a soft bloop: a quick upward glide that wobbles as it settles
+      const y = osc(Math.round(sr * sec), sr, (t) => f0 * (1 + 1.1 * (1 - Math.exp(-t / 0.03))) * (1 + 0.03 * Math.sin(TAU * 9 * t)), 'sine');
+      shape(y, sr, ahr(0.008, 0.05, sec));
+      mixInto(y, sparkles(sr, rng, 0.3, 2, 2800, 4200), sr, 0.06, 0.15);
+      return finish(y, sr, 0.45);
+    },
+  },
+  'bubble.pop': {
+    variants: 2,
+    render: (sr, rng) => {
+      const n = Math.round(sr * 0.14);
+      const f0 = rand(rng, 900, 1150);
+      const y = decay(osc(n, sr, (t) => f0 * Math.exp(-t / 0.02) + 260, 'sine'), sr, 0.03, 0.0008);
+      mixInto(y, decay(biquad(burst(sr, rng, 1.2, 12000, n), sr, 'highpass', 2500, 0.7), sr, 0.006), sr, 0, 0.6);
+      return finish(y, sr, 0.7);
+    },
+  },
+  sweep: {
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      // a broom stroke: brushy noise rising through the band, with bristle ticks
+      const sec = 0.6;
+      const n = Math.round(sr * sec);
+      const env = (t: number) => Math.pow(Math.sin(Math.PI * clamp(t / sec, 0, 1)), 1.2) * (1 - 0.4 * (t / sec));
+      const y = sweep(sr, rng, sec, 500, 2600, 1.4, env);
+      mixInto(y, shape(biquad(crackle(n, sr, rng, 320), sr, 'highpass', 3000, 0.7), sr, env), sr, 0, 0.5);
+      return finish(y, sr, 0.6);
+    },
+  },
+  quickset: {
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      // stone setting from the top down: crackles and knocks that fall in pitch, then a low set
+      const sec = 1.2;
+      const n = Math.round(sr * sec);
+      const y = biquad(crackle(n, sr, rng, 240, (t) => (t < 0.9 ? 1 : 0)), sr, 'bandpass', (t) => 3500 * Math.pow(0.3, t / 0.9), 0.8);
+      scale(y, 0.5);
+      for (let i = 0; i < 8; i++) {
+        const f = 900 * Math.pow(0.86, i) * rand(rng, 0.97, 1.03);
+        const k = resonate(burst(sr, rng, 2, 3000, Math.round(sr * 0.15)), sr, [{ f, a: 1, tau: 0.03 }, { f: f * 2.7, a: 0.4, tau: 0.015 }]);
+        mixInto(y, normalize(k, 1), sr, i * 0.1 + rand(rng, -0.01, 0.01), 0.55 + 0.04 * i);
+      }
+      mixInto(y, normalize(thunk(sr, rng, 120, 0.4, 1600), 1), sr, 0.82, 0.9);
+      return finish(saturate(y, 1.2), sr, 0.8);
+    },
+  },
+  undo: {
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      // a reverse fwip: swells up and stops dead, like a sound played backwards
+      const sec = 0.3;
+      const n = Math.round(sr * sec);
+      const rise = (t: number) => Math.exp((t - sec) / 0.07);
+      const y = sweep(sr, rng, sec, 600, 3000, 1.8, rise);
+      mixInto(y, shape(osc(n, sr, (t) => 480 + 520 * (t / sec), 'tri'), sr, rise), sr, 0, 0.35);
+      mixInto(y, tick(sr, rng, 2400, 0.006, 0.04), sr, sec - 0.01, 0.25);
+      return finish(y, sr, 0.55);
+    },
+  },
+  'glue.on': {
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      const sec = 0.45;
+      const n = Math.round(sr * sec);
+      // a gloopy blorp: a wobbling tone through a resonant filter that opens and closes
+      const y = osc(n, sr, (t) => 190 + 140 * Math.sin(Math.PI * clamp(t / 0.3, 0, 1)) + 12 * Math.sin(TAU * 11 * t), 'tri');
+      biquad(y, sr, 'lowpass', (t) => 400 + 1400 * Math.sin(Math.PI * clamp(t / sec, 0, 1)), 5);
+      mixInto(y, biquad(crackle(n, sr, rng, 60, (t) => Math.exp(-t / 0.15)), sr, 'bandpass', 1500, 3), sr, 0.02, 0.4);
+      return finish(shape(y, sr, ahr(0.02, 0.12, sec)), sr, 0.6);
+    },
+  },
+  'glue.squelch': {
+    rate: 0.5,
+    variants: 2,
+    render: (sr, rng) => {
+      const sec = 0.18;
+      const y = sweep(sr, rng, sec, rand(rng, 280, 340), 1400, 7, ahr(0.01, 0.03, sec));
+      mixInto(y, decay(osc(Math.round(sr * sec), sr, (t) => 220 + 900 * t, 'tri'), sr, 0.05, 0.004), sr, 0, 0.3);
+      return finish(y, sr, 0.45);
+    },
+  },
+  'slow.in': {
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      // time stretching down: tone and air both sink, the wobble slowing as they go
+      const sec = 0.9;
+      const n = Math.round(sr * sec);
+      let ph = 0;
+      const y = osc(n, sr, (t) => {
+        ph += (7 - 5 * (t / sec)) / sr;
+        return 880 * Math.pow(0.375, t / sec) * (1 + 0.02 * Math.sin(TAU * ph));
+      }, 'tri');
+      mixInto(y, sweep(sr, rng, sec, 2400, 400, 2, () => 1), sr, 0, 0.3);
+      return finish(shape(y, sr, ahr(0.03, 0.3, sec)), sr, 0.5);
+    },
+  },
+  'slow.out': {
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      const sec = 0.6;
+      const n = Math.round(sr * sec);
+      const y = osc(n, sr, (t) => 330 * Math.pow(2.67, t / sec), 'tri');
+      mixInto(y, sweep(sr, rng, sec, 400, 2400, 2, () => 1), sr, 0, 0.3);
+      return finish(shape(y, sr, ahr(0.05, 0.25, sec)), sr, 0.45);
+    },
+  },
+  windgust: {
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      // Second Wind: a big gust that rises, blows through and clears away
+      const sec = 1.8;
+      const n = Math.round(sr * sec);
+      const env = (t: number) => (t < 0.7 ? Math.pow(t / 0.7, 1.5) : Math.exp(-(t - 0.7) / 0.4));
+      const y = biquad(noise(n, rng), sr, 'bandpass', (t) => (t < 0.7 ? 220 + 1580 * (t / 0.7) : 1800 - 1100 * clamp((t - 0.7) / 1.1, 0, 1)), 0.9);
+      mixInto(y, biquad(brown(n, rng), sr, 'lowpass', 500, 0.7), sr, 0, 0.5);
+      mixInto(y, biquad(noise(n, rng), sr, 'bandpass', (t) => 900 + 1500 * Math.sin(Math.PI * clamp(t / sec, 0, 1)), 6), sr, 0, 0.25);
+      return finish(saturate(shape(normalize(y, 1), sr, env), 1.3), sr, 0.8);
+    },
+  },
+
   // hazards (6.10)
   'gust.warn': {
     rate: 0.5,

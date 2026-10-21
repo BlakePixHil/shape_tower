@@ -68,6 +68,9 @@ export const JUICE_EVENTS = [
   'hitstop', 'slowmo',
   // run and meta
   'run_start', 'pause', 'resume', 'xp_tick', 'level_up', 'unlock',
+  // power-ups and Second Wind
+  'bubble_spawned', 'bubble_expired', 'power_collected', 'power_granted', 'power_used', 'power_refused',
+  'power_ended', 'pieces_swept', 'second_wind_ready', 'second_wind',
 ] as const;
 
 export type JuiceEventName = (typeof JUICE_EVENTS)[number];
