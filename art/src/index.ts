@@ -36,6 +36,8 @@ export { bakePostcard, postcardElement, postcardUrl, type PostcardOptions } from
 export { RAIL_COLORS, altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail, type OffscreenChipOptions, type RailState } from './ui/rail.ts';
 export { HAZARDS, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob, setPlumb, setWindsock, windsock, type HazardChipOptions, type HazardType } from './ui/hazard.ts';
 export { biomeCard, type BiomeCardOptions } from './ui/biomecard.ts';
+export { prewarmUi } from './ui/prewarm.ts';
+export { warmUrls } from './urls.ts';
 export { HATS, drawHat, hatUrl, type Hat, type HatInfo } from './ui/hats.ts';
 export {
   AVATAR_FACES, AVATAR_SHAPES, MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarPanel, avatarUrl, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel,

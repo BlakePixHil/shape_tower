@@ -6,6 +6,7 @@ import { BIOME_BAKERS } from '../backdrops.ts';
 import { BIOMES, starAmount } from '../biomes.ts';
 import { STAR_LAYERS, bakeStarTile } from '../stars.ts';
 import { ctx2d, makeCanvas } from '../util.ts';
+import { canvasUrl } from '../urls.ts';
 
 /** The virtual screen the props are laid out on, in game px; the card shows it scaled to fit. */
 const VW = 390;
@@ -48,14 +49,9 @@ export function bakePostcard(biome: number, w: number, h: number, k: number): HT
   return cv;
 }
 
-const urls = new Map<string, string>();
-
-/** bakePostcard as a cached PNG data URL, at the device's resolution. */
+/** bakePostcard as a cached PNG URL, at the device's resolution. */
 export function postcardUrl(biome: number, w: number, h: number, dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1): string {
-  const key = `${biome}:${w}x${h}@${dpr}`;
-  let u = urls.get(key);
-  if (!u) { u = bakePostcard(biome, w, h, dpr).toDataURL('image/png'); urls.set(key, u); }
-  return u;
+  return canvasUrl(`postcard:${biome}:${w}x${h}@${dpr}`, () => bakePostcard(biome, w, h, dpr));
 }
 
 export interface PostcardOptions {

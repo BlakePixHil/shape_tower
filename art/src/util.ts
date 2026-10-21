@@ -49,9 +49,20 @@ export function makeCanvas(w: number, h: number): HTMLCanvasElement {
   return c;
 }
 export function ctx2d(c: HTMLCanvasElement): Ctx {
-  const x = c.getContext('2d');
+  const x = c.getContext('2d', cpuBaking ? { willReadFrequently: true } : undefined);
   if (!x) throw new Error('Canvas 2D is not available');
   return x;
+}
+
+let cpuBaking = 0;
+/**
+ * Runs `bake` with every canvas it makes kept in CPU memory (willReadFrequently). Reading such a canvas
+ * back (toDataURL, toBlob, getImageData) is a copy; reading back a GPU canvas waits for the GPU, which
+ * took 55 to 245 ms per small icon in the headless game. Small images drawn this way cost about the same.
+ */
+export function cpuBaked<T>(bake: () => T): T {
+  cpuBaking++;
+  try { return bake(); } finally { cpuBaking--; }
 }
 
 export function rr(c: Ctx, x: number, y: number, w: number, h: number, r: number): void {

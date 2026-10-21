@@ -6,6 +6,7 @@
 import { FONT_DISPLAY, INK } from '../config.ts';
 import { O, ink, part, rrPath, twinkle } from '../sticker.ts';
 import { type Ctx, TAU, ctx2d, hash, makeCanvas } from '../util.ts';
+import { canvasUrl } from '../urls.ts';
 
 export interface BadgeTier { name: string; from: number; base: string; light: string; shade: string }
 
@@ -119,12 +120,8 @@ export function bakeBadge(level: number, px: number): HTMLCanvasElement {
   return cv;
 }
 
-const urls = new Map<string, string>();
-
-/** A PNG data URL of the badge for `level`, `cssPx` CSS px square at the device's resolution. Cached. */
+/** A PNG URL of the badge for `level`, `cssPx` CSS px square at the device's resolution. Cached. */
 export function badgeUrl(level: number, cssPx: number, dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1): string {
-  const key = `${level}:${Math.round(cssPx * dpr)}`;
-  let u = urls.get(key);
-  if (!u) { u = bakeBadge(level, Math.round(cssPx * dpr)).toDataURL('image/png'); urls.set(key, u); }
-  return u;
+  const px = Math.round(cssPx * dpr);
+  return canvasUrl(`badge:${level}:${px}`, () => bakeBadge(level, px));
 }

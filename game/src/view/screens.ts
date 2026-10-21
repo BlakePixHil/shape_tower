@@ -4,7 +4,7 @@
 // the XP tally's timing and QA's one-tap questions.
 
 import {
-  MENU_MODES, avatarPanel, injectUiCss, levelUp, mainMenu, onAction, pauseCard, profilePanel, readAvatar, readSettings, rewardAt, setXpBar, settingsPanel,
+  MENU_MODES, avatarPanel, injectUiCss, levelUp, mainMenu, onAction, pauseCard, prewarmUi, profilePanel, readAvatar, readSettings, rewardAt, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, type SettingGroup, type SettingValue,
 } from '@art/index.ts';
 import { levelStep } from '../sim/tuning.ts';
@@ -98,6 +98,7 @@ export class Screens {
 
   constructor(parent: HTMLElement, private sounds: ScreenSounds) {
     injectUiCss();
+    void prewarmUi(); // Art bakes the HUD's icons and postcards while the menu is up (issue #33)
     const style = document.createElement('style');
     style.textContent = CSS;
     document.head.appendChild(style);
