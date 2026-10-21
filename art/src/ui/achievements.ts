@@ -7,6 +7,7 @@
 import { INK, SIGNAL } from '../config.ts';
 import { O, circlePath, ink, twinkle } from '../sticker.ts';
 import { type Ctx, TAU, ctx2d, makeCanvas } from '../util.ts';
+import { canvasUrl } from '../urls.ts';
 import { type UiIcon, drawUiIcon, uiIconUrl } from './icons.ts';
 import { bakePostcard } from './postcard.ts';
 
@@ -186,16 +187,13 @@ export function drawAchievementBadge(c: Ctx, b: AchievementBadge, x: number, y: 
   c.drawImage(bakeAchievementBadge(b, s), x - s / 2, y - s / 2, s, s);
 }
 
-const urls = new Map<string, string>();
 const DPR = (): number => (typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1);
 
-/** A PNG data URL of the badge, `cssPx` CSS px square at the device's resolution. Cached. */
+/** A PNG URL of the badge, `cssPx` CSS px square at the device's resolution. Cached. */
 export function achievementBadgeUrl(b: AchievementBadge, cssPx: number, dpr = DPR()): string {
   const px = Math.round(cssPx * dpr);
   const key = b.secret ? `?:${px}` : `${b.tier}:${b.icon}:${b.biome ?? ''}:${!!b.locked}:${px}`;
-  let u = urls.get(key);
-  if (!u) { u = bakeAchievementBadge(b, px).toDataURL('image/png'); urls.set(key, u); }
-  return u;
+  return canvasUrl(`ach:${key}`, () => bakeAchievementBadge(b, px));
 }
 
 // ---------------------------------------------------------------------------------------------
