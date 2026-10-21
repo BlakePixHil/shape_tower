@@ -49,6 +49,7 @@ The merge gate is `qa/scripts/gate.sh [checkout]`: every module's own checks (ga
 | `scripts/cross-build.ts` | Records bot runs on one build and replays them on another, to check that a change leaves earlier runs step for step the same |
 | `scripts/replay-child.ts` | Replays run records in a fresh process (F18.13) |
 | `scripts/gate.sh` | The merge gate: every module's checks plus the fast set on one checkout |
+| `scripts/ui-second-wind.mjs` | Drives a built game in headless Chromium and checks Second Wind in the HUD: two-tap arming, the glow, no pop-up at pause or game over, the greyed state, the day's free one |
 
 ## Conventions
 
