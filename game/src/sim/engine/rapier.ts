@@ -1,5 +1,5 @@
 // Rapier 2D (the cross-platform deterministic build) behind the PhysicsEngine interface, for the
-// Gate 0 bake-off against Box2D (gameplay.md §15). Call `await initRapier()` once before making one.
+// Gate 0 bake-off against Box2D (gameplay.md §15). Call `await initRapier(load)` once before making one.
 // Notes:
 // - Mortar bonds are our own soft welds: a linear and an angular spring at the anchor, applied as
 //   impulses every substep. The load is the spring's stretch times its stiffness (§15: "With Rapier,
@@ -7,8 +7,10 @@
 //   the same recipe as Box2D's soft weld.
 // - This Rapier build reports rotations as angles, so cosines and sines come from trig.ts, which
 //   uses basic arithmetic only. Body angles going in are exact quarter turns.
-// - Scene queries see colliders made since the last step only after it, so queries also test those
-//   new colliders one by one.
+// - Overlap queries take candidates from Rapier's broad phase (plus colliders made since the last
+//   step, which it sees only after one) and test them exactly in 64-bit JavaScript: Rapier's own
+//   32-bit test calls a shape set down a hair above a flat top touching it, so a sideways step across
+//   it would be refused (QA-003).
 
 import type * as R from '@dimforge/rapier2d-deterministic-compat';
 import type { ColliderBox, Rot } from '../shapes.ts';
@@ -22,15 +24,24 @@ const CAT_HAZARD = 0x8;
 const CAT_QUERY = 0x10;
 const groups = (member: number, filter: number) => ((member << 16) | filter) >>> 0;
 const SOLID = CAT_TOWER | CAT_STATIC | CAT_HAZARD | CAT_QUERY;
-const QUERY = groups(CAT_QUERY, CAT_TOWER | CAT_STATIC);
+
+/**
+ * Box2D's soft step gives a weld of N Hz about the give of an explicit spring of 0.75 N Hz: at 0.75 the
+ * T4 needle tips between the same gust strengths on both engines (0.10 to 0.12 g at 8 Hz).
+ */
+const HERTZ_MATCH = 0.75;
 
 let RAPIER: typeof R | null = null;
 let loading: Promise<void> | null = null;
 
-/** Loads Rapier's WebAssembly (inlined in the compat build). Safe to call more than once. */
-export function initRapier(): Promise<void> {
-  loading ??= import('@dimforge/rapier2d-deterministic-compat').then(async m => {
-    const lib = ((m as unknown as { default?: typeof R }).default ?? m) as typeof R;
+/**
+ * Loads Rapier's WebAssembly (inlined in the compat build) from the module `load` returns. Safe to call
+ * more than once. The caller names the module so nothing bundles 3.4 MB of engine by accident: tests
+ * import the package, the phone bench fetches it from a CDN.
+ */
+export function initRapier(load: () => Promise<unknown>): Promise<void> {
+  loading ??= load().then(async m => {
+    const lib = ((m as { default?: typeof R }).default ?? m) as typeof R;
     await lib.init();
     RAPIER = lib;
   });
@@ -46,7 +57,63 @@ function angleOf(r: Rot): number {
   throw new Error(`Rapier adapter: body rotations must be quarter turns, got (${r.c}, ${r.s})`);
 }
 
-interface Entry { body: R.RigidBody; colliders: R.Collider[]; boxes: ColliderBox[] }
+/**
+ * Box2D's mass for a rounded box: it pushes the corners out by 1.412 × radius along the diagonal, so a
+ * plain box (hw + k r) × (hh + k r). Rapier would use the core box only, about an eighth too light for
+ * our pieces. Returns mass, centre (the collider's own) and inertia about it.
+ */
+function boxMass(b: ColliderBox, density: number): [number, { x: number; y: number }, number] {
+  const k = 1.412 / Math.SQRT2, w = Math.max(b.hw, 0.001) + k * b.radius, h = Math.max(b.hh, 0.001) + k * b.radius;
+  const m = density * 4 * w * h;
+  return [m, { x: 0, y: 0 }, m * (w * w + h * h) / 3];
+}
+
+/** A rounded box in the world: core centre, rotation, core half-extents and rounding radius. */
+interface Box { x: number; y: number; c: number; s: number; hw: number; hh: number; r: number }
+
+function worldBox(b: ColliderBox, x: number, y: number, c: number, s: number): Box {
+  return { x: x + c * b.cx - s * b.cy, y: y + s * b.cx + c * b.cy, c, s, hw: Math.max(b.hw, 0.001), hh: Math.max(b.hh, 0.001), r: b.radius };
+}
+
+function corners(b: Box): [number, number][] {
+  const ux = b.c * b.hw, uy = b.s * b.hw, vx = -b.s * b.hh, vy = b.c * b.hh;
+  return [[b.x + ux + vx, b.y + uy + vy], [b.x - ux + vx, b.y - uy + vy], [b.x - ux - vx, b.y - uy - vy], [b.x + ux - vx, b.y + uy - vy]];
+}
+
+/** True when the cores' outlines are apart along one of either box's axes. */
+function separated(a: [number, number][], b: [number, number][], box: Box): boolean {
+  for (const [ax, ay] of [[box.c, box.s], [-box.s, box.c]]) {
+    let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+    for (const p of a) { const d = p[0] * ax + p[1] * ay; a0 = Math.min(a0, d); a1 = Math.max(a1, d); }
+    for (const p of b) { const d = p[0] * ax + p[1] * ay; b0 = Math.min(b0, d); b1 = Math.max(b1, d); }
+    if (a1 < b0 || b1 < a0) return true;
+  }
+  return false;
+}
+
+/** Squared distance from point p to segment ab. */
+function segDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const ex = bx - ax, ey = by - ay, l = ex * ex + ey * ey;
+  const k = l > 0 ? Math.max(0, Math.min(1, ((px - ax) * ex + (py - ay) * ey) / l)) : 0;
+  const dx = px - (ax + k * ex), dy = py - (ay + k * ey);
+  return dx * dx + dy * dy;
+}
+
+/** Whether two rounded boxes overlap or touch, as Box2D's overlap queries count it: core distance ≤ the radii. */
+function boxesOverlap(p: Box, q: Box): boolean {
+  const a = corners(p), b = corners(q);
+  if (!separated(a, b, p) && !separated(a, b, q)) return true;
+  const r = p.r + q.r, r2 = r * r;
+  if (r === 0) return false;
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) & 3;
+    for (const v of b) if (segDist2(v[0], v[1], a[i][0], a[i][1], a[j][0], a[j][1]) <= r2) return true;
+    for (const v of a) if (segDist2(v[0], v[1], b[i][0], b[i][1], b[j][0], b[j][1]) <= r2) return true;
+  }
+  return false;
+}
+
+interface Entry { body: R.RigidBody; colliders: R.Collider[] }
 
 interface Weld {
   a: number; b: number;
@@ -63,16 +130,16 @@ export class RapierEngine implements PhysicsEngine {
   private events: R.EventQueue;
   private bodies = new Map<number, Entry>();
   private byCollider = new Map<number, number>();
+  private boxOf = new Map<number, ColliderBox>();
   private fresh = new Set<R.Collider>();          // made since the last step: not in the query tree yet
   private welds = new Map<number, Weld>();
   private nextWeld = 1;
   private forces = new Map<number, [number, number]>();
   private hitList: HitInfo[] = [];
   private hitThreshold: number;
-  private queryShapes = new Map<string, R.Shape>();
 
   constructor(settings: WorldSettings) {
-    if (!RAPIER) throw new Error('Rapier is not loaded yet: await initRapier() first');
+    if (!RAPIER) throw new Error('Rapier is not loaded yet: await initRapier(load) first');
     this.R = RAPIER;
     this.world = new this.R.World({ x: 0, y: -settings.gravity });
     this.world.numSolverIterations = 1; // we substep ourselves, like Box2D's soft step
@@ -99,21 +166,22 @@ export class RapierEngine implements PhysicsEngine {
         .setTranslation(b.cx, b.cy)
         .setFriction(spec.friction)
         .setRestitution(0)
-        .setDensity(spec.density)
+        .setMassProperties(...boxMass(b, spec.density))
         .setCollisionGroups(groups(spec.dynamic ? CAT_TOWER : CAT_STATIC, SOLID))
         .setActiveEvents(spec.dynamic ? R.ActiveEvents.COLLISION_EVENTS : R.ActiveEvents.NONE);
       const c = this.world.createCollider(cd, body);
       this.byCollider.set(c.handle, spec.id);
+      this.boxOf.set(c.handle, b);
       this.fresh.add(c);
       return c;
     });
-    this.bodies.set(spec.id, { body, colliders, boxes: spec.boxes });
+    this.bodies.set(spec.id, { body, colliders });
   }
 
   removeBody(id: number): void {
     const e = this.bodies.get(id);
     if (!e) return;
-    for (const c of e.colliders) { this.byCollider.delete(c.handle); this.fresh.delete(c); }
+    for (const c of e.colliders) { this.byCollider.delete(c.handle); this.boxOf.delete(c.handle); this.fresh.delete(c); }
     this.world.removeRigidBody(e.body);
     this.bodies.delete(id);
     this.forces.delete(id);
@@ -179,40 +247,29 @@ export class RapierEngine implements PhysicsEngine {
 
   // ------------------------------------------------------------------ queries
 
-  private queryShape(b: ColliderBox): R.Shape {
-    const k = `${b.hw}|${b.hh}|${b.radius}`;
-    let s = this.queryShapes.get(k);
-    if (!s) { s = new this.R.RoundCuboid(Math.max(b.hw, 0.001), Math.max(b.hh, 0.001), b.radius); this.queryShapes.set(k, s); }
-    return s;
-  }
-
-  /** Bodies whose tower or stone colliders overlap the shape at (x, y, angle), fresh ones included. */
-  private overlap(shape: R.Shape, x: number, y: number, angle: number, out: Set<number>): void {
-    this.world.intersectionsWithShape({ x, y }, angle, shape, c => {
+  /** Bodies whose tower or stone colliders overlap the box at (x, y) turned by `rot`, fresh ones included. */
+  private overlap(q: Box, out: Set<number>): void {
+    const test = (c: R.Collider): void => {
+      if (!((c.collisionGroups() >>> 16) & (CAT_TOWER | CAT_STATIC))) return;
       const id = this.byCollider.get(c.handle);
-      if (id !== undefined) out.add(id);
-      return true;
-    }, undefined, QUERY);
-    for (const c of this.fresh) {
-      const g = c.collisionGroups();
-      if (!((g >>> 16) & (CAT_TOWER | CAT_STATIC))) continue;
-      if (c.intersectsShape(shape, { x, y }, angle)) {
-        const id = this.byCollider.get(c.handle);
-        if (id !== undefined) out.add(id);
-      }
-    }
+      if (id === undefined || out.has(id)) return;
+      const t = this.transform(id);
+      if (boxesOverlap(q, worldBox(this.boxOf.get(c.handle)!, t.x, t.y, t.c, t.s))) out.add(id);
+    };
+    const ex = Math.abs(q.c) * q.hw + Math.abs(q.s) * q.hh + q.r, ey = Math.abs(q.s) * q.hw + Math.abs(q.c) * q.hh + q.r;
+    this.world.collidersWithAabbIntersectingAabb({ x: q.x, y: q.y }, { x: ex + 0.01, y: ey + 0.01 }, c => { test(c); return true; });
+    for (const c of this.fresh) test(c);
   }
 
   overlapBoxes(boxes: ColliderBox[], x: number, y: number, rot: Rot): number[] {
     const out = new Set<number>();
-    const angle = angleOf(rot);
-    for (const b of boxes) this.overlap(this.queryShape(b), x + rot.c * b.cx - rot.s * b.cy, y + rot.s * b.cx + rot.c * b.cy, angle, out);
+    for (const b of boxes) this.overlap(worldBox(b, x, y, rot.c, rot.s), out);
     return [...out];
   }
 
   overlapPoint(x: number, y: number, half = 0.02): number[] {
     const out = new Set<number>();
-    this.overlap(this.queryShape({ cx: 0, cy: 0, hw: half, hh: half, radius: 0 }), x, y, 0, out);
+    this.overlap({ x, y, c: 1, s: 0, hw: half, hh: half, r: 0 }, out);
     return [...out];
   }
 
@@ -287,14 +344,19 @@ export class RapierEngine implements PhysicsEngine {
       const err = qs * w.rc - qc * w.rs;
       const imA = dynA ? A.invMass() : 0, imB = dynB ? B.invMass() : 0;
       const iiA = dynA ? A.invPrincipalInertia() : 0, iiB = dynB ? B.invPrincipalInertia() : 0;
-      const om = TWO_PI * w.hertz;
-      const m = 1 / (imA + imB), I = iiA + iiB > 0 ? 1 / (iiA + iiB) : 0;
-      const kL = m * om * om, cL = 2 * w.damping * m * om;
+      const om = TWO_PI * HERTZ_MATCH * w.hertz;
+      // The point mass matrix at the anchor (lever arms included), inverted, as Box2D's weld does.
+      const k11 = imA + imB + iiA * ray * ray + iiB * rby * rby;
+      const k12 = -iiA * rax * ray - iiB * rbx * rby;
+      const k22 = imA + imB + iiA * rax * rax + iiB * rbx * rbx;
+      const det = k11 * k22 - k12 * k12, inv = det > 0 ? 1 / det : 0;
+      const I = iiA + iiB > 0 ? 1 / (iiA + iiB) : 0;
+      const sx = om * om * dx + 2 * w.damping * om * rvx, sy = om * om * dy + 2 * w.damping * om * rvy;
+      const fx = inv * (k22 * sx - k12 * sy), fy = inv * (k11 * sy - k12 * sx);
       const kA = I * om * om, cA = 2 * w.damping * I * om;
-      const fx = kL * dx + cL * rvx, fy = kL * dy + cL * rvy;
       const tq = kA * err + cA * (wb - wa);
-      w.force = kL * Math.sqrt(dx * dx + dy * dy);
-      w.torque = kA * Math.abs(err);
+      w.force = Math.sqrt(fx * fx + fy * fy);
+      w.torque = Math.abs(tq);
       // A sleeping side stays asleep while the spring is slack, the way a resting island would.
       const slack = Math.abs(dx) + Math.abs(dy) < 0.002 && Math.abs(err) < 0.002;
       if (dynA && !(sleepA && slack)) {
@@ -359,6 +421,7 @@ export class RapierEngine implements PhysicsEngine {
     this.bodies.clear();
     this.welds.clear();
     this.byCollider.clear();
+    this.boxOf.clear();
     this.fresh.clear();
     this.world.free();
     this.events.free();

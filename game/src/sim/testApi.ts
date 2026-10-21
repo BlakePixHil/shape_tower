@@ -6,7 +6,7 @@ import { Sim, registerEngine, type Ghost, type Intent, type LoggedInput, type Pi
 import type { Tuning } from './tuning.ts';
 
 // The bake-off's contender (gameplay.md §15): tests pick it with engine: 'rapier' (QA_ENGINE=rapier).
-await initRapier();
+await initRapier(() => import('@dimforge/rapier2d-deterministic-compat'));
 registerEngine('rapier', s => new RapierEngine(s));
 /** SIM_ENGINE=rapier runs a whole suite on Rapier (npm run sim:smoke, for the bake-off). */
 const DEFAULT_ENGINE: 'box2d' | 'rapier' = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env.SIM_ENGINE === 'rapier' ? 'rapier' : 'box2d';
