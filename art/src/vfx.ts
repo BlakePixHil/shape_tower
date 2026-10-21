@@ -7,6 +7,9 @@ import { ART_SHAPES } from './shapes.ts';
 import { BUNTING_KEYS } from './checkpoint.ts';
 import { type Ctx, TAU, circ, ctx2d, hash, makeCanvas, rr } from './util.ts';
 
+/** Width and height in blocks of the effects that aren't square (VFX holds the larger side). */
+const VFX_BOX: Partial<Record<keyof typeof VFX, [number, number]>> = { sweep: [1.3, 3.5], gust: [2.4, 0.62] };
+
 /** Natural size of each effect in blocks (the larger side). */
 export const VFX = {
   dot: 0.4,         // soft round: dust, glows, fireworks (tint)
@@ -25,6 +28,13 @@ export const VFX = {
   confetti: 0.2,    // a square with an Ink edge (tint shape colors)
   orb: 0.36,        // XP orb, violet
   rays: 2,          // sunburst for level-ups and big moments (tint)
+  // Power-ups (gameplay.md §13)
+  sweep: 3.5,       // Clean Slate's broom stroke: a tall band with bristle streaks, bright edge on the right (tint, move it left to right)
+  honey: 0.32,      // Glue's honey drop, amber, point up
+  spark: 0.4,       // a short streak with a bright head pointing +x: Glue's bond sparks (tint gold, rotate to the velocity)
+  ripple: 1.2,      // two thin rings: Slow-Mo and Second Wind starting (tint)
+  gust: 2.4,        // a wind streak that curls at its right end: Second Wind's gust (tint, move it left to right)
+  shard: 0.3,       // a curved sliver of bubble film for the bubble's burst (tint)
 } as const;
 
 export type VfxName = keyof typeof VFX | `mini_${(typeof BUNTING_KEYS)[number]}`;
@@ -60,7 +70,9 @@ export function bakeVfx(name: VfxName, s: number): HTMLCanvasElement {
     for (const [x, y] of cells) c.fillRect(pad + x * u + pt * 0.3, pad + (h - 1 - y) * u + pt * 0.3, u - pt * 0.6, u * 0.25);
     return cv;
   }
-  const n = name as keyof typeof VFX, size = Math.ceil(VFX[n] * s + 4 * pt), cv = makeCanvas(size, size), c = ctx2d(cv), m = size / 2, r = VFX[n] * s / 2;
+  const n = name as keyof typeof VFX, box = VFX_BOX[n];
+  if (box) return bakeLong(n, box[0] * s, box[1] * s, pt);
+  const size = Math.ceil(VFX[n] * s + 4 * pt), cv = makeCanvas(size, size), c = ctx2d(cv), m = size / 2, r = VFX[n] * s / 2;
   switch (n) {
     case 'dot': soft(c, m, m, r, [[0, 1], [0.6, 0.8], [1, 0]]); break;
     case 'dotHard': c.fillStyle = '#FFFFFF'; c.beginPath(); circ(c, m, m, r); c.fill(); break;
@@ -129,6 +141,70 @@ export function bakeVfx(name: VfxName, s: number): HTMLCanvasElement {
       }
       break;
     }
+    case 'honey': {
+      // A drop falling point-up, with a bright cap and an Ink edge so it reads on any sky.
+      const b = r * 0.6, by = m + r * 0.32;
+      c.beginPath(); c.moveTo(m, m - r);
+      c.bezierCurveTo(m + r * 0.15, m - r * 0.45, m + b, by - b * 0.6, m + b, by);
+      c.arc(m, by, b, 0, Math.PI);
+      c.bezierCurveTo(m - b, by - b * 0.6, m - r * 0.15, m - r * 0.45, m, m - r);
+      const g = c.createLinearGradient(0, m - r, 0, by + b);
+      g.addColorStop(0, '#FFD27A'); g.addColorStop(0.55, SIGNAL.amber); g.addColorStop(1, '#E07F12');
+      c.fillStyle = g; c.fill(); c.lineWidth = 1.4 * pt; c.lineJoin = 'round'; c.strokeStyle = INK; c.stroke();
+      c.fillStyle = 'rgba(255,255,255,0.85)'; c.beginPath(); c.ellipse(m - b * 0.38, by - b * 0.25, b * 0.2, b * 0.3, 0.4, 0, TAU); c.fill();
+      break;
+    }
+    case 'spark': {
+      const g = c.createLinearGradient(m - r, 0, m + r, 0);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.7, 'rgba(255,255,255,0.8)'); g.addColorStop(1, 'rgba(255,255,255,1)');
+      const w = 0.07 * s;
+      c.fillStyle = g; c.beginPath(); c.moveTo(m - r, m); c.lineTo(m + r * 0.7, m - w / 2); c.arc(m + r * 0.7, m, w / 2, -Math.PI / 2, Math.PI / 2); c.closePath(); c.fill();
+      soft(c, m + r * 0.7, m, r * 0.3, [[0, 1], [0.4, 0.6], [1, 0]]);
+      break;
+    }
+    case 'ripple':
+      c.strokeStyle = '#FFFFFF';
+      c.beginPath(); circ(c, m, m, r - 2 * pt); c.lineWidth = 2 * pt; c.stroke();
+      c.globalAlpha = 0.6; c.beginPath(); circ(c, m, m, r * 0.7); c.lineWidth = 1.5 * pt; c.stroke(); c.globalAlpha = 1;
+      break;
+    case 'shard':
+      c.strokeStyle = '#FFFFFF'; c.lineCap = 'round'; c.lineWidth = 2.4 * pt;
+      c.beginPath(); c.arc(m, m + r * 0.9, r * 1.5, -Math.PI / 2 - 0.5, -Math.PI / 2 + 0.5); c.stroke();
+      break;
+  }
+  return cv;
+}
+
+/** The two long effects: Clean Slate's sweep (tall) and Second Wind's gust (wide). Origin: centre. */
+function bakeLong(n: keyof typeof VFX, w: number, h: number, pt: number): HTMLCanvasElement {
+  const pad = Math.ceil(2 * pt), cv = makeCanvas(w + pad * 2, h + pad * 2), c = ctx2d(cv);
+  c.translate(pad, pad);
+  if (n === 'sweep') {
+    // A soft band, brightest at its leading (right) edge, combed with bristle streaks.
+    const g = c.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.6, 'rgba(255,255,255,0.45)'); g.addColorStop(0.88, 'rgba(255,255,255,0.95)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    const v = c.createLinearGradient(0, 0, 0, h);
+    v.addColorStop(0, 'rgba(0,0,0,1)'); v.addColorStop(0.12, 'rgba(0,0,0,0)'); v.addColorStop(0.88, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,1)');
+    c.fillStyle = g; c.fillRect(0, 0, w, h);
+    c.lineCap = 'round';
+    for (let i = 0; i < 14; i++) {
+      const x = w * (0.15 + 0.8 * hash(i * 3.1)), y0 = h * (0.04 + 0.2 * hash(i * 5.7)), y1 = h * (0.76 + 0.2 * hash(i * 7.3));
+      c.strokeStyle = `rgba(255,255,255,${0.35 + 0.5 * hash(i * 9.1)})`; c.lineWidth = (1.2 + 1.8 * hash(i * 2.3)) * pt;
+      c.beginPath(); c.moveTo(x - w * 0.12, y0); c.quadraticCurveTo(x, (y0 + y1) / 2, x - w * 0.12, y1); c.stroke();
+    }
+    // Fade the top and bottom ends.
+    c.globalCompositeOperation = 'destination-out'; c.fillStyle = v; c.fillRect(0, 0, w, h); c.globalCompositeOperation = 'source-over';
+  } else {
+    // A streak that thickens to the right and curls up at its head.
+    const y = h * 0.62, cr = h * 0.3, hx = w - cr - 3 * pt;
+    const g = c.createLinearGradient(0, 0, w, 0);
+    g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.45, 'rgba(255,255,255,0.7)'); g.addColorStop(1, 'rgba(255,255,255,1)');
+    c.strokeStyle = g; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.lineWidth = 3 * pt;
+    c.beginPath(); c.moveTo(0, y); c.lineTo(hx, y); c.arc(hx, y - cr, cr, Math.PI / 2, -Math.PI * 0.95, true); c.stroke();
+    c.lineWidth = 1.6 * pt; c.globalAlpha = 0.7;
+    c.beginPath(); c.moveTo(w * 0.25, y + h * 0.24); c.lineTo(hx - cr * 0.6, y + h * 0.24); c.stroke();
+    c.globalAlpha = 1;
   }
   return cv;
 }

@@ -26,6 +26,8 @@ export interface DisplayLike {
 
 export interface ImageLike extends DisplayLike {
   setCrop(x?: number, y?: number, width?: number, height?: number): this;
+  /** Phaser.BlendModes: 0 normal, 1 add. */
+  setBlendMode(value: number): this;
 }
 
 export interface TileSpriteLike extends DisplayLike {
