@@ -19,13 +19,18 @@ if [ -d "$R/game" ]; then
   run "game: typecheck" bash -c 'cd game && npm run -s typecheck'
   run "game: sim smoke" bash -c 'cd game && npm run -s sim:smoke'
   run "game: gesture check" bash -c 'cd game && npm run -s gesture:check'
+  # Achievement rules and the Daily Tower's days, seeds and attempts, in Node (#37, #60).
+  for c in achievements:check daily:check; do
+    grep -q "\"$c\"" "$R/game/package.json" && run "game: ${c/:/ }" bash -c "cd game && npm run -s $c"
+  done
   run "game: build" bash -c 'cd game && npm run -s build'
   if grep -q '"build:game"' "$R/game/package.json"; then
     run "game: build game page" bash -c 'cd game && npm run -s build:game'
     # The built game played headless through every screen, its power-ups from the HUD, a run down to
     # its last shapes (the shapes-left warnings, #51), the level-up celebration with its avatar picker,
-    # and a Zen run through pause, Finish, the summary and back to Endless (#57).
-    for t in game-check power-check budget-check avatar-check zen-check; do
+    # a Zen run through pause, Finish, the summary and back to Endless (#57), the achievements' toast,
+    # strip, tally and panel (#37), and the Daily Tower's card, attempts and played day (#60).
+    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check; do
       [ -f "$R/game/tests/$t.mjs" ] && run "game: $t" bash -c "cd game && node tests/$t.mjs"
     done
   fi
