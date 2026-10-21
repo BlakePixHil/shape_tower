@@ -19,7 +19,9 @@ export interface BedParams {
   levelDb: number;
 }
 
-export type Sweetener = 'bird' | 'leaves' | 'thunder' | 'jet' | 'satellite' | 'crackle' | 'rover' | 'chime' | 'pulsar';
+export type Sweetener =
+  | 'bird' | 'cricket' | 'sheep' | 'leaves' | 'woodpecker' | 'squirrel'
+  | 'thunder' | 'jet' | 'satellite' | 'crackle' | 'rover' | 'chime' | 'pulsar';
 
 export interface BiomeAudio {
   id: number;
@@ -38,12 +40,14 @@ export const BIOMES: BiomeAudio[] = [
   {
     id: 1, name: 'Meadow', key: { root: 72, mode: 'major' }, material: 'wood', air: 0.1,
     bed: { color: 'brown', lowpass: 900, highpass: 120, modRate: 0.08, modDepth: 0.5, levelDb: -30 },
-    sweeteners: ['bird', 'bird', 'bird'], lastCheckpoint: 2,
+    // birdsong, breeze, crickets, a distant sheep (audio section 4.4)
+    sweeteners: ['bird', 'bird', 'bird', 'cricket', 'bird', 'cricket', 'sheep'], lastCheckpoint: 2,
   },
   {
     id: 2, name: 'Treetops', key: { root: 67, mode: 'major' }, material: 'wood', air: 0.14,
     bed: { color: 'white', lowpass: 2600, highpass: 600, modRate: 0.15, modDepth: 0.6, levelDb: -34 },
-    sweeteners: ['bird', 'leaves', 'bird'], lastCheckpoint: 4,
+    // rustling leaves, a woodpecker, chattering squirrels
+    sweeteners: ['leaves', 'bird', 'leaves', 'woodpecker', 'bird', 'squirrel'], lastCheckpoint: 4,
   },
   {
     id: 3, name: 'Cloudlands', key: { root: 74, mode: 'major' }, material: 'rubber', air: 0.32,

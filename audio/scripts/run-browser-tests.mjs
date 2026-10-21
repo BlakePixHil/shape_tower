@@ -157,10 +157,10 @@ checks.screens = (r) => {
   assert.ok(r.afterDb < -70, `'none' fades it out (${r.afterDb} dB)`);
 };
 
-const FLOURISHES = ['shimmer', 'confetti', 'firework', 'kaching', 'swell', 'stonewave', 'foundation', 'phew', 'lockon', 'bond.tink', 'drumroll', 'entry.'];
+const FLOURISHES = ['shimmer', 'confetti', 'firework', 'kaching', 'swell', 'stonewave', 'foundation', 'phew', 'lockon', 'bond.tink', 'drumroll', 'entry.', 'voice.'];
 checks.juice = (r) => {
   const has = (names, n) => names.some((x) => x === n || (n.endsWith('.') && x.startsWith(n)));
-  for (const n of ['shimmer', 'confetti', 'kaching', 'lockon', 'firework']) assert.ok(has(r.on.names, n), `juice on plays ${n}`);
+  for (const n of ['shimmer', 'confetti', 'kaching', 'lockon', 'firework', 'voice.yay']) assert.ok(has(r.on.names, n), `juice on plays ${n}`);
   for (const n of FLOURISHES) assert.ok(!has(r.off.names, n), `juice off drops ${n} (${r.off.names.join(' ')})`);
   for (const n of ['settle', 'flag', 'row.clack', 'heartpop', 'bubble.pop', 'windgust', 'gust.warn', 'gust.push', 'impact.']) {
     assert.ok(has(r.off.names, n), `juice off keeps ${n} (${r.off.names.join(' ')})`);
@@ -176,6 +176,15 @@ checks.restart = (r) => {
   assert.ok(!r.between.running && r.between.mode === 'off', 'connecting a new bus closes it quietly');
   assert.ok(r.after.running && r.after.checkpoint === 0 && r.after.mode === 'run' && r.after.base === 'playing', 'the new sim gets a fresh run');
   assert.equal(r.starts, 2, 'and a fresh band');
+};
+
+checks.voices = (r) => {
+  assert.equal(r.nonFinite, 0, 'no NaN');
+  assert.deepEqual(r.said.map((v) => v.name), ['whee', 'oof', 'yay', 'yay', 'fall', 'aww'], `the right reaction at each moment, one every 4 s (${JSON.stringify(r.said)})`);
+  assert.ok(r.said.every((v) => v.bus === 'voices'), 'voices play on their own bus, under their own slider');
+  const st = (x) => 12 * Math.log2(x);
+  assert.ok(Math.abs(st(r.said[0].rate) - 5) < 0.1 && Math.abs(st(r.said[1].rate) + 5) < 0.1, `a Gumdrop squeaks and a Plank grumbles (${r.said[0].rate}, ${r.said[1].rate})`);
+  assert.ok(Math.abs(r.said[2].t - 7.3) < 0.01 && r.said[3].t > r.said[2].t, 'a checkpoint gets a little chorus of yays');
 };
 
 checks.sim = (r) => {

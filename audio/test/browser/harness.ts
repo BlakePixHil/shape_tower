@@ -1,7 +1,7 @@
 // Runs inside headless Chromium. Each scenario drives a real AudioDirector on an
 // OfflineAudioContext, renders the result and returns numbers for the runner to check.
 
-import { AudioDirector } from '../../src/director';
+import { AudioDirector, TUNING } from '../../src/director';
 import { MUSIC_TUNING } from '../../src/music/engine';
 import { connectJuiceBus } from '../../src/juicebus';
 import { FULL_CAPS, FULL_GLOBAL_CAP } from '../../src/voices';
@@ -539,6 +539,37 @@ const scenarios = {
     b.emit('piece_spawned', {});
     const after = { running: (d as any).running, checkpoint: (d as any).checkpointN, mode: d.music.mode, base: d.mixer.state().base };
     return { before, between, after, starts: d.music.log.filter((e) => e.what === 'run start').length };
+  },
+
+  /** Shape voices: the right reaction for each moment, one every 4 s at most, pitched per shape, on their own bus. */
+  async voices() {
+    const { ctx, d } = await makeDirector(15);
+    const saved = TUNING.wheeChance;
+    TUNING.wheeChance = 1;
+    const said: { t: number; name: string; bus?: string; rate?: number }[] = [];
+    const target = d as unknown as { play: (name: string, o?: { when?: number; bus?: string; rate?: number }) => unknown };
+    const orig = target.play.bind(d);
+    target.play = (name, o) => {
+      if (name.startsWith('voice.')) said.push({ t: o?.when ?? 0, name: name.slice(6), bus: o?.bus, rate: o?.rate });
+      return orig(name, o);
+    };
+    try {
+      const ev: [number, string, Record<string, unknown>][] = [
+        [0.1, 'piece_spawned', { shape: 'Domino' }], [0.5, 'hard_drop', { distance: 8 }],
+        [1, 'piece_landed', { impact: 0.9, shape: 'Domino', x: 0 }],
+        [5, 'piece_landed', { impact: 0.9, shape: 'Plank', x: 2 }],
+        [6, 'piece_landed', { impact: 0.3, shape: 'T', x: 0 }],
+        [7, 'checkpoint_claimed', { n: 1, leftover: 0 }],
+        [8, 'piece_lost', { shape: 'T' }],
+        [12, 'piece_lost', { shape: 'O' }],
+        [13, 'run_over', { cause: 'hearts' }],
+      ];
+      for (const [t, n, p] of ev) d.handle(n, p, t);
+      const buf = await ctx.startRendering();
+      return { said, nonFinite: analyse(buf).nonFinite, peak: analyse(buf).peak };
+    } finally {
+      TUNING.wheeChance = saved;
+    }
   },
 };
 
