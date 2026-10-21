@@ -1,4 +1,4 @@
-// Second Wind in the real HUD (qa-section.md F18.11, gameplay.md §13.3 and the monetisation plan's
+// Second Wind in the real HUD (qa-section.md F18.11 and F18.12, gameplay.md §13.3 and the monetisation plan's
 // "Second chance"): drives a built game in headless Chromium and checks the two-tap arming, the
 // glow, that no pop-up offers it at pause or game over, the greyed "CP 2" state, and the day's
 // free one (profile.windDay, spent on the first landing).
