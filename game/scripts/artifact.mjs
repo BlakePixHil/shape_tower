@@ -12,7 +12,9 @@ const head = src.match(/<head>([\s\S]*?)<\/head>/)?.[1] ?? '';
 const body = src.match(/<body>([\s\S]*?)<\/body>/)?.[1] ?? '';
 const title = head.match(/<title>[\s\S]*?<\/title>/)?.[0] ?? '<title>Shape Tower Wobble Lab</title>';
 const links = head.match(/<link[^>]*fonts\.(googleapis|gstatic)[^>]*>/g) ?? [];
-const styles = head.match(/<style>[\s\S]*?<\/style>/g) ?? [];
+// Every <style>, with or without attributes: the single-file build inlines linked sheets (the loading
+// splash's) as <style rel="stylesheet" crossorigin>.
+const styles = head.match(/<style\b[^>]*>[\s\S]*?<\/style>/g) ?? [];
 const scripts = head.match(/<script\b[\s\S]*?<\/script>/g) ?? [];
 if (!scripts.length) throw new Error(`no inline script found in ${from.pathname}`);
 writeFileSync(out, [title, ...links, ...styles, body.trim(), ...scripts].join('\n'));
