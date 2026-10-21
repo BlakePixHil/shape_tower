@@ -35,6 +35,28 @@ export interface BackdropPart {
   wrapY?: number;
   /** Rotation sway amplitude in radians (kites). */
   sway?: number;
+  /** Vertical drift in px/s, for falling rain or a rising balloon. Needs wrapY (or tile) to keep coming. */
+  fall?: number;
+  /**
+   * With wrapY: the canvas is a vertical tile whose content repeats every wrapY px and is wrapY + H
+   * tall, so it always covers the screen (rain, nebulae).
+   */
+  tile?: boolean;
+  /** Animation frames (the first is `canvas`) and their rate. */
+  frames?: HTMLCanvasElement[];
+  fps?: number;
+  /** Repeating flash: visible only for `dur` s every `every` s, peaking at `alpha` (far lightning, a beacon). Hidden under reduce motion. */
+  flash?: { every: number; dur: number; alpha: number; offset?: number };
+  /** Slow alpha shimmer: [Hz, lowest alpha factor] (aurora). */
+  pulse?: [number, number];
+  /** On the biome's arrival: rise from dy px below over dur s and/or fade in, after delay s. */
+  enter?: { dy?: number; dur: number; delay?: number; fade?: boolean };
+  /** Drawn in front of the playfield at the Backdrop's frontDepth. Keep these to the screen edges. */
+  front?: boolean;
+  /** Texture px per screen px relative to k, for soft art baked at low resolution (nebulae). Default 1. */
+  res?: number;
+  /** Deep Cosmos: shown only while this nebula palette is current (cross-fades on change). */
+  palette?: number;
 }
 
 export function cloud(c: Ctx, x: number, y: number, r: number, fill: string): void {
