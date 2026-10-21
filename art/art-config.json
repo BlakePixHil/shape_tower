@@ -830,6 +830,32 @@
     ],
     "checkpointsPerPalette": 6
   },
+  "wind": {
+    "sizes": {
+      "curl": [
+        2.1,
+        0.9
+      ],
+      "streak": [
+        3.4,
+        0.34
+      ],
+      "leaf": [
+        0.36,
+        0.36
+      ],
+      "wisp": [
+        1,
+        0.44
+      ]
+    },
+    "variants": {
+      "curl": 3,
+      "streak": 3,
+      "leaf": 3,
+      "wisp": 2
+    }
+  },
   "ui": {
     "badgeTiers": [
       {
@@ -1006,6 +1032,38 @@
       "meteor",
       "swirl",
       "plumb"
-    ]
+    ],
+    "hazards": {
+      "gust": {
+        "icon": "wind",
+        "title": "Gusts ahead!",
+        "tip": "Keep it wide."
+      },
+      "crosswind": {
+        "icon": "wind",
+        "title": "Crosswind!",
+        "tip": "Build into the wind."
+      },
+      "junk": {
+        "icon": "junk",
+        "title": "Space junk!",
+        "tip": "Watch the target."
+      },
+      "meteor": {
+        "icon": "meteor",
+        "title": "Meteor shower!",
+        "tip": "Keep the top solid."
+      },
+      "dust": {
+        "icon": "swirl",
+        "title": "Dust devils!",
+        "tip": "Keep the top low and wide."
+      },
+      "sway": {
+        "icon": "plumb",
+        "title": "Tidal sway!",
+        "tip": "Build down the middle."
+      }
+    }
   }
 }
