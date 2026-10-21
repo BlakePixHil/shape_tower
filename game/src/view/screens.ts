@@ -10,7 +10,7 @@ import {
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
 import type { Award, Profile } from './profile.ts';
-import { achievementsPanel, profileRow, summaryStrip } from './trophies.ts';
+import { achievementCount, achievementsPanel, summaryStrip } from './trophies.ts';
 import type { PlayerSettings } from './settings.ts';
 import { INK, INK_SOFT } from './palette.ts';
 
@@ -182,11 +182,9 @@ export class Screens {
       name: this.playerName, ...xpOf(p), avatar: p.avatar,
       stats: { bestHeight: st.bestHeight, bestBiome: Math.max(0, st.bestBiome - 1), bricks: st.bricks, perfects: st.perfects, rows: st.rows, checkpoints: st.checkpoints, runs: p.runs, streak: p.streak },
       postcards: p.postcards,
+      // Achievements (gameplay.md §18.3): a row under the stats opens the panel.
+      achievements: achievementCount(p),
     });
-    // Achievements (gameplay.md §18.3): a row under the stats opens the panel.
-    const row = profileRow(p);
-    const cards = el.querySelector('.ui-cards');
-    if (cards?.previousElementSibling) cards.previousElementSibling.before(row); else el.querySelector('.ui-panel')?.appendChild(row);
     const back = () => this.profile(p, onBack, onSave);
     this.open('profile', el, { close: onBack, avatar: () => this.avatar(p, back, onSave), achievements: () => this.achievements(p, back) });
   }

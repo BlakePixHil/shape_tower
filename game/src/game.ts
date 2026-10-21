@@ -2,7 +2,7 @@
 // settings, on the same shell as the Wobble Lab. Tuning is gameplay.md §14's defaults; the only
 // per-player changes are the level unlocks (§10.3), gentle first runs (§8.4) and Settings.
 
-import { JUICE_EVENTS, type AudioDirector } from '@audio';
+import type { AudioDirector } from '@audio';
 import { BY_ID, RunTracker, grantHistory, grantStreaks, payAchievements, type Achievement } from './meta/achievements.ts';
 import type { Sim } from './sim/sim.ts';
 import { biomeFor, type Tuning } from './sim/tuning.ts';
@@ -73,12 +73,8 @@ async function boot(): Promise<void> {
   });
   const { scene, hud } = shell;
   const audio = () => shell.audio as Director | null;
-  // Sound's achievement sting once it ships (it adds the event to JUICE_EVENTS); the UI badge stamp until then.
-  unlockSound = (a, inRun) => {
-    const au = audio();
-    if ((JUICE_EVENTS as readonly string[]).includes('achievement')) au?.handle('achievement', { id: a.id, tier: a.tier, inRun });
-    else au?.ui('badge');
-  };
+  // Sound's achievement sting: a stamp and a sparkle that grows with the tier.
+  unlockSound = (a, inRun) => audio()?.handle('achievement', { id: a.id, tier: a.tier, inRun });
   (window as unknown as { __wobble: Record<string, unknown> }).__wobble.profile = profile;
   // For QA's browser checks: the toasts and this run's achievement tracker.
   (window as unknown as { __wobble: Record<string, unknown> }).__wobble.trophies = { toasts, get tracker() { return tracker; } };
