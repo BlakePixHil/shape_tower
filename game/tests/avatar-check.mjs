@@ -68,22 +68,31 @@ const celebrate = juice => page.evaluate(async juice => {
   sc.applyView({ ...sc.view, juice });
   const orig = sc.hooks.onJuice; let activeAfter = null;
   sc.hooks.onJuice = (n, p) => { names.push(n); orig?.(n, p); if (n === 'height_milestone') setTimeout(() => { activeAfter = sc.party.active; }, 0); };
-  sc.nextMilestone = sc.sim.height().committed + 0.5; sc.bestHeight = sc.sim.height().committed + 1.2; sc.pbCrossed = false;
   const sim = sc.sim;
-  for (let i = 0; i < 40 && !(names.includes('height_milestone') && names.includes('pb_crossed')); i++) {
-    if (sim.ctrl && !sim.ctrl.hard) { sim.intent({ type: 'moveTo', x: -2 + (i % 4) }); sim.intent({ type: 'hardDrop' }); }
-    await new Promise(r => setTimeout(r, 400));
+  sim.tuning.infiniteHearts = true; // nothing this test drops may end the run
+  sc.nextMilestone = sim.height().committed + 0.5; sc.bestHeight = sim.height().committed + 1.2; sc.pbCrossed = false;
+  // Stack over the foundation's middle until both fire. A loaded machine runs few frames, so this
+  // waits on the events, up to a minute, not on a fixed number of drops.
+  const until = Date.now() + 60_000;
+  for (let i = 0; Date.now() < until && sim.state === 'playing' && !(names.includes('height_milestone') && names.includes('pb_crossed')); i++) {
+    if (sim.ctrl && !sim.ctrl.hard) { sim.intent({ type: 'moveTo', x: sim.foundation.x - 1 + (i % 3) }); sim.intent({ type: 'hardDrop' }); }
+    await new Promise(r => setTimeout(r, 300));
   }
   await new Promise(r => setTimeout(r, 50));
   sc.hooks.onJuice = orig;
-  return { names: names.filter(n => n === 'height_milestone' || n === 'pb_crossed'), activeAfter, next: sc.nextMilestone };
+  return { names: names.filter(n => n === 'height_milestone' || n === 'pb_crossed'), activeAfter, playing: sim.state === 'playing' };
 }, juice);
 const on = await celebrate(true);
 await page.screenshot({ path: `${out}/07-celebration.png` });
 step('juice on: a milestone and a crossed best fire their events, and a celebration plays', on.names.includes('height_milestone') && on.names.includes('pb_crossed') && on.activeAfter === true, JSON.stringify(on));
-await page.waitForTimeout(6000);
-const off = await celebrate(false);
-step('juice off: the events still fire for Sound, with no celebration', off.names.includes('height_milestone') && off.activeAfter === false, JSON.stringify(off));
+// Wait for the juice-on celebration to finish (wall time varies with load), then the same with juice off.
+const quiet = await page.waitForFunction(() => !window.__wobble.scene.party.active, null, { timeout: 30000, polling: 250 }).then(() => true, () => false);
+const live = await page.evaluate(() => window.__wobble.scene.sim.state === 'playing');
+if (!quiet || !live) step('juice off: the run is still going and the last celebration has finished', false, `celebration finished ${quiet}, run playing ${live}`);
+else {
+  const off = await celebrate(false);
+  step('juice off: the events still fire for Sound, with no celebration', off.names.includes('height_milestone') && off.activeAfter === false, JSON.stringify(off));
+}
 await browser.close();
 const failed = [...steps.filter(s => !s.ok).map(s => s.name), ...errors];
 console.log(JSON.stringify({ failed, errors }, null, 1));
