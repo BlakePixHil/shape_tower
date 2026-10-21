@@ -23,8 +23,9 @@ if [ -d "$R/game" ]; then
   if grep -q '"build:game"' "$R/game/package.json"; then
     run "game: build game page" bash -c 'cd game && npm run -s build:game'
     # The built game played headless through every screen, its power-ups from the HUD, a run down to
-    # its last shapes (the shapes-left warnings, #51) and the level-up celebration with its avatar picker.
-    for t in game-check power-check budget-check avatar-check; do
+    # its last shapes (the shapes-left warnings, #51), the level-up celebration with its avatar picker,
+    # and a Zen run through pause, Finish, the summary and back to Endless (#57).
+    for t in game-check power-check budget-check avatar-check zen-check; do
       [ -f "$R/game/tests/$t.mjs" ] && run "game: $t" bash -c "cd game && node tests/$t.mjs"
     done
   fi
