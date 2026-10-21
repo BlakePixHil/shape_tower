@@ -3,6 +3,8 @@
 # (a PR head, a trial merge, or main after a merge). There is no CI, so this is what "the tests
 # pass" means before a thread merges.
 # Usage: qa/scripts/gate.sh [checkout]   (default: this repo)
+# QA_FONTS=<dir> serves Fredoka and Nunito from a local fonts.css and its .woff2 files to the UI
+# screen check, for machines whose headless browser can't reach Google Fonts.
 R=$(cd "${1:-$(dirname "$0")/../..}" && pwd) || exit 2
 log=$(mktemp)
 status=0
@@ -18,10 +20,20 @@ if [ -d "$R/game" ]; then
   run "game: sim smoke" bash -c 'cd game && npm run -s sim:smoke'
   run "game: gesture check" bash -c 'cd game && npm run -s gesture:check'
   run "game: build" bash -c 'cd game && npm run -s build'
+  if grep -q '"build:game"' "$R/game/package.json"; then
+    run "game: build game page" bash -c 'cd game && npm run -s build:game'
+    # The built game played headless through every screen, and its power-ups from the HUD.
+    for t in game-check power-check; do
+      [ -f "$R/game/tests/$t.mjs" ] && run "game: $t" bash -c "cd game && node tests/$t.mjs"
+    done
+  fi
 fi
 if [ -d "$R/art" ]; then
   run "art: npm ci" bash -c 'cd art && npm ci --no-audit --no-fund'
   run "art: typecheck" bash -c 'cd art && npm run -s typecheck'
+  run "art: build" bash -c 'cd art && npm run -s build'
+  # Every UI kit screen at three sizes: tap targets, overflow, cut-off text, page errors.
+  [ -f "$R/qa/scripts/ui-screens.mjs" ] && run "art: UI screens" node qa/scripts/ui-screens.mjs art/dist/index.html qa/reports/ui-screens "${QA_FONTS:-}"
 fi
 if [ -d "$R/audio" ]; then
   run "audio: npm ci" bash -c 'cd audio && npm ci --no-audit --no-fund'

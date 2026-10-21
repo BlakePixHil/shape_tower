@@ -125,9 +125,12 @@ export function benchOnce(build: string, makeWorker: () => Worker): void {
   void db().then(d => {
     if (!d) return; // nowhere to send it; try again where there is
     const w = makeWorker();
-    w.onmessage = (e: MessageEvent<{ ok: boolean; result?: unknown; error?: string }>) => {
+    w.onmessage = (e: MessageEvent<{ ok: boolean; result?: unknown; error?: string; rapier?: unknown; rapierError?: string }>) => {
       w.terminate();
-      const rec = { kind: 'bench', build, at: new Date().toISOString(), device: device(), ok: e.data.ok, result: e.data.result ?? null, error: e.data.error ?? null };
+      const rec = {
+        kind: 'bench', build, at: new Date().toISOString(), device: device(), ok: e.data.ok, result: e.data.result ?? null, error: e.data.error ?? null,
+        rapier: e.data.rapier ?? null, rapierError: e.data.rapierError ?? null,
+      };
       d.collection('bench').doc().set(rec).then(() => { try { localStorage.setItem(key, build); } catch { /* fine */ } }, err => console.warn('bench not saved', err));
     };
     w.onerror = (e: ErrorEvent) => {

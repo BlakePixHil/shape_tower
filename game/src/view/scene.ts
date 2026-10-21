@@ -18,7 +18,7 @@ import { Hud, POWER_NAMES, type HazardWant } from './hud.ts';
 import { Gestures } from './input.ts';
 import type { LabState, ViewSettings } from './panel.ts';
 import type { RunStart } from './records.ts';
-import { AMBER, BIOME_TITLES, CONFETTI, GOLD, INK, MINT, XP_VIOLET, num } from './palette.ts';
+import { AMBER, CONFETTI, GOLD, INK, MINT, XP_VIOLET, num } from './palette.ts';
 
 export interface BusEvent { name: string; step: number; payload: Record<string, unknown> }
 
@@ -39,6 +39,8 @@ export interface SceneHooks {
   onJuice?(name: string, payload: Record<string, unknown>): void;
   /** Whether the new run starts with Second Wind ready (the day's first run, or the upgrade). */
   secondWind?(): SecondWindMode;
+  /** Whether reaching biome `biome` (0 = Meadow) earns its postcard for the first time. */
+  newPostcard?(biome: number): boolean;
 }
 
 interface PieceSprite {
@@ -469,7 +471,7 @@ export class PlayScene extends Phaser.Scene {
         this.backdrop.setCosmos(this.sim.checkpoint); // Deep Cosmos changes palette every 6 checkpoints
         break;
       case 'biome_entered':
-        this.hooks.hud.titleCard(BIOME_TITLES[Number(p.id) - 1] ?? '');
+        this.hooks.hud.biomeTitle(Number(p.id) - 1, { newPostcard: this.hooks.newPostcard?.(Number(p.id) - 1) ?? false, still: this.view.reducedMotion });
         if (this.juice) this.backdrop.arrival(Number(p.id) - 1); // birds for Treetops, the cloud punch-through for Cloudlands
         break;
       case 'bubble_spawned': this.showBubble(now); break;

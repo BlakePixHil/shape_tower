@@ -4,8 +4,10 @@
 import { readFileSync } from 'node:fs';
 import { Box2DEngine } from '../src/sim/engine/box2d.ts';
 import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
-import { createSim, replay, restore } from '../src/sim/testApi.ts';
+import { createSim, replay, restore, useRapier } from '../src/sim/testApi.ts';
 import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor } from '../src/sim/tuning.ts';
+
+if (process.env.SIM_ENGINE === 'rapier') await useRapier();
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {

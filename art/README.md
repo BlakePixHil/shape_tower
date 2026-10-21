@@ -20,14 +20,15 @@ The Shape Tower art kit. Everything is drawn in code with Canvas 2D (no image fi
 | Backdrops | `src/meadow.ts`, `src/treetops.ts`, `src/cloudlands.ts`, `src/storm.ts`, `src/space.ts`, `src/cosmos.ts`, `src/stars.ts` | Parallax layers for all ten biomes: the Meadow (sun, clouds, hills, windmill farmhouse, trees, fence, cow, grass), Treetops (mountains, canopies, balloons, kites, birds), Cloudlands (cloud banks, castle, rainbow, blimp, plane), Storm Belt (thunderheads, far lightning, a weather station, a windsock, rain at the edges), Stratosphere (Earth's curve, a low sun, aurora, a weather balloon), Orbit (Earth's limb, a space station, satellites), Moon (Earthrise, the Moon rising with a flag and a waving astronaut), Red Planet (mesas, a canyon, a rover, dust devils), Ringed Giant (the giant and its ring, ice chunks, ring dust in front at the edges) and Deep Cosmos (four nebula palettes, galaxies, tetromino constellations, a comet, space jellies, four surprise landmarks), plus a three-depth star field. |
 | Effects | `src/vfx.ts` | Particle textures: dust and cloud puffs, stardust, sparkle, impact ring, shockwave, flash, speed line, whoosh, wobble lines, crack, stone chip, confetti and mini-shape confetti, XP orb, rays, and the power-up effects (broom sweep, honey drop, bond spark, ripple, gust, bubble shard). |
 | Power-ups | `src/powers.ts` | Icons for Clean Slate, Quick-Set, Undo, Glue, Slow-Mo and Second Wind, the power bubble, and the CSS for the DOM power bar and Second Wind's states. |
-| UI kit | `src/ui/` | The DOM "sticker toy" UI (art-direction.md §8): `uiCss()` (Paper panels, Ink outlines, buttons that press and bounce, chips, XP bar, toggles, sliders), 43 icons, level badges in seven tiers with titles, the logo, biome postcards, the player's avatar, and builders for the main menu, pause card, run summary, level-up takeover, profile and settings. |
+| UI kit | `src/ui/` | The DOM "sticker toy" UI (art-direction.md §8): `uiCss()` (Paper panels, Ink outlines, buttons that press and bounce, chips, XP bar, toggles, sliders), 43 icons, level badges in seven tiers with titles, the logo, biome postcards, the player's avatar with six hats, and builders for the main menu, pause card, run summary, level-up takeover, profile, avatar picker and settings. |
 | Gusts | `src/wind.ts`, `src/phaser/wind.ts`, `src/ui/hazard.ts` | Curled and long wind streaks, leaves and cloud wisps, `WindView` to play them, and the HUD's hazard chip (countdown ring, push chevrons) and first-appearance card for every hazard. Faces gain a `squint` expression for the tower's top during a gust. |
 | Space hazards | `src/hazards.ts`, `src/phaser/hazards.ts`, `src/ui/hazard.ts` | The later biomes' hazards: target reticle, marching trajectory dashes and incoming streaks (amber, Ink edge), space junk (bolt, solar-panel shard, wrench) with a blinking light, meteors with trails, the dust devil's swirl marker, column and backdrop dim, `HazardFx` to play them, crosswind streaks (`WindView.steady`), the Ringed Giant's backdrop tilt (`Backdrop.setTilt`), and the HUD's windsock and plumb-bob gauges. |
+| Celebrations | `src/celebrate.ts`, `src/phaser/celebrate.ts` | Fireworks in three kinds (peony with mini shapes, tilted ring, gold willow) for crossing the best height, and the milestone celebrations: a balloon release, a rainbow arc and a comet shower. `Celebration` plays them in the background layer. |
 | Altitude rail | `src/ui/rail.ts` | The HUD's altitude rail (biome colors, checkpoint ticks, best-height flag, a Blockling head at the tower's top) and the off-screen chips: gold "▲ 4" for a checkpoint above the view, red "▼" for a piece falling out of it. |
 | Biome title card | `src/ui/biomecard.ts` | `biomeCard(biome)`: on `biome_entered`, a banner in the biome's color drops in under the HUD ("Now entering CLOUDLANDS"), its postcard pops up and gets postmarked, and on a first visit a "New postcard!" chip pops under it. |
 | Brand | `src/brand.ts` | `bakeAppIcon(px, layer)` (the store icon, or Android's adaptive background and foreground), `bakeSplash(w, h)`, and `bakeShareCard(data)` for the run's share image around the money shot. |
 | Money shot | `src/panorama.ts` | `bakePanorama(tower, w, h)`: the whole run in one still, the sky climbing through every biome reached with each biome's props, the tower whole (stone below the last claim), its slabs, a gold flag at every claimed checkpoint and the best-height line. The share card frames it. |
-| Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `PowerBubble`, `WindView`, `HazardFx`, `Backdrop`. |
+| Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `PowerBubble`, `WindView`, `HazardFx`, `Celebration`, `Backdrop`. |
 
 ## Using it from game/
 
@@ -199,6 +200,23 @@ setPlumb(bob, upcomingTilt01);                // -1 (about to pull left) to 1 (r
 
 Each hazard's first appearance still gets `hazardCard(type)`, and its warning the edge chip from **Gusts**.
 
+### Celebrations
+
+`Celebration` plays the big moments in screen space, in the background layer: over the backdrop and the wind, under the tower (depth -9). Prewarm with `tex.prewarm(keys, { celebrations: true })`.
+
+```ts
+const party = new Celebration(tex, { width: W, height: H });
+bus.on('pb_crossed', () => party.fireworks());        // 5 shells over 1.6 s: peony, ring and willow in turn, either side of the falling shape
+bus.on('height_milestone', () => {                    // the celebration that suits the sky
+  if (biome <= 2) party.balloons();                   // Meadow to Cloudlands: 14 balloons float up both sides of the tower
+  else if (biome <= 4) party.rainbow();               // Storm Belt, Stratosphere: an arc sweeps across behind the tower
+  else party.comets();                                // Orbit onward: a comet shower streaks across the sky
+});
+// every frame: party.update(dt). party.clear() on restart or run end; party.active while anything shows.
+```
+
+`firework(x, y, kind, color, delay)` launches one shell that climbs from below the screen and bursts at (x, y): `kind` is `'peony' | 'ring' | 'willow'` and `color` a shape color (0 to 6, `BUNTING_KEYS` order; the willow is always gold). `balloons(n)`, `rainbow(x, y)` (its feet at y, default 46% down) and `comets(n, dir)` take counts and placement. Set `party.reduceMotion` to halve the counts, stop the balloons' sway and fade the rainbow in instead of sweeping it.
+
 ### Altitude rail and off-screen chips
 
 ```ts
@@ -244,7 +262,7 @@ The screens are DOM overlays built from plain data; the game keeps the logic. Ea
 import { injectUiCss, loadUiFonts, onAction, pauseCard, summaryCard, showXpLine, setXpBar, levelUp } from '@art/index.ts';
 
 injectUiCss();
-await loadUiFonts();               // badges and logo letters are drawn text
+await loadUiFonts();               // badge numbers are drawn text (logo letters are outlines)
 
 const pause = document.body.appendChild(pauseCard());          // quitHalves: false in Zen
 onAction(pause, action => { /* 'resume' | 'restart' | 'settings' | 'quit' */ });
@@ -256,14 +274,26 @@ onAction(pause, action => { /* 'resume' | 'restart' | 'settings' | 'quit' */ });
 | `pauseCard(o?)` | `quitHalves?` (default true) | `resume`, `restart`, `settings`, `quit` |
 | `summaryCard(d)` | `cause`, `height` (m), `newBest?`, `biome`, `score`, `checkpoints`, `perfects`, `rows`, `clutches`, `xp` (the bar before the run), `lines` (`Award.lines`), `gained` | `again`, `profile`, `home`, `share` |
 | `levelUp(o)` | `level`, `from?`, `unlock?` (default `rewardAt(level)`; `null` for none) | `continue` |
-| `profilePanel(d)` | `name`, `level`, `into`, `need`, `avatar?`, `stats`, `postcards` (per biome: the date first reached, `''` for none, `null` if not reached) | `close` |
+| `profilePanel(d)` | `name`, `level`, `into`, `need`, `avatar?`, `stats`, `postcards` (per biome: the date first reached, `''` for none, `null` if not reached) | `close`, `avatar` (the avatar was tapped: open the picker) |
+| `avatarPanel(d)` | `avatar?`, `level` (hats above it are locked) | `close`, `done`; `readAvatar(panel)` gives the choice back |
 | `settingsPanel(values, layout?)` | current values by key; `SETTINGS_LAYOUT` has music, sfx, haptics, controls, splitTap, safeDrop, leftHand, sensitivity, reducedMotion, shake, patterns | `close`; `readSettings(panel)` gives the values back |
 
 The run summary's tally: the XP lines start hidden. Call `showXpLine(card, i)` for each line in turn (the total is the last; it returns false past the end) and `setXpBar(card, { level, into, need })` as the bar fills; on a level-up, fill to `need`, then set the next level and append `levelUp({ level })`. `showAllXpLines(card)` skips the tally. Extra rows (QA's one-tap questions) go in `card.querySelector('.ui-sum-extra')`.
 
-Parts for your own screens: `xpBar(state)`, `badgeUrl(level, px)`, `titleFor(level)`, `newTitleAt(level)`, `rewardAt(level)` and `UNLOCKS` (what each level gives, gameplay.md §10.3), `uiIconUrl(name, px)` for any of `UI_ICONS`, `avatarUrl({ shape, face }, px)`, `postcardElement({ biome, width, date, locked })`, `logoElement()` and `bakeLogo(width)` for a still canvas. Control glyphs (pause, close, arrows) are Ink, for Paper buttons.
+Parts for your own screens: `xpBar(state)`, `badgeUrl(level, px)`, `titleFor(level)`, `newTitleAt(level)`, `rewardAt(level)` and `UNLOCKS` (what each level gives, gameplay.md §10.3), `uiIconUrl(name, px)` for any of `UI_ICONS`, `avatarUrl({ shape, face, hat }, px)`, `postcardElement({ biome, width, date, locked })`, `logoElement()` and `bakeLogo(width)` for a still canvas. Control glyphs (pause, close, arrows) are Ink, for Paper buttons.
 
 Add `.ui-still` to a screen (or turn on the OS's Reduce Motion) to stop its animations; pass `still: true` to `mainMenu` to skip the logo's drop-in.
+
+### Avatar and hats
+
+The profile's avatar is the player's Blockling in a hat. `HATS` lists six with the level each unlocks at: Party hat (1, everyone has it), Sky cap (4), Propeller beanie (7), Daisy chain (9), Top hat (12) and Crown (16). `rewardAt` returns the hat for those levels, so the level-up's unlock card and the XP bar's next-reward icon show it. Tapping the avatar on the profile fires `avatar`:
+
+```ts
+const pick = document.body.appendChild(avatarPanel({ avatar: profile.avatar, level: profile.level }));
+onAction(pick, a => { if (a === 'done') profile.avatar = readAvatar(pick); pick.remove(); });  // close keeps the old one
+```
+
+The picker offers `AVATAR_SHAPES` (the seven tetrominoes), `AVATAR_FACES` (six) and the hats; picking updates its preview, and hats above the player's level are locked with the level they need. Save the `AvatarSpec` (`{ shape, face, hat }`) with the profile. `hatUrl(hat, px)` gives a hat on its own and `drawHat(ctx, hat, x, y, w)` draws one on a canvas, the middle of its base at (x, y).
 
 ### Conventions
 
@@ -308,9 +338,10 @@ Add these to the preview URL:
 - `powers=1` shows the bubbles spawning, bobbing, flying to their slots or fading, each power's effect in turn, and a DOM power bar with every icon and Second Wind state. `pw=idle` holds the bubbles; `fx=sweep|glue|slowmo|gust` holds one effect. `pstrip=1` shows frozen frames of the bubble's life.
 - `tour=1` climbs from the Meadow through Treetops into Cloudlands and plays each arrival; add `from=<sky position>` to start there and carry on to Deep Cosmos (for example `tour=1&from=2.6`). `arrive=1` replays the current biome's arrival every 4 s. `at=<s>` plays it once and freezes that many seconds in (for screenshots).
 - `pal=<0..3>` picks the Deep Cosmos palette (with `sp=9.3`); `palcycle=1` moves to the next one every 7 s with its landmark. `landmarks=1` shows the four landmark textures.
-- `ui=menu|pause|summary|levelup|profile|settings` opens that screen over the Meadow (its buttons work); `ui=icons|badges|logo` shows a sheet of the kit's parts. `lv=<level>` sets the player's level, `still=1` turns the animations off. Without `ui`, a Screens row sits above the biome picker.
+- `ui=menu|pause|summary|levelup|profile|settings|avatar` opens that screen over the Meadow (its buttons work; tapping the profile's avatar opens the picker); `ui=icons|badges|logo|hats` shows a sheet of the kit's parts (`hats`: each hat, worn, and small). `lv=<level>` sets the player's level, `still=1` turns the animations off. Without `ui`, a Screens row sits above the biome picker.
 - `wind=1` loops a gust over the Treetops (with `sp=2.3`, Cloudlands' wisps): calm, the telegraph with the edge chip and, once, the first-gust card, the gust with squinting faces, the tail. `wdir=-1` holds the direction; `wt=<s>` starts that far into the loop (2.3 is late in the telegraph, 4 mid-gust).
 - `hz=crosswind|junk|meteor|dust|sway` loops that hazard in its biome every 6 s: calm, the 2 s telegraph with the edge chip (and, once, the first-appearance card), the hazard, the end. Crosswind shows the windsock and flips each loop; sway shows the plumb-bob and tilts the backdrop. `ht=<s>` starts that far in (1.6 is mid-telegraph, 3.2 mid-hazard).
+- `cel=fireworks|balloons|rainbow|comets` fires that celebration every 5 s in a biome it suits (`sp=4.3` shows the fireworks at night); `ct=<s>` starts that far in (1.2 is fireworks bursting, 2.2 balloons in the air, 1.6 the rainbow up).
 - `ui=brand` shows the app icon at several sizes, Android's adaptive layers and masks, the splash and a share card (`share=1` shows just the share card and splash, larger).
 - `ui=titles` shows all ten biome title cards; `ui=btitle&b=<0-9>` plays one (`seen=1` drops the new-postcard chip, `bt=<ms>` freezes it that far in). Picking a biome in the picker, or climbing into one on the tour, also plays its card.
 - `ui=pano` shows the money shot of a made-up tower and its share card; `ph=<blocks>` sets the tower's height (default 63.4) and `card=1` puts the card first.

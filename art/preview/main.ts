@@ -19,6 +19,8 @@
 // &hz=crosswind|junk|meteor|dust|sway loops that hazard in its biome: calm, the 2 s telegraph with the edge chip (and the
 // first-appearance card once), the hazard, the end. Crosswind shows the HUD windsock and flips each loop; sway shows the
 // plumb-bob and tilts the backdrop. &ht=<s> starts that far in (1.6 = mid-telegraph, 3.2 = mid-hazard).
+// &cel=fireworks|balloons|rainbow|comets loops that celebration every 5 s, in a biome it suits (fireworks on a day sky;
+// &sp=4.3 shows them at night). &ct=<s> starts that far in (1 = fireworks bursting, 2.5 = balloons mid-air).
 // &ui=menu|pause|summary|levelup|profile|settings|icons|badges|logo|titles opens a UI kit screen or sheet (see ui.ts).
 // Picking a biome (or climbing into one on the tour) also plays its title card.
 // Options also work after a # (e.g. #gallery), for hosts that drop the query string.
@@ -27,13 +29,15 @@ import * as Phaser from 'phaser';
 import {
   ART_SHAPES, ArtTextures, BIOMES, INK, LANDMARKS, POWER, POWER_COLORS, POWER_KINDS, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
   PowerBubble, SkyClock, bakeLandmark, pedestalHeight, pose, powerBarCss, powerIconUrl, rimAmount, skyColors,
-  WindView, HazardFx, biomeCard, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob, setPlumb, setWindsock, windsock, type HazardType, type JunkKind, loadUiFonts, windDrifters, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
+  WindView, HazardFx, Celebration, biomeCard, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob, setPlumb, setWindsock, windsock, type HazardType, type JunkKind, loadUiFonts, windDrifters, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
 } from '../src/index.ts';
 import { initUiPreview, screensBar } from './ui.ts';
 
 const qs = new URLSearchParams(location.search || location.hash.slice(1));
 /** Each hazard's biome, as a sky position for &hz. */
 const HZ_SP: Record<string, number> = { crosswind: 3.3, junk: 5.3, meteor: 6.3, dust: 7.3, sway: 8.3 };
+/** Each celebration's showcase biome, as a sky position for &cel. */
+const CEL_SP: Record<string, number> = { fireworks: 0.3, balloons: 1.3, rainbow: 3.6, comets: 9.3 };
 const TAU = Math.PI * 2, lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const num = (k: string, d: number) => (qs.has(k) ? Number(qs.get(k)) : d);
 
@@ -65,6 +69,8 @@ class Preview extends Phaser.Scene {
   private hzStage = '';
   private hzChip: HTMLElement | null = null;
   private gauge: HTMLElement | null = null;
+  private cel: Celebration | null = null;
+  private celClock = -1;
 
   constructor() { super('preview'); }
 
@@ -81,8 +87,9 @@ class Preview extends Phaser.Scene {
     this.cameras.main.setZoom(num('zoom', 1));
     this.backdrop = new Backdrop(scene, { width: W, height: H });
     this.sky.set(num('sp', 0.15));
-    if (!qs.has('sp') && !qs.has('tour') && !qs.has('powers') && !qs.has('ui') && !qs.has('wind') && !qs.has('rail') && !qs.has('hz')) { this.biomePicker(); screensBar(); }
+    if (!qs.has('sp') && !qs.has('tour') && !qs.has('powers') && !qs.has('ui') && !qs.has('wind') && !qs.has('rail') && !qs.has('hz') && !qs.has('cel')) { this.biomePicker(); screensBar(); }
     if (qs.has('wind')) this.wind = new WindView(this.tex, { width: W, height: H, drifters: windDrifters(Math.floor(num('sp', 1.35))) });
+    if (qs.has('cel')) this.cel = new Celebration(this.tex, { width: W, height: H });
     if (qs.has('hz')) {
       this.hz = new HazardFx(this.tex);
       const kind = qs.get('hz');
@@ -408,6 +415,25 @@ class Preview extends Phaser.Scene {
     this.hz.update(dt);
   }
 
+  /** The &cel loop: the celebration fires at 0.3 s of every 5 s, on its own frame clock like the wind's. */
+  private celUpdate(dt: number): void {
+    if (!this.cel) return;
+    if (this.celClock < 0) {
+      this.celClock = 0;
+      for (const end = num('ct', 0); this.celClock < end - 1e-6;) this.celUpdate(1 / 60);
+    }
+    const t = this.celClock, n = Math.floor(t / 5);
+    if (t - n * 5 >= 0.3 && t - dt - n * 5 < 0.3) {
+      const kind = qs.get('cel');
+      if (kind === 'balloons') this.cel.balloons();
+      else if (kind === 'rainbow') this.cel.rainbow();
+      else if (kind === 'comets') this.cel.comets(10, n % 2 ? -1 : 1);
+      else this.cel.fireworks();
+    }
+    this.cel.update(dt);
+    this.celClock += dt;
+  }
+
   private windUpdate(dt: number): boolean {
     if (!this.wind || !qs.has('wind')) return false;
     // Runs on its own clock (frame time), so slow headless frames still show the real timing.
@@ -449,7 +475,7 @@ class Preview extends Phaser.Scene {
     cam.scrollY = -(tour ? Math.max(0, t - 1) * 2.2 : num('climb', 0)) * cell;
 
     const clock = this.sky.update(dt, 0, 0.2);
-    const sp = tour ? Math.min(qs.has('from') ? 9.7 : 2.6, from + Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : qs.has('wind') ? 1.35 : qs.has('hz') ? HZ_SP[qs.get('hz')!] ?? 5.3 : this.pick ? this.pick.biome + 0.3 : clock;
+    const sp = tour ? Math.min(qs.has('from') ? 9.7 : 2.6, from + Math.max(0, t - 1) * 0.3) : qs.has('sp') ? num('sp', 0) : qs.has('wind') ? 1.35 : qs.has('hz') ? HZ_SP[qs.get('hz')!] ?? 5.3 : qs.has('cel') ? CEL_SP[qs.get('cel')!] ?? 0.3 : this.pick ? this.pick.biome + 0.3 : clock;
     // From scrollY, not worldView, which only catches up after the first frame renders.
     const ground = (this.groundY - (cam.scrollY + cam.height * (1 - 1 / cam.zoom) / 2)) * cam.zoom;
     if (qs.has('at')) {
@@ -474,6 +500,7 @@ class Preview extends Phaser.Scene {
     const tension = qs.has('tension') ? num('tension', 0) : 0.5 + 0.5 * Math.sin(t * 0.5);
     const gusting = this.windUpdate(dt);
     this.hzUpdate(dt);
+    this.celUpdate(dt);
     const topEx: Expression = gusting ? 'squint' : tension >= 0.85 ? 'panic' : tension >= 0.3 ? 'worried' : 'idle';
     for (const p of this.tower) {
       const P = pose(p.key, p.q);

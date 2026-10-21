@@ -35,9 +35,11 @@ export async function loadSim(): Promise<SimUnderTest> {
   if (wanted !== 'game') throw new Error(`QA_SIM must be "game" or "reference", not "${wanted}"`);
   const path = gameSimPath();
   if (!existsSync(path)) throw new Error(`QA_SIM=game but ${path} does not exist yet`);
-  const mod = (await import(pathToFileURL(path).href)) as { createSim?: GameCreateSim };
+  const mod = (await import(pathToFileURL(path).href)) as { createSim?: GameCreateSim; useRapier?: () => Promise<void> };
   if (typeof mod.createSim !== 'function') throw new Error(`${path} does not export createSim`);
   const engine = (process.env.QA_ENGINE ?? 'box2d') as EngineId;
+  // Rapier's WebAssembly loads on request, so bundles of the test API that never use it stay small.
+  if (engine === 'rapier' && typeof mod.useRapier === 'function') await mod.useRapier();
   const create = wrapGameSim(mod.createSim);
   return {
     kind: 'game',

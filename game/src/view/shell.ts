@@ -20,6 +20,8 @@ export interface ShellOptions {
   /** Tuning and view settings the scene reads at the start of each run. */
   lab: LabState;
   secondWind(): SecondWindMode;
+  /** Whether reaching biome `biome` (0 = Meadow) earns its postcard for the first time (the lab has none). */
+  newPostcard?(biome: number): boolean;
   onEvent?(e: BusEvent, sim: Sim): void;
   onRunOver(sim: Sim, payload: Record<string, unknown>): void;
   /** Sound's Audio Director is ready (it needs the browser's audio context first). */
@@ -65,6 +67,7 @@ export async function startShell(o: ShellOptions): Promise<Shell> {
     hud,
     lab: o.lab,
     secondWind: () => o.secondWind(),
+    newPostcard: b => o.newPostcard?.(b) ?? false,
     onEvent: (e, sim) => o.onEvent?.(e, sim),
     onRunStart(sim, info) {
       bestBefore = scene.bestHeight;
