@@ -187,6 +187,12 @@ checks.voices = (r) => {
   assert.ok(Math.abs(r.said[2].t - 7.3) < 0.01 && r.said[3].t > r.said[2].t, 'a checkpoint gets a little chorus of yays');
 };
 
+checks.gusts = (r) => {
+  assert.equal(r.nonFinite, 0, 'no NaN');
+  assert.ok(r.builtDb > -45, `a warning builds toward its gust (${r.builtDb} dB)`);
+  assert.ok(r.cancelledDb < r.builtDb - 30, `a cancelled warning stops building (${r.cancelledDb} dB against ${r.builtDb} dB)`);
+};
+
 checks.sim = (r) => {
   assert.equal(r.nonFinite, 0, 'no NaN in the mix');
   assert.ok(r.peak <= 1, `the mix never exceeds full scale (peak ${r.peak.toFixed(3)})`);
@@ -235,7 +241,7 @@ process.exitCode = failed ? 1 : 0;
 
 function summary(name, r) {
   if (name === 'worker') return `worker bake ${r.workerMs} ms (longest main-thread stall ${r.workerStall} ms) vs main thread ${r.threadMs} ms (stall ${r.threadStall} ms)`;
-  if (name === 'sim') return `${r.runs.length} runs, ${r.counts.contact_hit} hits (${Object.entries(r.played).map(([m, n]) => `${m} ${n}`).join(', ')}), ${r.counts.piece_settled ?? 0} settles, ${r.counts.power_used ?? 0} powers and ${r.counts.second_wind ?? 0} Second Winds used, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB`;
+  if (name === 'sim') return `${r.runs.length} runs, ${r.counts.contact_hit} hits (${Object.entries(r.played).map(([m, n]) => `${m} ${n}`).join(', ')}), ${r.counts.piece_settled ?? 0} settles, ${r.counts.power_used ?? 0} powers and ${r.counts.second_wind ?? 0} Second Winds used, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB; ${Object.entries(r.ms).map(([k, v]) => `${k} ${(v / 1000).toFixed(1)} s`).join(", ")}`;
   if (name === 'bank') return `bake ${r.buildMs} ms, ${r.names} sounds, memory per biome ${r.memoryMB.join('/')} MB`;
   if (name === 'run') return `peak ${r.all.peak.toFixed(3)}, voices ${r.caps.total}/${r.capLimits.total}, contact ${r.contactCpuMs.mean.toFixed(3)} ms`;
   if (name === 'rest') return `resting tower ${r.quietPeakDb} dBFS`;
