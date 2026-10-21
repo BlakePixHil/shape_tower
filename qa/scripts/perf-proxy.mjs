@@ -128,16 +128,14 @@ for (const t of tiers) {
   console.log(`${t}: rate ${r2(rate)} gives ${r2(m.p152)} ms at 152 bodies (target ${r2(target)}) and ${r2(m.p60)} ms at 60`);
 }
 
-// S1 on this build, per engine and tier (the bake-off's physics mark). The budget is the mean step:
-// mid tier ≤ 4 ms at 150 awake; low tier, until beta, 75% of 4 ms at 60 and 8 ms at 150 (3 and 6).
-const PHYS = { mid: { at60: 4, at152: 4 }, low: { at60: 3, at152: 6 } };
+// S1 on this build, per engine and tier: a stress case tracked between builds, with no pass/fail
+// time (qa-section.md Q39). Physics is judged in play, below.
 const s1 = [];
 for (const t of tiers) {
   for (const e of engines) {
     const m = await benchAt(calib[t].rate, nowJs, e);
-    const lim = PHYS[TIERS[t].budget];
-    s1.push({ tier: t, engine: e, ...m, ok: m.p60 <= lim.at60 && m.p152 <= lim.at152, limit: lim });
-    console.log(`S1 ${e} on ${t}: ${r2(m.p60)} ms at ${m.awake[0]} awake, ${r2(m.p152)} ms at ${m.awake[1]} (p95 ${r2(m.p95at60)} / ${r2(m.p95at152)}); limit ${lim.at60} / ${lim.at152}`);
+    s1.push({ tier: t, engine: e, ...m });
+    console.log(`S1 ${e} on ${t}: ${r2(m.p60)} ms at ${m.awake[0]} awake, ${r2(m.p152)} ms at ${m.awake[1]} (p95 ${r2(m.p95at60)} / ${r2(m.p95at152)})`);
   }
 }
 const benchOnly = minutes === 0;
@@ -286,10 +284,11 @@ function busyStretches(profile, minMs = 100) {
     .map((x) => ({ at: r2((x.start - profile.startTime) / 1e6), ms: r2((x.end - x.start) / 1000), self: top(x.self, 4), stack: top(x.stacks, 1)[0] }));
 }
 
+// Physics in play (qa-section.md Q39): p95 per step, and at most 40 bodies awake at once.
 const LIMITS = {
-  mid: { onTime: 0.99, over33: null, physAt60: 4, physAt150: 4, heapMB: 400 },
-  // Low tier until beta: physics within 75% of its budget on the proxy (qa-section.md §5 item 7).
-  low: { onTime: 0.95, over33: 0.01, physAt60: 3, physAt150: 6, heapMB: 300 },
+  mid: { onTime: 0.99, over33: null, phys: 4, maxAwake: 40, heapMB: 400 },
+  // Low tier until beta: physics within 75% of its budget on the proxy (qa-section.md §4.2 item 7).
+  low: { onTime: 0.95, over33: 0.01, phys: 3, maxAwake: 40, heapMB: 300 },
 };
 const results = [];
 for (const t of benchOnly ? [] : tiers) {
@@ -332,7 +331,7 @@ for (const t of benchOnly ? [] : tiers) {
     worst: est.map((e, i) => [e, i]).sort((x, y) => y[0] - x[0]).slice(0, 5).map(([e, i]) => { const f = qa.frames[i]; return { est: r2(e), tot: r2(f[2]), upd: r2(f[3]), steps: f[4], stepMs: r2(f[5]), phys: r2(f[6]), bot: r2(f[7]), at: r2(f[8]), runS: r2(f[9]) }; }),
     // What the game's run record sees (Phaser's 10-frame average) against the raw intervals.
     smoothing: { rawOver33: r2(100 * frames.filter((f) => f > 33.4).length / Math.max(1, frames.length)), recordOver33: r2(100 * qa.frames.filter((f) => f[1] > 33.4).length / Math.max(1, frames.length)), rawMax: r2(Math.max(0, ...frames)), recordMax: r2(Math.max(0, ...qa.frames.map((f) => f[1]))) },
-    physics: { steps: qa.phys.length, maxAwake, to60: { n: band.to60.length, p95: r2(pct(band.to60, 0.95)), max: r2(Math.max(0, ...band.to60)) }, to150: { n: band.to150.length, p95: r2(pct(band.to150, 0.95)), max: r2(Math.max(0, ...band.to150)) }, over150: { n: band.over150.length, p95: r2(pct(band.over150, 0.95)) } },
+    physics: { steps: qa.phys.length, maxAwake, p95: r2(pct(qa.phys, 0.95)), max: r2(Math.max(0, ...qa.phys)), to60: { n: band.to60.length, p95: r2(pct(band.to60, 0.95)), max: r2(Math.max(0, ...band.to60)) }, to150: { n: band.to150.length, p95: r2(pct(band.to150, 0.95)), max: r2(Math.max(0, ...band.to150)) }, over150: { n: band.over150.length, p95: r2(pct(band.over150, 0.95)) } },
     simPace: r2(wallPlaying ? simSeconds / wallPlaying : null),
     heapMB: { start: r2(heap[0]), peak: r2(Math.max(0, ...heap)), afterWarmup: r2(warm[0]), end: r2(heap[heap.length - 1]) },
     longtasks: { count: qa.longtasks.length, over100: qa.longtasks.filter(([, d]) => d > 100).length, max: r2(Math.max(0, ...qa.longtasks.map(([, d]) => d))) },
@@ -344,32 +343,33 @@ for (const t of benchOnly ? [] : tiers) {
     ['no frame over 100 ms of main-thread work', over100 === 0, `${over100}`],
     ['game logic ≤ 2 ms per frame (p95)', (row.logic.p95 ?? 0) <= 2, `${row.logic.p95} ms`],
     ['render calls ≤ 5 ms per frame (p95)', (row.render.p95 ?? 0) <= 5, `${row.render.p95} ms`],
-    [`physics ≤ ${L.physAt60} ms per step at up to 60 awake (p95)`, (row.physics.to60.p95 ?? 0) <= L.physAt60, `${row.physics.to60.p95} ms over ${row.physics.to60.n} steps`],
-    [`physics ≤ ${L.physAt150} ms per step at 61 to 150 awake (p95)`, (row.physics.to150.p95 ?? 0) <= L.physAt150, row.physics.to150.n ? `${row.physics.to150.p95} ms over ${row.physics.to150.n} steps` : 'no such steps'],
+    [`physics ≤ ${L.phys} ms per step in play (p95)`, (row.physics.p95 ?? 0) <= L.phys, `${row.physics.p95} ms over ${row.physics.steps} steps (≤60 awake ${row.physics.to60.p95 ?? '–'}, 61-150 ${row.physics.to150.p95 ?? '–'})`],
+    [`at most ${L.maxAwake} bodies awake at once`, maxAwake <= L.maxAwake, `${maxAwake}`],
     [`JS heap peak ≤ ${L.heapMB} MB`, row.heapMB.peak <= L.heapMB, `${row.heapMB.peak} MB`],
     ['no page errors', r.errors.length === 0, r.errors.slice(0, 3).join(' | ') || 'none'],
   ];
   row.checks = checks.map(([what, ok, got]) => ({ what, ok, got }));
   results.push(row);
-  console.log(`${t} (${TIERS[t].name}, throttle ×${row.rate}): ${row.frames.count} frames, ${row.frames.onTime}% fit, main thread p50/p99 ${row.cpu.p50}/${row.cpu.p99} ms (logic p95 ${row.logic.p95}, render p95 ${row.render.p95}, step ${row.stepMs}), physics p95 ${row.physics.to60.p95}/${row.physics.to150.p95} ms (max awake ${maxAwake}), heap peak ${row.heapMB.peak} MB, sim pace ${row.simPace}`);
+  console.log(`${t} (${TIERS[t].name}, throttle ×${row.rate}): ${row.frames.count} frames, ${row.frames.onTime}% fit, main thread p50/p99 ${row.cpu.p50}/${row.cpu.p99} ms (logic p95 ${row.logic.p95}, render p95 ${row.render.p95}, step ${row.stepMs}), physics p95 ${row.physics.p95} ms (max awake ${maxAwake}), heap peak ${row.heapMB.peak} MB, sim pace ${row.simPace}`);
   for (const c of row.checks) console.log(`  ${c.ok ? 'PASS' : 'FAIL'} ${c.what}: ${c.got}`);
 }
 await browser.close();
 
 const game = gitShort(checkout), harness = gitShort(root), benchBuild = gitShort(benchFrom);
-const allOk = results.every((r) => r.checks.every((c) => c.ok)) && s1.every((x) => x.ok);
+const allOk = results.every((r) => r.checks.every((c) => c.ok));
 const lines = [
   `# Perf proxy: ${allOk ? 'PASS' : 'FAIL'}`, '',
   `Game ${game}, harness ${harness}, bench from ${benchBuild} · ${minutes} min per tier, bot with powers, seeds from ${seed0} · ${new Date().toISOString()}`, '',
   `Unthrottled bench on this machine: ${r2(base.p60)} ms at 60 bodies, ${r2(base.p152)} ms at 152. Anchor: Blake's phone, record ${ANCHOR.record} (build ${ANCHOR.build}), ${ANCHOR.bench60} and ${ANCHOR.bench152} ms.`, '',
-  '| Tier | Throttle | Bench 152 (target) | Frames that fit | Main thread p50 / p99 | Logic p95 | Render p95 | Physics p95 (≤60 / 61-150 awake) | Max awake | Heap peak |',
+  '| Tier | Throttle | Bench 152 (target) | Frames that fit | Main thread p50 / p99 | Logic p95 | Render p95 | Physics p95 in play | Max awake | Heap peak |',
   '|---|---|---|---|---|---|---|---|---|---|',
-  ...results.map((r) => `| ${r.name} | ×${r.rate} | ${r.bench.at152} (${r.bench.target152}) ms | ${r.frames.onTime}% | ${r.cpu.p50} / ${r.cpu.p99} ms | ${r.logic.p95} ms | ${r.render.p95} ms | ${r.physics.to60.p95} / ${r.physics.to150.p95 ?? '–'} ms | ${r.physics.maxAwake} | ${r.heapMB.peak} MB |`),
+  ...results.map((r) => `| ${r.name} | ×${r.rate} | ${r.bench.at152} (${r.bench.target152}) ms | ${r.frames.onTime}% | ${r.cpu.p50} / ${r.cpu.p99} ms | ${r.logic.p95} ms | ${r.render.p95} ms | ${r.physics.p95} ms | ${r.physics.maxAwake} | ${r.heapMB.peak} MB |`),
   '',
   `## S1 bench on this build (${game}), mean step`, '',
-  '| Tier | Engine | 60 bodies | 152 bodies | p95 (60 / 152) | Limit (60 / 150) | |',
-  '|---|---|---|---|---|---|---|',
-  ...s1.map((x) => `| ${TIERS[x.tier].name} | ${x.engine} | ${r2(x.p60)} ms | ${r2(x.p152)} ms | ${r2(x.p95at60)} / ${r2(x.p95at152)} ms | ${x.limit.at60} / ${x.limit.at152} ms | ${x.ok ? 'PASS' : 'FAIL'} |`),
+  'A stress case tracked against the last good build, with no pass/fail time (qa-section.md Q39).', '',
+  '| Tier | Engine | 60 bodies | 152 bodies | p95 (60 / 152) |',
+  '|---|---|---|---|---|',
+  ...s1.map((x) => `| ${TIERS[x.tier].name} | ${x.engine} | ${r2(x.p60)} ms | ${r2(x.p152)} ms | ${r2(x.p95at60)} / ${r2(x.p95at152)} ms |`),
   '',
   ...results.flatMap((r) => [`## ${r.name}`, '', ...r.checks.map((c) => `- ${c.ok ? 'PASS' : 'FAIL'} ${c.what}: ${c.got}`), `- ${r.runs} runs (seeds ${r.seeds.join(', ')}), juice ${r.juice ? 'on' : 'off'}, best ${r.checkpoints} checkpoints, ${r.placed} shapes in the longest run`, `- ${r.frames.count} frames; their intervals here (SwiftShader-bound, not judged): p50 ${r.frames.intervalP50}, p95 ${r.frames.intervalP95} ms; the sim kept ${r.simPace}× real time`,
     `- the delta the game records: ${r.smoothing.recordOver33}% over 33 ms and longest ${r.smoothing.recordMax} ms, where the raw intervals have ${r.smoothing.rawOver33}% and ${r.smoothing.rawMax} ms`, `- QA's bot, taken out of every figure above: p50 ${r.bot.p50}, p95 ${r.bot.p95}, max ${r.bot.max} ms per frame`, `- slowest frames (whole / scene update / steps: count, ms, physics / bot, in ms; then when, as s since setup on the busy-stretch clock and s into the run): ${r.worst.map((w) => `${w.tot} / ${w.upd} / ${w.steps}, ${w.stepMs}, ${w.phys} / ${w.bot} at ${w.at} s (run ${w.runS} s)`).join('; ')}`, `- long tasks: ${r.longtasks.count} (${r.longtasks.over100} over 100 ms, longest ${r.longtasks.max} ms)`, `- heap: ${r.heapMB.start} MB at start, ${r.heapMB.afterWarmup} MB after 30 s, ${r.heapMB.end} MB at the end`,
