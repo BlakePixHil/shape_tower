@@ -48,7 +48,9 @@ describe(`landing guide on ${sut.kind} (${sut.engine})`, () => {
     expect(s.g1Over3x, g1Line).toBe(0);
     expect(s.g2Failures + s.g3Failures + s.g4Failures + s.g6Failures + s.g8Failures, otherLine).toBe(0);
     expect(s.timeouts).toBe(0);
-  });
+    // The full sweep is over 100,000 drops on one core; give it an hour so a busy machine doesn't
+    // fail it on time alone.
+  }, FULL ? 3_600_000 : undefined);
 
   // QA-003: a shape steered onto a ledge as it reached it landed the next frame, so its red guide
   // showed for 16 ms. The game's controls rule (gameplay.md §2) belongs to the game, not the stand-in.
