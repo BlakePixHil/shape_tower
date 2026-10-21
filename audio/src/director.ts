@@ -1019,6 +1019,9 @@ export class AudioDirector {
       case 'level_up':
         this.onLevelUp(Math.round(num(p, 'level', 2)), when);
         break;
+      case 'achievement':
+        this.onAchievement(p, when);
+        break;
       case 'unlock':
         this.playChord(this.instFor().inst, tonicChord(this.key, 2, this.instFor().octave), { bus: 'ui', when, gainDb: -8, slowmo: false }, 0.06);
         this.play('shimmer', { bus: 'ui', when: when + 0.1, gainDb: -12, category: 'misc', priority: 3, slowmo: false });
@@ -1278,6 +1281,44 @@ export class AudioDirector {
     this.haptic('celebrate');
   }
 
+  /**
+   * An achievement (gameplay.md §18): a badge stamped down, then a sparkle that grows with the
+   * tier. In a run it sits under the play (no duck, no music change); on the run-over strip it is
+   * one sting for the whole strip, at the highest tier earned. Juice off keeps the stamp, since
+   * it says something happened, and drops the sparkle and the haptic.
+   */
+  private onAchievement(p: Payload, when: number): void {
+    const tier = Math.max(0, TIERS.indexOf(str(p, 'tier', 'bronze').toLowerCase()));
+    const inRun = bool(p, 'inRun', this.running);
+    if (!this.cool.ready(inRun ? 'ach' : 'achstrip', when, inRun ? 0.5 : 2)) return;
+    this.play('ach.stamp', { bus: 'ui', when, gainDb: (inRun ? -13 : -10) + tier, category: 'ui', priority: 2, slowmo: false });
+    if (!this.juice) return;
+    if (inRun) {
+      // in the biome's key and instrument, from notes the biome already has
+      const { inst, octave } = this.instFor();
+      const degrees = [[5, 7], [4, 5, 7], [4, 5, 7, 9], [4, 5, 7, 9]][tier];
+      degrees.forEach((d, i) => this.playNote(inst, scaleNote(this.key, d) + 12 * octave, { bus: 'ui', when: when + 0.08 + i * 0.07, gainDb: -15 + tier * 0.5 - i * 0.5, priority: 2, slowmo: false }));
+      const after = when + 0.08 + degrees.length * 0.07;
+      if (tier >= 2) this.playChord(inst, tonicChord(this.key, tier === 3 ? 3 : 2, octave), { bus: 'ui', when: after, gainDb: -16 + tier, slowmo: false }, tier === 3 ? 0.03 : 0);
+      // platinum rings a deep bell under the chord
+      if (tier === 3) this.playNote('bellLow', this.key.root - 12, { bus: 'ui', when: after, gainDb: -14, category: 'stinger', priority: 2, slowmo: false });
+      this.play('shimmer', { bus: 'ui', when: when + 0.06, gainDb: -20 + 2 * tier, category: 'misc', priority: 3, slowmo: false });
+      this.haptic('uiTap');
+      return;
+    }
+    this.withNotes(this.metaMusic(), () => {
+      const { inst, octave } = this.instFor('wood');
+      const key = BIOMES[0].key;
+      const degrees = [[2, 4], [0, 2, 4], [0, 1, 2, 3, 4], [0, 1, 2, 3, 4]][tier];
+      degrees.forEach((d, i) => this.playNote(inst, scaleNote(key, d) + 12 * octave, { bus: 'ui', when: when + 0.1 + i * 0.08, gainDb: -12, priority: 2, slowmo: false }));
+      const after = when + 0.1 + degrees.length * 0.08;
+      if (tier >= 2) this.playChord('glassBell', tonicChord(key, tier === 3 ? 3 : 2, 0), { bus: 'ui', when: after, gainDb: -12, priority: 2, slowmo: false }, 0.025);
+      for (let i = 0; i < (tier === 3 ? 2 : 1); i++) this.play('shimmer', { bus: 'ui', when: after + i * 0.2, gainDb: -16 + tier, category: 'misc', priority: 3, slowmo: false });
+      if (tier === 3) for (let i = 0; i < 2; i++) this.play('confetti', { bus: 'ui', when: after + i * 0.12, gainDb: -16, pan: (this.rng() * 2 - 1) * 0.5, category: 'misc', priority: 3, slowmo: false });
+      this.haptic(tier >= 2 ? 'double' : 'uiTap');
+    });
+  }
+
   private onLevelUp(level: number, when: number): void {
     this.withNotes(this.metaMusic(), () => this.levelUpFanfare(level, when));
   }
@@ -1396,6 +1437,8 @@ export class AudioDirector {
     }
   }
 }
+
+const TIERS = ['bronze', 'silver', 'gold', 'platinum'];
 
 function hazardType(t: string): string {
   const s = t.toLowerCase().replace(/[^a-z]/g, '');

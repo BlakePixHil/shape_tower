@@ -116,6 +116,7 @@ const GROUPS: Group[] = [
       { id: 'blip', label: 'Height milestone', opts: { gainDb: -8 } },
       { id: 'xp.tick', label: 'XP tick', opts: { gainDb: -8 } },
       { id: 'stamp', label: 'Postcard stamp', opts: { gainDb: -6 } },
+      { id: 'ach.stamp', label: 'Achievement stamp', opts: { gainDb: -6, bus: 'ui' } },
     ],
   },
   {
@@ -545,6 +546,20 @@ const MOMENTS: Moment[] = [
       for (let k = 0; k < 30; k++) audio.handle('xp_tick', {}, t + k * 0.07);
       audio.handle('level_up', { level: 5 }, t + 2.4);
       return 4.6;
+    },
+  },
+  {
+    title: 'Achievements in a run', desc: 'A badge stamps down under the play, with a sparkle that grows from Bronze to Silver, Gold and Platinum. No duck, and the music carries on.',
+    run: (t) => {
+      ['bronze', 'silver', 'gold', 'platinum'].forEach((tier, i) => audio.handle('achievement', { id: tier, tier, inRun: true }, t + i * 2.4));
+      return 9.6;
+    },
+  },
+  {
+    title: 'New achievements', desc: 'On the summary card, one sting for the whole strip at the highest tier earned (Gold here).',
+    run: (t) => {
+      audio.handle('achievement', { id: 'strip', tier: 'gold', inRun: false }, t);
+      return 2.5;
     },
   },
   {

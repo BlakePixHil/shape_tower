@@ -67,7 +67,7 @@ export const JUICE_EVENTS = [
   // feel
   'hitstop', 'slowmo',
   // run and meta
-  'run_start', 'pause', 'resume', 'xp_tick', 'level_up', 'unlock',
+  'run_start', 'pause', 'resume', 'xp_tick', 'level_up', 'unlock', 'achievement',
   // power-ups and Second Wind
   'bubble_spawned', 'bubble_expired', 'power_collected', 'power_granted', 'power_used', 'power_refused',
   'power_ended', 'pieces_swept', 'second_wind_ready', 'second_wind',
