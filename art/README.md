@@ -22,11 +22,12 @@ The Shape Tower art kit. Everything is drawn in code with Canvas 2D (no image fi
 | Power-ups | `src/powers.ts` | Icons for Clean Slate, Quick-Set, Undo, Glue, Slow-Mo and Second Wind, the power bubble, and the CSS for the DOM power bar and Second Wind's states. |
 | UI kit | `src/ui/` | The DOM "sticker toy" UI (art-direction.md §8): `uiCss()` (Paper panels, Ink outlines, buttons that press and bounce, chips, XP bar, toggles, sliders), 43 icons, level badges in seven tiers with titles, the logo, biome postcards, the player's avatar, and builders for the main menu, pause card, run summary, level-up takeover, profile and settings. |
 | Gusts | `src/wind.ts`, `src/phaser/wind.ts`, `src/ui/hazard.ts` | Curled and long wind streaks, leaves and cloud wisps, `WindView` to play them, and the HUD's hazard chip (countdown ring, push chevrons) and first-appearance card for every hazard. Faces gain a `squint` expression for the tower's top during a gust. |
+| Space hazards | `src/hazards.ts`, `src/phaser/hazards.ts`, `src/ui/hazard.ts` | The later biomes' hazards: target reticle, marching trajectory dashes and incoming streaks (amber, Ink edge), space junk (bolt, solar-panel shard, wrench) with a blinking light, meteors with trails, the dust devil's swirl marker, column and backdrop dim, `HazardFx` to play them, crosswind streaks (`WindView.steady`), the Ringed Giant's backdrop tilt (`Backdrop.setTilt`), and the HUD's windsock and plumb-bob gauges. |
 | Altitude rail | `src/ui/rail.ts` | The HUD's altitude rail (biome colors, checkpoint ticks, best-height flag, a Blockling head at the tower's top) and the off-screen chips: gold "▲ 4" for a checkpoint above the view, red "▼" for a piece falling out of it. |
 | Biome title card | `src/ui/biomecard.ts` | `biomeCard(biome)`: on `biome_entered`, a banner in the biome's color drops in under the HUD ("Now entering CLOUDLANDS"), its postcard pops up and gets postmarked, and on a first visit a "New postcard!" chip pops under it. |
 | Brand | `src/brand.ts` | `bakeAppIcon(px, layer)` (the store icon, or Android's adaptive background and foreground), `bakeSplash(w, h)`, and `bakeShareCard(data)` for the run's share image around the money shot. |
 | Money shot | `src/panorama.ts` | `bakePanorama(tower, w, h)`: the whole run in one still, the sky climbing through every biome reached with each biome's props, the tower whole (stone below the last claim), its slabs, a gold flag at every claimed checkpoint and the best-height line. The share card frames it. |
-| Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `PowerBubble`, `WindView`, `Backdrop`. |
+| Phaser adapter | `src/phaser/` | `ArtTextures`, `BlocklingView`, `GuideView`, `CheckpointLine`, `PbMarker`, `PowerBubble`, `WindView`, `HazardFx`, `Backdrop`. |
 
 ## Using it from game/
 
@@ -160,6 +161,44 @@ if (e.first) hud.appendChild(hazardCard('gust'));  // "Gusts ahead! Keep it wide
 
 The chip sits at the upwind edge with the hazard's icon, a ring that fills over `eta` and chevrons pointing the way it pushes; it ignores touches. Add the class `paused` to hold its countdown while the game is paused, and pass `elapsed` to rebuild one partway through. `HAZARDS` has the icon and card copy for gusts, crosswind, junk, meteors, dust devils and tidal sway.
 
+### Space hazards
+
+`HazardFx` draws the telegraphs and hazard objects in world px (y down, like `BlocklingView`); the game moves the objects from the sim. Objects sit at depth 30 (over the tower), telegraphs just above, the dust column just below. Prewarm with `tex.prewarm(keys, { hazards: true })`.
+
+```ts
+const hz = new HazardFx(tex);                 // { depth, dimDepth } to move it
+// Space junk (Orbit): on the warning, a dashed path and a reticle that locks onto the hit point over eta.
+hz.trajectory('j1', fromX, fromY, hitX, hitY).reticle('j1t', hitX, hitY, e.eta);
+hz.junk('j1', 'wrench', x, y, angle);         // each frame while it flies ('bolt' | 'panel' | 'wrench')
+hz.remove('j1').unmark('j1').unmark('j1t');   // on contact or when it leaves
+// Meteors (Moon): a reticle and a faint incoming streak per impact, then the meteor itself.
+hz.reticle('m1t', hitX, hitY, e.eta).incoming('m1s', hitX, hitY, angleBack);  // angle points back up its path
+hz.meteor('m1', x, y);                        // each frame; the trail follows its motion
+// Dust devils (Red Planet): the swirl marker on the side it comes from, then the column and the dim.
+hz.swirl('d1', x, y, e.eta, dir);             // dir 1 = it travels right (spins clockwise)
+hz.unmark('d1').column('d1c', footX, footY, dir).dim(0.8);   // column each frame; dim(0) when it ends
+// every frame: hz.update(dt). hz.clear() on restart or run end. hz.active is true while anything shows.
+```
+
+`unmark` pops a telegraph out, `remove` fades an object out. Set `hz.reduceMotion` to stop the spinning, pulsing and swaying; the telegraphs still lock on and blink. The dim darkens the backdrop and the wind (depth -9.5), never the tower or the guide.
+
+The contact puffs come from your particles, with the textures in **Effects**: on a junk hit, 4 to 6 `spark`s tinted `SIGNAL.gold` plus a `ring`; on a meteor hit, a `puff` in the biome's dust color plus 3 `chip`s; when a dust devil passes the tower, a few `puff`s drifting its way.
+
+The other two are weather, with no objects:
+
+```ts
+// Crosswind (Storm Belt, Stratosphere): thin streaks drift the whole time, under any gusts.
+wind.steady(e.strength, e.dir);               // on hazard_start; again with the other dir when it flips; steady(0) to stop
+const sock = hud.appendChild(windsock({ dir: e.dir, strength: 0.6 }));  // 56 px Paper gauge, place it yourself
+setWindsock(sock, dir, strength01);           // the sock swings across over 2 s on a flip
+// Tidal sway (Ringed Giant): the backdrop leans with gravity, and the plumb-bob leads it.
+backdrop.setTilt(gravityTiltRad);             // clockwise on screen, clamped to ±0.06; off under reduceMotion
+const bob = hud.appendChild(plumbBob());
+setPlumb(bob, upcomingTilt01);                // -1 (about to pull left) to 1 (right)
+```
+
+Each hazard's first appearance still gets `hazardCard(type)`, and its warning the edge chip from **Gusts**.
+
 ### Altitude rail and off-screen chips
 
 ```ts
@@ -271,6 +310,7 @@ Add these to the preview URL:
 - `pal=<0..3>` picks the Deep Cosmos palette (with `sp=9.3`); `palcycle=1` moves to the next one every 7 s with its landmark. `landmarks=1` shows the four landmark textures.
 - `ui=menu|pause|summary|levelup|profile|settings` opens that screen over the Meadow (its buttons work); `ui=icons|badges|logo` shows a sheet of the kit's parts. `lv=<level>` sets the player's level, `still=1` turns the animations off. Without `ui`, a Screens row sits above the biome picker.
 - `wind=1` loops a gust over the Treetops (with `sp=2.3`, Cloudlands' wisps): calm, the telegraph with the edge chip and, once, the first-gust card, the gust with squinting faces, the tail. `wdir=-1` holds the direction; `wt=<s>` starts that far into the loop (2.3 is late in the telegraph, 4 mid-gust).
+- `hz=crosswind|junk|meteor|dust|sway` loops that hazard in its biome every 6 s: calm, the 2 s telegraph with the edge chip (and, once, the first-appearance card), the hazard, the end. Crosswind shows the windsock and flips each loop; sway shows the plumb-bob and tilts the backdrop. `ht=<s>` starts that far in (1.6 is mid-telegraph, 3.2 mid-hazard).
 - `ui=brand` shows the app icon at several sizes, Android's adaptive layers and masks, the splash and a share card (`share=1` shows just the share card and splash, larger).
 - `ui=titles` shows all ten biome title cards; `ui=btitle&b=<0-9>` plays one (`seen=1` drops the new-postcard chip, `bt=<ms>` freezes it that far in). Picking a biome in the picker, or climbing into one on the tour, also plays its card.
 - `ui=pano` shows the money shot of a made-up tower and its share card; `ph=<blocks>` sets the tower's height (default 63.4) and `card=1` puts the card first.

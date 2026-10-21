@@ -5,6 +5,7 @@
 import { ART } from '../config.ts';
 import { bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from '../checkpoint.ts';
 import { type Expression, FACE, drawEyes, drawMouth, drawPupil, drawSpiral, drawSweat } from '../face.ts';
+import { HAZARD_TEX, type HazardTex, bakeHazard } from '../hazards.ts';
 import { type GlyphState, bakeBeamFill, bakeChevron, bakeContactDot, bakeContactRing, bakeGhostEdge, bakeGlyph } from '../guide.ts';
 import { type Baked, type Finish, bakePiece, bakeRim, bakeSilhouette } from '../piece.ts';
 import { POWER, POWER_ICON_NAMES, POWER_KINDS, type PowerIcon, type PowerKind, bakeBubble, bakeBubbleGloss, bakePowerIcon } from '../powers.ts';
@@ -75,7 +76,7 @@ export class ArtTextures {
   }
 
   /** Bake ahead of time (e.g. on a loading screen) so nothing bakes mid-run. */
-  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean; powers?: boolean; wind?: boolean } = {}): void {
+  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean; powers?: boolean; wind?: boolean; hazards?: boolean } = {}): void {
     for (const key of keys) for (let q = 0; q < 4; q++) {
       for (const f of o.finishes ?? [null]) this.piece(key, q, { finish: f });
       if (o.stone ?? true) this.piece(key, q, { stone: true });
@@ -87,6 +88,7 @@ export class ArtTextures {
     for (const p of ['pupil', 'spiral', 'sweat'] as FacePart[]) this.face(p);
     if (o.vfx ?? true) for (const v of VFX_NAMES) this.vfx(v);
     if (o.wind ?? true) for (const k of Object.keys(WIND) as WindKind[]) for (let i = 0; i < WIND_VARIANTS[k]; i++) this.wind(`${k}${i}` as WindTex);
+    if (o.hazards) { for (const h of HAZARD_TEX) this.hazard(h); this.hazardDash(); }
     if (o.powers ?? true) {
       for (const k of POWER_ICON_NAMES) this.powerIcon(k);
       for (const k of POWER_KINDS) this.bubble(k);
@@ -174,6 +176,12 @@ export class ArtTextures {
 
   /** A gust texture (curl, streak, leaf or wisp plus a variant number; see WIND for sizes). Origin: centre. */
   wind(name: WindTex): TexRef { return this.packed(this.name('wind', name), () => bakeWind(name, this.s)); }
+
+  /** A space-hazard texture (see HAZARD for sizes). Origin: centre; the trail's head; the incoming streak's target end; the dust column's foot. */
+  hazard(name: HazardTex): TexRef { return this.packed(this.name('hazard', name), () => bakeHazard(name, this.s)); }
+
+  /** The trajectory dash as a texture of its own, for a TileSprite along the line. Origin: left middle. */
+  hazardDash(): TexRef { return this.single(this.name('hazarddash'), () => bakeHazard('dash', this.s).canvas, 0, 0.5); }
 
   // ---- power-ups ----
 
