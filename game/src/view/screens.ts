@@ -62,7 +62,7 @@ const LAYOUT: SettingGroup[] = [
   ] },
 ];
 
-const CAUSES: Record<string, string> = { bricks: 'Out of bricks!', hearts: 'Out of hearts!', quit: 'You quit' };
+const CAUSES: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit' };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const xpOf = (p: Profile) => ({ level: p.level, into: p.xp, need: levelStep(p.level) });
 

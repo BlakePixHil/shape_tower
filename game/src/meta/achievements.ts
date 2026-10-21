@@ -4,7 +4,7 @@
 
 import type { BusEvent } from '../sim/bus.ts';
 import type { Sim } from '../sim/sim.ts';
-import { biomeFor } from '../sim/tuning.ts';
+import { biomeFor, minSlabWidthFor } from '../sim/tuning.ts';
 import type { Profile } from '../view/profile.ts';
 
 export type Tier = 'bronze' | 'silver' | 'gold' | 'platinum';
@@ -292,7 +292,7 @@ export class RunTracker {
           if ((grade === 'S' || grade === 'A') && leftover >= 8) this.give('thrifty');
           if (leftover === 0) this.give('last_brick');
         }
-        if (Number(p.width) <= this.sim.tuning.minSlabWidth && grade === 'C') this.give('needle');
+        if (Number(p.width) <= minSlabWidthFor(this.sim.tuning, n) && grade === 'C') this.give('needle'); // the narrowest slab this claim can give
         if (heartsBefore === 1) this.give('last_heart');
         const b = biomeFor(n);
         if (n === b.lastCp && CALM_BIOMES.includes(b.id)) {

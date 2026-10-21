@@ -2,8 +2,9 @@
 // Screen space only: camera shake never moves it.
 
 import {
-  altitudeRail, bakePiece, biomeCard, checkpointChip, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, injectUiCss, offscreenChip, plumbBob, powerBarCss,
-  powerIconUrl, setOffscreenChip, setPlumb, setRail, setWindsock, windsock, type HazardType,
+  SHAPES_ALERT, alertEdge, altitudeRail, bagButton, bagSwap, bakePiece, biomeCard, checkpointChip, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, injectUiCss,
+  offscreenChip, plumbBob, powerBarCss, powerIconUrl, setAlertEdge, setBag, setOffscreenChip, setPlumb, setRail, setShapeCounter, setWindsock, shapeAlert, shapeCounter,
+  uiIconUrl, windsock, type HazardType,
 } from '@art/index.ts';
 import type { PowerKind, SecondWindState } from '../sim/sim.ts';
 import { geometry } from '../sim/shapes.ts';
@@ -31,12 +32,8 @@ const CSS = `
 @keyframes st-pop { 0% { transform: scale(0); } 70% { transform: scale(1.25); } 100% { transform: scale(1); } }
 .st-card { background: #FFF7E8; border: 3px solid ${INK}; border-radius: 14px; box-shadow: 0 4px 0 ${INK}; display: grid; place-items: center; position: relative; }
 .st-card canvas { display: block; }
-.st-card.locked canvas { opacity: 0; }
-.st-card.locked::after { content: '🔒 Lv 2'; position: absolute; inset: 0; display: grid; place-items: center; font: 700 12px 'Fredoka', sans-serif; color: #5B4F7A; white-space: pre; }
 .st-card .st-cap { position: absolute; top: -9px; left: 50%; transform: translateX(-50%); font: 700 10px 'Fredoka', sans-serif; background: ${INK}; color: #FFF7E8; border-radius: 6px; padding: 0 5px; letter-spacing: 0.06em; }
 .st-chip { background: #FFF7E8; border: 3px solid ${INK}; border-radius: 12px; box-shadow: 0 3px 0 ${INK}; font: 700 15px 'Fredoka', sans-serif; padding: 2px 9px; display: flex; gap: 5px; align-items: center; font-variant-numeric: tabular-nums; }
-.st-chip.warn { background: #FFAA2B; }
-.st-chip.danger { background: #FF4D6D; color: #fff; }
 .st-chip.pulse { animation: st-pulse 400ms; }
 .st-set { gap: 3px; padding: 3px 8px; }
 .st-set[hidden] { display: none; }
@@ -69,7 +66,8 @@ const CSS = `
 .st-ask { margin-top: 10px; padding-top: 10px; border-top: 2px dashed rgba(34,24,58,0.25); }
 .st-hint { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom, 0px) + 96px); display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 0 16px; opacity: 0.9; transition: opacity 600ms; }
 .st-hint span { background: rgba(255,247,232,0.9); border: 2px solid ${INK}; border-radius: 10px; font: 600 12px 'Fredoka', sans-serif; padding: 2px 8px; }
-.st-lab { position: absolute; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); }
+.st-lab { position: absolute; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 168px); } /* over the bag and the hints */
+.st-hud .st-bag { position: absolute; right: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); pointer-events: auto; } /* by the thumb (Blake's playtest) */
 .st-powers { position: absolute; left: 12px; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); display: flex; gap: 8px; align-items: flex-end; }
 .st-slot { width: 54px; height: 54px; padding: 0; display: grid; place-items: center; font-size: 26px; line-height: 1; position: relative; }
 .st-slot.empty { background: rgba(255,247,232,0.35); border-style: dashed; box-shadow: none; pointer-events: none; }
@@ -103,7 +101,8 @@ export interface RunStats { height: number; checkpoints: number; score: number; 
 export class Hud {
   readonly root: HTMLDivElement;
   private hearts: HTMLDivElement;
-  private bricks: HTMLDivElement;
+  private shapes: HTMLElement;
+  private edge: HTMLElement;
   private setEl: HTMLDivElement;
   private setKey = '';
   private heightEl: HTMLDivElement;
@@ -112,7 +111,7 @@ export class Hud {
   private pillFill: HTMLDivElement;
   private next: HTMLCanvasElement[];
   private holdCanvas: HTMLCanvasElement;
-  private holdCard: HTMLDivElement;
+  private bag: HTMLButtonElement;
   private vignette: HTMLDivElement;
   private flashEl: HTMLDivElement;
   private overlay: HTMLDivElement;
@@ -137,7 +136,7 @@ export class Hud {
   private lastWind: SecondWindState = 'earn';
   /** A power slot was tapped. */
   onPower: (slot: number) => void = () => {};
-  /** The Hold card was tapped (the same as a flick up). */
+  /** The bag was tapped (the same as a flick up): swap the shape in hand with the one in the bag. */
   onHold: () => void = () => {};
   /** Second Wind was tapped twice (the first tap arms it, so a stray tap can't spend it). */
   onSecondWind: () => void = () => {};
@@ -159,8 +158,6 @@ export class Hud {
       <div class="st-top">
         <div class="st-col">
           <div class="st-row"><button class="st-btn st-iconbtn" data-id="pause" aria-label="Pause">❚❚</button><div class="st-hearts" data-id="hearts"></div></div>
-          <div class="st-card" data-id="holdcard" style="width:58px;height:58px"><div class="st-cap">HOLD</div><canvas data-id="hold"></canvas></div>
-          <div class="st-chip" data-id="bricks">🧱 <span>0</span></div>
           <div class="st-chip st-set" data-id="set" hidden aria-label="Set streak"><span>🪨</span></div>
           <div class="st-gauges" data-id="gauges"></div>
         </div>
@@ -173,7 +170,7 @@ export class Hud {
         <div class="st-height" data-id="height">0<small> m</small></div>
         <div class="st-pill" data-id="pill"><div class="st-fill"></div><span>CP 1</span></div>
       </div>
-      <div class="st-hint" data-id="hint"><span>drag ↔ move</span><span>tap ⟳ rotate</span><span>drag ↓ faster</span><span>flick ↓ drop</span><span>flick ↑ hold</span></div>
+      <div class="st-hint" data-id="hint"><span>drag ↔ move</span><span>tap ⟳ rotate</span><span>drag ↓ faster</span><span>flick ↓ drop</span><span>flick ↑ bag</span></div>
       <div class="st-powers">
         <button class="st-btn st-slot empty" data-id="slot0" aria-label="Power-up 1"></button>
         <button class="st-btn st-slot empty" data-id="slot1" aria-label="Power-up 2"></button>
@@ -184,15 +181,23 @@ export class Hud {
     parent.appendChild(this.root);
     const q = <T extends HTMLElement>(id: string) => this.root.querySelector(`[data-id="${id}"]`) as T;
     this.hearts = q('hearts');
-    this.bricks = q('bricks');
     this.setEl = q('set');
+    // Art's shapes-left chip (art/src/ui/budget.ts) where the brick chip was, under the hearts.
+    this.shapes = shapeCounter();
+    this.shapes.dataset.id = 'shapes';
+    this.setEl.before(this.shapes);
+    this.edge = this.root.appendChild(alertEdge());
     this.heightEl = q('height');
     this.pill = q('pill');
     this.pillText = this.pill.querySelector('span')!;
     this.pillFill = this.pill.querySelector('.st-fill')!;
     this.next = [q('next0'), q('next1')];
-    this.holdCanvas = q('hold');
-    this.holdCard = q('holdcard');
+    // The bag (art/src/ui/bag.ts) replaces the Hold card; the held shape's preview stands in it.
+    this.holdCanvas = document.createElement('canvas');
+    this.bag = this.root.appendChild(bagButton({ size: 64 }));
+    this.bag.classList.add('st-bag');
+    this.bag.dataset.id = 'holdcard';
+    this.bag.querySelector('.ui-bag-slot')!.appendChild(this.holdCanvas);
     this.hint = q('hint');
     this.gauges = q('gauges');
     // Art's HUD pieces (art/src/ui/rail.ts, hazard.ts): the rail, the off-screen chips, the hazard chip.
@@ -206,8 +211,7 @@ export class Hud {
     this.activeEl = q('active');
     this.windBtn.querySelector('img')!.src = powerIconUrl('wind', 46);
     this.slotBtns.forEach((b, i) => { b.onclick = () => this.onPower(i); });
-    this.holdCard.style.pointerEvents = 'auto';
-    this.holdCard.onclick = () => { if (!this.holdCard.classList.contains('locked')) this.onHold(); };
+    this.bag.onclick = () => { if (!this.bag.classList.contains('locked')) this.onHold(); };
     this.windBtn.onclick = () => {
       const now = performance.now();
       if (now < this.windArmedUntil) { this.windArmedUntil = 0; this.onSecondWind(); }
@@ -223,7 +227,7 @@ export class Hud {
     parent.append(this.vignette, this.flashEl, this.overlay);
     this.sizeCanvas(this.next[0], 56);
     this.sizeCanvas(this.next[1], 36);
-    this.sizeCanvas(this.holdCanvas, 46);
+    this.sizeCanvas(this.holdCanvas, 54);
   }
 
   private sizeCanvas(c: HTMLCanvasElement, css: number): void {
@@ -262,16 +266,19 @@ export class Hud {
     this.draw(this.next[1], shapes[1] ?? null, true, !!brittle[1]);
   }
 
-  /** The Hold card shows a padlock until level 2 (gameplay.md §10.3). */
-  lockHold(locked: boolean): void { this.holdCard.classList.toggle('locked', locked); }
+  /** The bag shows a padlock until level 2 (gameplay.md §10.3). */
+  lockHold(locked: boolean): void { setBag(this.bag, { locked: locked ? 'Lv 2' : null }); }
 
   setHold(shape: string | null, used: boolean, brittle = false): void {
     const key = `${shape}|${used}|${brittle}`;
     if (key === this.holdKey) return;
     this.holdKey = key;
     this.draw(this.holdCanvas, shape, false, brittle);
-    this.holdCard.style.opacity = used ? '0.55' : '1';
+    setBag(this.bag, { held: !!shape, used });
   }
+
+  /** A bag swap: the sack squashes and the new shape drops in. */
+  swapBag(): void { bagSwap(this.bag); }
 
   setHearts(n: number, max: number, infinite: boolean): void {
     if (infinite) { if (this.lastHearts !== -2) { this.hearts.innerHTML = HEART('#FF4D6D') + '<b style="font:700 16px Fredoka">∞</b>'; this.lastHearts = -2; } return; }
@@ -300,12 +307,10 @@ export class Hud {
     this.lastHearts = n;
   }
 
+  /** Shapes left (gameplay.md §7.2): amber with pips at 5 or fewer, red and pulsing with a red screen edge at 3 or fewer. */
   setBricks(left: number, infinite: boolean): void {
-    const span = this.bricks.querySelector('span')!;
-    const text = infinite ? '∞' : String(Math.max(0, left));
-    if (span.textContent !== text) span.textContent = text;
-    this.bricks.classList.toggle('warn', !infinite && left <= 5 && left > 1);
-    this.bricks.classList.toggle('danger', !infinite && left <= 1);
+    setShapeCounter(this.shapes, left, infinite);
+    setAlertEdge(this.edge, !infinite && left <= SHAPES_ALERT);
   }
 
   /**
@@ -333,11 +338,30 @@ export class Hud {
     this.setEl.classList.add('pulse');
   }
 
-  pulseBricks(): void {
-    this.bricks.classList.remove('pulse');
-    void this.bricks.offsetWidth;
-    this.bricks.classList.add('pulse');
+  /** The banner at the sim's budget_low moments (5, 3 and 1 left): a soft pill, then a big red line. */
+  shapesAlert(left: number, still: boolean): void {
+    this.clearAlerts();
+    this.root.appendChild(shapeAlert(left, { still }));
   }
+
+  /**
+   * Why the run ended, stamped big ("OUT OF SHAPES!" or "OUT OF HEARTS!"), so it's never a mystery
+   * (Blake's playtest). It goes on the page, not the HUD, so it stays up as the HUD hides for the
+   * panorama; it removes itself, or clearAlerts takes it down when the summary opens.
+   */
+  runEndAlert(cause: string, still: boolean): void {
+    if (cause !== 'bricks' && cause !== 'hearts') return;
+    this.clearAlerts();
+    const el = shapeAlert(0, { still });
+    if (cause === 'hearts') {
+      el.querySelector('.ui-sa-title span')!.textContent = 'OUT OF HEARTS!';
+      el.querySelector('img')!.src = uiIconUrl('heart', 40);
+    }
+    el.dataset.id = 'run-end';
+    document.body.appendChild(el);
+  }
+
+  clearAlerts(): void { document.querySelectorAll('.ui-salert').forEach(e => e.remove()); }
 
   setHeight(h: number): void {
     const v = Math.max(0, Math.floor(h * 10) / 10);
@@ -465,7 +489,7 @@ export class Hud {
 
   /**
    * The power bar: two slots, Second Wind (hidden when off or used, greyed until earned, glowing
-   * when the player is down to a last heart or 3 bricks) and chips for Glue or Slow-Mo running.
+   * when the player is down to a last heart or 3 shapes) and chips for Glue or Slow-Mo running.
    */
   setPowers(slots: (PowerKind | null)[], wind: SecondWindState, glueLeft: number, slowLeft: number, trouble: boolean): void {
     const armed = performance.now() < this.windArmedUntil && wind === 'ready';
@@ -546,6 +570,7 @@ export class Hud {
     this.setKey = '';
     this.chips.clear();
     this.root.querySelectorAll('.ui-hazard, .ui-hcard, .ui-btitle').forEach(e => e.remove());
+    this.clearAlerts();
     this.setGauges(null, null);
     this.setCheckpointChip(null);
     this.windArmedUntil = 0;
@@ -560,7 +585,7 @@ export class Hud {
 }
 
 export function statsHtml(s: RunStats): string {
-  const causes: Record<string, string> = { bricks: 'Out of bricks!', hearts: 'Out of hearts!', quit: 'You quit' };
+  const causes: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit' };
   return `<h2>${causes[s.cause] ?? 'Run over'}</h2>
     <div class="st-stats">
       <span>Height</span><b>${s.height.toFixed(1)} m</b>
@@ -568,7 +593,7 @@ export function statsHtml(s: RunStats): string {
       <span>Highest biome</span><b>${s.biome}</b>
       <span>Perfects</span><b>${s.perfects}</b>
       <span>Solid Rows</span><b>${s.rows}</b>
-      <span>Bricks placed</span><b>${s.placed}</b>
+      <span>Shapes placed</span><b>${s.placed}</b>
       <span>Score</span><b>${s.score.toLocaleString()}</b>
       <span>XP</span><b>+${s.xp}</b>
     </div>`;

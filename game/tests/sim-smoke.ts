@@ -6,7 +6,7 @@ import { Box2DEngine } from '../src/sim/engine/box2d.ts';
 import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { runBench } from '../src/sim/bench.ts';
 import { createSim, replay, restore, useRapier } from '../src/sim/testApi.ts';
-import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor, setStreakFor } from '../src/sim/tuning.ts';
+import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor, minSlabWidthFor, setStreakFor, startWaitFor } from '../src/sim/tuning.ts';
 
 if (process.env.SIM_ENGINE === 'rapier') await useRapier();
 
@@ -217,19 +217,26 @@ for (const mortar of [true, false]) {
   hu.dispose();
 }
 
-// Needle: two vertical I pieces claim checkpoint 1 and get a 3-wide grade C foundation.
+// Needle: two vertical I pieces claim checkpoint 1 and get a grade C foundation of the narrowest
+// width for the claim: 6 in the Meadow (§7.3), the old 3 with slabBoost 0.
 {
-  const t = createSim({ tuning: { mortar: true } });
-  t.spawnControlled({ shape: 'I', x: 0.5, rot: 1 });
-  t.intent({ type: 'hardDrop' });
-  t.step(90);
-  t.spawnControlled({ shape: 'I', x: 0.5, rot: 1 });
-  t.intent({ type: 'hardDrop' });
-  t.step(400);
-  const ev = t.drainEvents();
-  const claim = ev.find(e => e.name === 'checkpoint_claimed');
-  check('T19 needle claims CP1 with grade C and a 3-wide slab', !!claim && claim.payload.grade === 'C' && claim.payload.width === 3, JSON.stringify(claim?.payload ?? 'no claim'));
-  t.dispose();
+  const needle = (tuning: Record<string, unknown>) => {
+    const t = createSim({ tuning: { mortar: true, ...tuning } });
+    t.spawnControlled({ shape: 'I', x: 0.5, rot: 1 });
+    t.intent({ type: 'hardDrop' });
+    t.step(90);
+    t.spawnControlled({ shape: 'I', x: 0.5, rot: 1 });
+    t.intent({ type: 'hardDrop' });
+    t.step(400);
+    const claim = t.drainEvents().find(e => e.name === 'checkpoint_claimed');
+    t.dispose();
+    return claim?.payload;
+  };
+  const wide = needle({}), old = needle({ slabBoost: 0 });
+  check('T19 needle claims CP1 with grade C and the Meadow\'s narrowest slab, 6 wide (3 with slabBoost 0)',
+    wide?.grade === 'C' && wide.width === 6 && old?.grade === 'C' && old.width === 3, `${JSON.stringify(wide ?? 'no claim')} / ${JSON.stringify(old ?? 'no claim')}`);
+  const mins = [1, 2, 3, 4, 5, 6, 7, 10, 11, 20].map(n => minSlabWidthFor(DEFAULT_TUNING, n));
+  check('Narrowest slab by claim: 6 in the Meadow, 5 in Treetops, 4 in Cloudlands, then 3', mins.join(',') === '6,6,5,5,4,4,3,3,3,3', mins.join(', '));
 }
 
 // A piece pushed off the edge is Lost and costs one heart.
@@ -388,6 +395,66 @@ for (const [shape, x] of [['Domino', -2], ['O', 2.5], ['Plank', -1.5]] as const)
   }
 }
 
+// Start wait (§8.1): early on a new shape waits at the top before it falls, and can be steered meanwhile.
+{
+  const waitFor = (startCheckpoint: number) => {
+    const t = createSim({ autoSpawn: true, startCheckpoint });
+    t.step(1);
+    const y0 = t.sim.ctrl!.y;
+    let still = 0;
+    for (let i = 0; i < 200 && t.sim.ctrl && t.sim.ctrl.y === y0; i++) { t.step(); still++; }
+    t.dispose();
+    return still;
+  };
+  const steps = [1, 2, 3, 4].map(waitFor);
+  const waits = [1, 2, 3, 4, 9].map(n => startWaitFor(DEFAULT_TUNING, n));
+  check('Start wait: a new shape waits 1.5 s, 1.0 s, 0.5 s, then none from CP 4', waits.join(',') === '1.5,1,0.5,0,0' &&
+    Math.abs(steps[0] - 90) <= 2 && Math.abs(steps[1] - 60) <= 2 && Math.abs(steps[2] - 30) <= 2 && steps[3] <= 1, `still for ${steps.join(', ')} steps`);
+  const t = createSim({ autoSpawn: true });
+  t.step(1);
+  const x0 = t.sim.ctrl!.x, y0 = t.sim.ctrl!.y;
+  t.intent({ type: 'moveTo', x: x0 + 2 });
+  t.step(10);
+  const steered = t.sim.ctrl!.x === x0 + 2 && t.sim.ctrl!.y === y0 && t.sim.waiting;
+  t.intent({ type: 'softDrop', on: true });
+  t.step(5);
+  t.intent({ type: 'softDrop', on: false });
+  t.step(5);
+  const falling = t.sim.ctrl!.y < y0 - 0.5 && !t.sim.waiting && t.sim.ctrl!.speed > 0;
+  t.dispose();
+  const h = createSim({ autoSpawn: true });
+  h.step(1);
+  h.intent({ type: 'hardDrop' });
+  h.step(30);
+  const dropped = h.drainEvents().some(e => e.name === 'piece_landed');
+  h.dispose();
+  check('Start wait: the shape steers while it waits, a soft drop ends the wait for good, a hard drop lands at once', steered && falling && dropped,
+    `steered ${steered}, falling after the soft drop ${falling}, hard drop landed ${dropped}`);
+}
+
+// Shapes left (§7.2): warnings at 5, 3 and 1 also when a shape misses the tower, then bricks_out and the run ends on bricks.
+{
+  const t = createSim({ autoSpawn: true, tuning: { infiniteHearts: true } });
+  t.step(1);
+  (t.sim as any).budget = 4;
+  t.intent({ type: 'moveTo', x: t.sim.foundation.x + 9 });
+  t.intent({ type: 'hardDrop' });
+  const ev: { name: string; payload: Record<string, any> }[] = [];
+  let at = -1;
+  for (let i = 0; i < 60 * 30 && t.sim.state !== 'over'; i++) {
+    const c = t.sim.ctrl;
+    if (c && !c.hard && t.sim.used > 0) t.intent({ type: 'hardDrop' });
+    t.step();
+    for (const e of t.drainEvents()) { ev.push(e); if (e.name === 'bricks_out') at = i; }
+  }
+  const lows = ev.filter(e => e.name === 'budget_low').map(e => e.payload.left);
+  const out = ev.find(e => e.name === 'bricks_out'), over = ev.find(e => e.name === 'run_over');
+  check('Shapes left: warnings at 3 (a miss) and 1, then bricks_out with a 3 s grace, then the run ends on bricks',
+    lows.join(',') === '3,1' && out?.payload.grace === 3 && over?.payload.cause === 'bricks' && t.sim.cause === 'bricks' && at > 0,
+    `budget_low ${lows.join(', ')}; bricks_out ${JSON.stringify(out?.payload)}; over ${over?.payload.cause}`);
+  t.dispose();
+}
+
 // Auto-play smoke: a run with auto spawn and a naive bot keeps going without errors.
 {
   const t = createSim({ autoSpawn: true, rookieOpening: true });
@@ -395,7 +462,7 @@ for (const [shape, x] of [['Domino', -2], ['O', 2.5], ['Plank', -1.5]] as const)
   const t0 = performance.now();
   for (let i = 0; i < 60 * 120; i++) {
     const c = t.sim.ctrl;
-    if (c && c.speed > 0 && !c.hard) {
+    if (c && !c.hard && !t.sim.hovering) {
       // naive bot: walk to a rotating column across the foundation, then hard drop
       const f = t.sim.foundation;
       const x = f.x - f.width / 2 + 1 + ((landed * 2) % Math.max(1, f.width - 1));

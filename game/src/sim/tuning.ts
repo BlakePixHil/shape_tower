@@ -49,6 +49,8 @@ export interface Tuning {
   // Pace
   spawnHeight: number;        // blocks above the tower top
   spawnDelay: number;         // s after landing
+  startWait: number;          // s a new shape waits at the top before it falls, in the first stretch (gameplay.md §8.1)
+  startWaitStep: number;      // s less wait per checkpoint, down to none
   fallBase: number;
   fallPerCheckpoint: number;
   fallCap: number;
@@ -60,6 +62,7 @@ export interface Tuning {
   holdHover: boolean;         // the shape in hand waits during a hold and the claim's slab drop
   claimClearance: number;     // blocks: room kept between the new slab and the shape in hand
   minSlabWidth: number;
+  slabBoost: number;          // extra minimum slab width for the Meadow's claims, one less per biome after (gameplay.md §7.3)
   slabThickness: number;
   slackStart: number;
   slackDecay: number;
@@ -146,6 +149,8 @@ export const DEFAULT_TUNING: Tuning = {
   stepUp: 0.15,
   spawnHeight: 7,
   spawnDelay: 0.3,
+  startWait: 1.5,
+  startWaitStep: 0.5,
   fallBase: 1.5,
   fallPerCheckpoint: 0.12,
   fallCap: 4.5,
@@ -156,6 +161,7 @@ export const DEFAULT_TUNING: Tuning = {
   holdHover: true,
   claimClearance: 2.5,
   minSlabWidth: 3,
+  slabBoost: 3,
   slabThickness: 0.5,
   slackStart: 1.6,
   slackDecay: 0.04,
@@ -277,6 +283,20 @@ export function maxSlabWidthFor(n: number): number {
   if (n <= 10) return 7;
   if (n <= 19) return 6;
   return 5;
+}
+
+/**
+ * The narrowest slab a claim at checkpoint n can give (gameplay.md §7.3): wide early so a new player
+ * has room to build, narrowing a block per biome to `minSlabWidth`. 6, 6 in the Meadow, 5, 5 in
+ * Treetops, 4, 4 in Cloudlands, then 3.
+ */
+export function minSlabWidthFor(t: Tuning, n: number): number {
+  return t.minSlabWidth + Math.max(0, t.slabBoost - (biomeFor(n).id - 1));
+}
+
+/** Seconds a new shape waits at the top before it falls in stretch n: 1.5, 1.0, 0.5, then none. */
+export function startWaitFor(t: Tuning, n: number): number {
+  return Math.max(0, t.startWait - t.startWaitStep * (n - 1));
 }
 
 export function fallSpeedFor(t: Tuning, n: number): number {

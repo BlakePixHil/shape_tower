@@ -42,7 +42,7 @@ export interface TestSim {
   readonly checkpoint: { n: number; lineY: number; hold: { active: boolean; progress: number } };
   step(n?: number): void;
   placePiece(p: { shape: string; x: number; y: number; rot?: number; as?: 'dynamic' | 'stone'; brittle?: boolean }): number;
-  spawnControlled(p?: { shape?: string; x?: number; rot?: number; brittle?: boolean }): void;
+  spawnControlled(p?: { shape?: string; x?: number; rot?: number; brittle?: boolean; wait?: boolean }): void;
   intent(i: Intent): void;
   ghost(): Ghost | null;
   pieces(): TestPiece[];
