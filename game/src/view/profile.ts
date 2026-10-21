@@ -3,6 +3,7 @@
 import type { AvatarSpec } from '@art/index.ts';
 import { freshCounts, type AchievementCounts, type AchievementState } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
+import type { ModeId } from './modes.ts';
 
 export interface Profile {
   level: number;
@@ -111,7 +112,7 @@ export function updateStreak(p: Profile, now = new Date()): void {
  * streak +5% per consecutive day after the first, up to +25%. `extra` (achievements, §18) is added
  * flat after the boosts. The first run always reaches level 2.
  */
-export function award(p: Profile, base: number, opts: { newBest: boolean; quit: boolean; now?: Date; extra?: { lines: [string, string][]; xp: number } }): Award {
+export function award(p: Profile, base: number, opts: { newBest: boolean; quit: boolean; mode?: ModeId; now?: Date; extra?: { lines: [string, string][]; xp: number } }): Award {
   const now = opts.now ?? new Date();
   const today = day(now);
   const before = { level: p.level, xp: p.xp };

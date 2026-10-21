@@ -10,6 +10,7 @@ import type { LabState } from './view/panel.ts';
 import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, saveProfile, spendDailyWind, updateStreak } from './view/profile.ts';
 import { Screens, type UiSound } from './view/screens.ts';
 import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor } from './view/settings.ts';
+import { ENDLESS, type RunMode } from './view/modes.ts';
 import { BUILD, startShell } from './view/shell.ts';
 import { TrophyToasts } from './view/trophies.ts';
 import { setupNative } from './native.ts';
@@ -28,6 +29,7 @@ async function boot(): Promise<void> {
   const firstOpen = profile.sliceRuns === 0;
   const state: LabState = { tuning: {}, view: viewFor(settings, juice) };
   let dailyWind = false;
+  let mode: RunMode = ENDLESS; // the run being played (or just played)
   let screens: Screens | null = null; // made once the shell is up; the audio can arrive first
   let skipTap: ((e: PointerEvent) => void) | null = null;
 
@@ -39,9 +41,14 @@ async function boot(): Promise<void> {
   const toasts = new TrophyToasts({ reducedMotion: () => settings.reduceMotion, juice: () => juice, sound: a => unlockSound(a, true) });
 
   /** The tuning a new run starts with. */
-  const runTuning = (): Partial<Tuning> => {
+  const runTuning = (m: RunMode): Partial<Tuning> => {
     const t: Partial<Tuning> = { ...tuningFor(settings), holdUnlocked: profile.level >= 2, startPower: profile.level >= 6, hazardIntro: !profile.seenGusts, seenHazards: [...profile.seenHazards] };
     if (profile.level <= 1) { t.mortarStrength = 1.2; t.rookieBricks = 4; } // gentle first runs
+    switch (m.id) {
+      case 'endless': break;
+      case 'daily': break;
+      case 'zen': break;
+    }
     return t;
   };
 
@@ -105,7 +112,8 @@ async function boot(): Promise<void> {
     sc.menu({
       profile, build: BUILD,
       still: menuShown || settings.reduceMotion, // the logo drops in once per visit
-      onPlay: play,
+      onPlay: () => play(),
+      onMode: id => { if (id === 'zen') play({ id: 'zen' }); else play({ id: 'daily' }); },
       onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
       onSettings: () => { audio()?.screen?.('profile'); openSettings(home); },
       note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
@@ -113,12 +121,13 @@ async function boot(): Promise<void> {
     menuShown = true;
   }
 
-  function play(): void {
+  function play(m: RunMode = ENDLESS): void {
     stopSkip();
     shell.unlockAudio();
     sc.close();
+    mode = m;
     ({ juice, juiceRun } = nextJuice(profile));
-    state.tuning = runTuning();
+    state.tuning = runTuning(m);
     state.view = viewFor(settings, juice);
     scene.applyView(state.view);
     audio()?.setJuice?.(juice);
@@ -128,7 +137,7 @@ async function boot(): Promise<void> {
     toasts.clear();
     tracker = null;
     trackNext = true;
-    scene.newRun();
+    scene.newRun(false, { seed: m.seed, record: { mode: m.id } });
     scene.paused = false;
     scene.start();
   }
@@ -152,7 +161,7 @@ async function boot(): Promise<void> {
       onResume: resume,
       onRestart: () => {
         shell.record?.finish(scene.sim, { abandoned: true, juiceRun, player: profile.player });
-        play();
+        play(mode);
       },
       onSettings: () => openSettings(pause2),
       onQuit: () => { sc.close(); scene.paused = false; scene.sim.quit(); },
@@ -200,7 +209,7 @@ async function boot(): Promise<void> {
     grantStreaks(profile);
     const paid = payAchievements(profile);
     const earned = paid.ids.map(id => BY_ID.get(id)!);
-    const a = award(profile, Number(p.xp ?? 0), { newBest, quit, extra: paid });
+    const a = award(profile, Number(p.xp ?? 0), { newBest, quit, mode: mode.id, extra: paid });
     const rec = shell.record;
     rec?.finish(sim, { xp: a.gained, xpBase: Number(p.xp ?? 0), level: profile.level, runNumber: profile.runs, newBest: a.lines.some(l => l[0] === 'New best'), view: { ...state.view }, juiceRun, player: profile.player, achievements: paid.ids });
     const questions: { id: string; text: string; kind?: 'yesno' | 'faces' }[] = [
@@ -229,7 +238,7 @@ async function boot(): Promise<void> {
         achievements: earned,
         questions,
         onAnswer: (id, answer) => rec?.answer(id, answer),
-        onAgain: () => { rec?.exit('again'); play(); },
+        onAgain: () => { rec?.exit('again'); play(mode); },
         onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
         onHome: () => { rec?.exit('menu'); home(); },
         reducedMotion: settings.reduceMotion,

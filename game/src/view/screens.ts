@@ -24,7 +24,7 @@ export interface ScreenSounds {
 
 /** The sound each kit action makes; anything else is a plain tap. */
 const ACTION_SOUND: Record<string, UiSound> = {
-  play: 'start', again: 'start', resume: 'resume', profile: 'open', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
+  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap',
 };
 
@@ -143,15 +143,24 @@ export class Screens {
 
   // ---------------------------------------------------------------- main menu
 
-  menu(o: { profile: Profile; build: string; note?: string; still?: boolean; onPlay(): void; onProfile(): void; onSettings(): void }): void {
+  /**
+   * The main menu: Play is Endless, and the Daily Tower and Zen buttons open at their levels
+   * (gameplay.md §10.3, §12). `subs` replaces a mode's second line (the Daily's state today).
+   */
+  menu(o: {
+    profile: Profile; build: string; note?: string; still?: boolean; subs?: Partial<Record<'daily' | 'zen', string>>;
+    onPlay(): void; onMode(id: 'daily' | 'zen'): void; onProfile(): void; onSettings(): void;
+  }): void {
     const p = o.profile;
-    // Daily Tower and Zen open at their levels but aren't built yet.
-    const modes = MENU_MODES.map(m => (p.level >= (m.unlockAt ?? 0) ? { ...m, sub: 'Coming in the next build' } : m));
+    const modes = MENU_MODES.map(m => {
+      const sub = o.subs?.[m.id as 'daily' | 'zen'];
+      return sub && p.level >= (m.unlockAt ?? 0) ? { ...m, sub } : m;
+    });
     const el = mainMenu({ name: this.playerName, ...xpOf(p), avatar: p.avatar, modes, still: o.still });
     const bottom = el.querySelector('.ui-menu-bottom')!;
     if (o.note) bottom.insertAdjacentHTML('afterbegin', `<div class="sc-testing">${esc(o.note)}</div>`);
     bottom.insertAdjacentHTML('beforeend', `<div class="sc-build">build ${esc(o.build)}</div>`);
-    this.open('menu', el, { play: o.onPlay, profile: o.onProfile, settings: o.onSettings });
+    this.open('menu', el, { play: o.onPlay, daily: () => o.onMode('daily'), zen: () => o.onMode('zen'), profile: o.onProfile, settings: o.onSettings });
   }
 
   // ---------------------------------------------------------------- pause
