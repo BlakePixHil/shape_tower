@@ -22,6 +22,25 @@ export function canvasUrl(key: string, make: UrlMaker): string {
 }
 
 /**
+ * Like canvasUrl, but a short `blob:` URL instead of a data URL, for images repeated down a list (a
+ * ladder's portraits): the page's HTML stays small however many rows use one. It lives as long as the page.
+ */
+export function canvasBlobUrl(key: string, make: UrlMaker): string {
+  const u = urls.get(key);
+  if (u) return u;
+  if (collecting) { collecting.set(key, make); return ''; }
+  const data = cpuBaked(make).toDataURL('image/png');
+  let v = data;
+  if (typeof Blob !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
+    const bin = atob(data.slice(data.indexOf(',') + 1)), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    v = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+  }
+  urls.set(key, v);
+  return v;
+}
+
+/**
  * Bakes ahead every image that `ask` asks for by calling *Url helpers (they return '' meanwhile), one
  * per idle slice, encoding each off the main thread. Resolves once they're all cached. One asked for
  * before then is baked on the spot, as it would be without warming.
