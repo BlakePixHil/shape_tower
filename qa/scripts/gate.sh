@@ -55,6 +55,12 @@ if [ -d "$R/online" ]; then
   run "online: typecheck" bash -c 'cd online && npm run -s typecheck'
   run "online: api check" bash -c 'cd online && npm run -s api:check'
 fi
+# The ladder server as Cloudflare runs it, from the repo root: wrangler dev (workerd with the Durable Object's
+# SQLite) answering the selftest and the game's calls, and keeping the ladder across a restart (#71).
+if [ -f "$R/package.json" ] && grep -q '"ladder:check"' "$R/package.json"; then
+  run "root: npm ci" npm ci --no-audit --no-fund
+  run "root: ladder check" npm run -s ladder:check
+fi
 if [ -d "$R/qa" ]; then
   run "qa: npm ci" bash -c 'cd qa && npm ci --no-audit --no-fund --legacy-peer-deps'
   run "qa: typecheck" bash -c 'cd qa && npm run -s typecheck'
