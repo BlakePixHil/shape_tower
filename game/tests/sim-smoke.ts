@@ -3,7 +3,7 @@
 
 import { readFileSync } from 'node:fs';
 import { Box2DEngine } from '../src/sim/engine/box2d.ts';
-import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
+import { SHAPES, colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { runBench } from '../src/sim/bench.ts';
 import { createSim, replay, restore, useRapier } from '../src/sim/testApi.ts';
 import { DEFAULT_TUNING, bondDelayFor, cosmosScale, fallSpeedFor, gustFor, hazardsFor, maxSlabWidthFor, minSlabWidthFor, mortarStrengthFor, rampFor, setStreakFor, slackFor, startWaitFor, type Tuning } from '../src/sim/tuning.ts';
@@ -603,15 +603,37 @@ const loose = (t: ReturnType<typeof createSim>) => t.pieces().filter(p => p.stat
       if (e.name === 'bubble_spawned') {
         spawned++;
         const f = t.sim.foundation, b = e.payload as { x: number };
-        if (Math.abs(b.x - f.x) < Math.min(f.width / 2 + 1, 5.25) - 1e-9) inside++;
+        const out = Math.abs(b.x - f.x) - f.width / 2; // past the foundation's edge
+        if (out < 1 - 1e-9 || out > 1.5 + 1e-9) inside++;
       }
       if (e.name === 'power_collected') collected++;
       if (e.name === 'piece_landed') landed++;
     }
     for (let s = 0; s < 2; s++) t.sim.slots[s] = null;
   }
-  check('Bubbles sit beside the foundation and building on it rarely collects one', spawned >= 4 && inside === 0 && collected <= spawned / 4, `${landed} landed, ${spawned} bubbles, ${inside} over the foundation, ${collected} collected`);
+  check('Bubbles sit 1 to 1.5 blocks past the foundation\'s edge (12-wide plinth) and building on it rarely collects one', spawned >= 4 && inside === 0 && collected <= spawned / 4, `${landed} landed, ${spawned} bubbles, ${inside} not 1 to 1.5 past the edge, ${collected} collected`);
   t.dispose();
+}
+
+// Any shape, in any rotation, can be steered off either side of any foundation a run can have and
+// tossed (gameplay.md §4.3 "free to toss"; QA, 2026-10-22: the old ±7 reach was only 1 block past a
+// 12-wide plinth).
+{
+  const misses: string[] = [];
+  let drops = 0;
+  for (const width of [6, 7, 8, 9, 10, 11, 12]) for (const shape of Object.keys(SHAPES)) for (let rot = 0; rot < 4; rot++) for (const side of [-1, 1]) {
+    const t = createSim({ seed: 1, tuning: { plinthWidth: width } });
+    t.spawnControlled({ shape, rot, wait: false });
+    t.intent({ type: 'moveTo', x: side * 50 });
+    for (let i = 0; i < 120 && Math.abs(t.controlled()!.x - t.controlled()!.xTarget) > 1e-6; i++) t.step();
+    t.intent({ type: 'hardDrop' });
+    let lost = false;
+    for (let i = 0; i < 60 * 4 && !lost; i++) { t.step(); lost = t.drainEvents().some(e => e.name === 'piece_lost'); }
+    drops++;
+    if (!lost) misses.push(`${shape} rot ${rot} ${side < 0 ? 'left' : 'right'} of ${width}`);
+    t.dispose();
+  }
+  check('Every shape in every rotation can be tossed off both sides of every foundation width from 6 to 12', misses.length === 0, `${drops - misses.length} of ${drops} left the tower${misses.length ? `; stayed: ${misses.slice(0, 6).join(', ')}` : ''}`);
 }
 
 // With Mortar off, Glue is never offered and a Glue already in a slot is refused (QA-006).

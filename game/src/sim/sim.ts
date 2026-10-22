@@ -904,10 +904,12 @@ export class Sim {
     return this.engine.overlapBoxes(this.boxes(shape, rot), x, y, rotQ(rot)).length === 0;
   }
 
+  /** Steering reaches 3 blocks past the foundation's edges (7 from its middle at least), so any shape can be tossed off either side. */
   private clampX(c: Controlled, x: number): number {
     const e = extents(c.shape, c.rot);
     const f = this.foundation;
-    const lo = f.x - 7 - e.minX, hi = f.x + 7 - e.maxX;
+    const reach = Math.max(7, f.width / 2 + 3);
+    const lo = f.x - reach - e.minX, hi = f.x + reach - e.maxX;
     return Math.max(snapUp(lo, this.tuning.snapStep), Math.min(snapDown(hi, this.tuning.snapStep), x));
   }
 
@@ -1731,12 +1733,12 @@ export class Sim {
 
   private makeBubble(top: number): void {
     const f = this.foundation;
-    // Beside the foundation, 1 to 1.5 blocks out from its edge (kept on screen), 2.2 to 4.2
-    // blocks above the tower. Shapes dropped onto the foundation miss it, so collecting one
-    // takes a deliberate steer out and back (QA found bubbles over the foundation were picked
-    // up by accident).
+    // Beside the foundation, 1 to 1.5 blocks out from its edge (1.25 at most on slabs 8 wide or
+    // more, which the camera's overhang zoom keeps in view), 2.2 to 4.2 blocks above the tower. Shapes dropped
+    // onto the foundation miss it, so collecting one takes a deliberate steer out and back (QA
+    // found bubbles over the foundation were picked up by accident).
     const side = this.rng.powers.int(2) ? 1 : -1;
-    const x = f.x + side * Math.min(f.width / 2 + 1 + 0.5 * this.rng.powers.int(2), 5.25);
+    const x = f.x + side * Math.min(f.width / 2 + 1 + 0.5 * this.rng.powers.int(2), Math.max(5.25, f.width / 2 + 1.25));
     const y = top + 2.2 + 0.5 * this.rng.powers.int(5);
     this.bubble = { id: ++this.bubbleSeq, kind: this.pickKind(), x, y, r: this.tuning.bubbleRadius, shapesLeft: Math.max(1, Math.round(this.tuning.bubbleLife)) };
     this.bubbleIn = this.bubbleGap();
