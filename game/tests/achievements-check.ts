@@ -119,9 +119,9 @@ function climb(to: number, from = 1): [string, Record<string, unknown>?][] {
     has(play([claim(1, 'A', 8)]), 'thrifty') && !has(play([claim(1, 'A', 7)]), 'thrifty') && !has(play([claim(1, 'B', 10)]), 'thrifty'));
   check('Just Enough: 0 left yes, 1 left no, endless budget no',
     has(play([claim(1, 'B', 0)]), 'last_brick') && !has(play([claim(1, 'B', 1)]), 'last_brick') && !has(play([claim(1, 'B', 0)], { tuning: { infiniteBudget: true } }), 'last_brick'));
-  check('Needle Threader: the narrowest slab for the claim at C (6 wide at CP 1, 3 at CP 11) yes, a block wider no, B no',
-    has(play([claim(1, 'C', 3, 6)]), 'needle') && !has(play([claim(1, 'C', 3, 7)]), 'needle') && !has(play([claim(1, 'B', 3, 6)]), 'needle') &&
-    has(play([claim(11, 'C', 3, 3)]), 'needle') && !has(play([claim(11, 'C', 3, 4)]), 'needle'));
+  check('Needle Threader: the narrowest slab for the claim at C (10 wide at CP 1, 6 at CP 11) yes, a block wider no, B no',
+    has(play([claim(1, 'C', 3, 10)]), 'needle') && !has(play([claim(1, 'C', 3, 11)]), 'needle') && !has(play([claim(1, 'B', 3, 10)]), 'needle') &&
+    has(play([claim(11, 'C', 3, 6)]), 'needle') && !has(play([claim(11, 'C', 3, 7)]), 'needle'));
   check('Clutch: one earns Clutch!, two not Nerves of Steel, three yes',
     has(play([['clutch']]), 'clutch') && !has(play([['clutch'], ['clutch']]), 'clutch_3') && has(play([['clutch'], ['clutch'], ['clutch']]), 'clutch_3'));
 }
@@ -294,12 +294,12 @@ function climb(to: number, from = 1): [string, Record<string, unknown>?][] {
     return out;
   };
   const a = runBot(true), b = runBot(false);
-  // A wall at line height claims checkpoint 1 with an S foundation (sim-smoke's setup), read live.
+  // A wall at line height across the 12-wide plinth claims checkpoint 1 with an S foundation (sim-smoke's setup), read live.
   {
     const t = createSim({});
     const got: string[] = [];
     const tracker = new RunTracker(t.sim, profile(), { bestBefore: 0, onUnlock: x => got.push(x.id), save: () => {} });
-    for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) t.placePiece({ shape: 'O', x: -3 + col * 2, y: 1 + row * 2 + 0.001 * row });
+    for (let row = 0; row < 4; row++) for (let col = 0; col < 6; col++) t.placePiece({ shape: 'O', x: -5 + col * 2, y: 1 + row * 2 + 0.001 * row });
     for (let i = 0; i < 660; i++) { t.step(); for (const e of t.drainEvents()) tracker.handle(e as BusEvent); }
     check('A real claim with an S foundation earns Off the Ground and Flat Out', got.includes('cp_first') && got.includes('grade_s'), got.join(', '));
     t.dispose();
