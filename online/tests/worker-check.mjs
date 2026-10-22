@@ -51,7 +51,9 @@ const key = n => n.toString(16).padStart(2, '0').repeat(32);
 await start();
 const st = await (await fetch(`${BASE}/selftest`)).json();
 for (const [res, name, detail] of st.out) check(`selftest: ${name}`, res === 'PASS', detail);
-check('selftest passes as a whole', st.pass === true);
+check('selftest passes as a whole', st.pass === true && !st.cached);
+const again = await (await fetch(`${BASE}/selftest`)).json();
+check('a second selftest within 5 minutes answers the last run instead of running', again.cached === true && again.pass === true && again.ranAt === st.ranAt, JSON.stringify(again).slice(0, 200));
 
 const now = Date.now(), day = new Date(now).toISOString().slice(0, 10);
 const named = await call({ op: 'name', key: key(1), name: 'Check Charlie' });

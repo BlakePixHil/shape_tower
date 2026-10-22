@@ -1,14 +1,21 @@
 // The live check (GET /selftest): the real Worker code and a real Durable Object with its SQLite database,
 // on a scratch copy of the ladder that starts and ends empty, so the real ladder is only ever read.
-// Racing phones included. Answers { pass, out: [[PASS|FAIL, check, detail on a failure]] }.
+// Racing phones included. Answers { pass, out: [[PASS|FAIL, check, detail on a failure]], ranAt }. It runs at
+// most once every 5 minutes; in between it answers the last run again, with cached: true.
 
 import { ladderOf, respond, type Env, type LadderRpc } from './worker.ts';
 import { dailyDay } from '../../game/src/meta/daily.ts';
 
 const key = (n: number) => n.toString(16).padStart(2, '0').repeat(32);
 const URL_ = 'https://selftest.invalid/api/v1';
+const GAP_MS = 5 * 60_000;
+const json = (body: string) => new Response(body, { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 
 export async function selftest(env: Env): Promise<Response> {
+  const gate = ladderOf(env, 'selftest-gate');
+  const at = Date.now();
+  const claimed = await gate.claimSelftest(at, GAP_MS);
+  if (claimed !== 'go') return json(JSON.stringify({ ...JSON.parse(claimed), cached: true }, null, 1));
   const out: [string, string, string?][] = [];
   const check = (name: string, ok: boolean, detail?: unknown) => out.push(ok ? ['PASS', name] : ['FAIL', name, detail === undefined ? undefined : JSON.stringify(detail)]);
   const scratch: LadderRpc = ladderOf(env, 'selftest');
@@ -46,5 +53,7 @@ export async function selftest(env: Env): Promise<Response> {
   } catch (e) {
     check('no errors', false, String((e as Error)?.stack ?? e));
   }
-  return new Response(JSON.stringify({ pass: out.every(c => c[0] === 'PASS'), out }, null, 1), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+  const body = JSON.stringify({ pass: out.every(c => c[0] === 'PASS'), out, ranAt: new Date(at).toISOString() }, null, 1);
+  await gate.keepSelftest(at, body);
+  return json(body);
 }

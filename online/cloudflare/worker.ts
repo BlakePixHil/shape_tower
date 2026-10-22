@@ -15,6 +15,8 @@ export interface Env { LADDER: DurableObjectNamespace<Ladder> }
 export interface LadderRpc {
   run(req: LadderRequest, now?: number): Promise<LadderReply>;
   wipe(): Promise<void>;
+  claimSelftest(now: number, gapMs: number): Promise<string>;
+  keepSelftest(at: number, body: string): Promise<void>;
 }
 
 export class Ladder extends DurableObject<Env> implements LadderRpc {
@@ -36,6 +38,21 @@ export class Ladder extends DurableObject<Env> implements LadderRpc {
   async wipe(): Promise<void> {
     await this.ctx.storage.deleteAll();
     this.store = new SqlStore(this.sql);
+  }
+
+  /**
+   * The selftest's gate (its own object): 'go' at most once per `gapMs`, otherwise the last run's answer,
+   * so calling /selftest in a loop can't spend the free plan's daily calls and writes.
+   */
+  async claimSelftest(now: number, gapMs: number): Promise<string> {
+    const last = (await this.store.get<{ at: number; body: string }>('selftest/last'))?.data;
+    if (last && now - last.at < gapMs) return last.body || JSON.stringify({ pass: false, out: [['FAIL', 'another run is still going']] });
+    await this.store.put('selftest/last', { at: now, body: '' });
+    return 'go';
+  }
+
+  async keepSelftest(at: number, body: string): Promise<void> {
+    await this.store.put('selftest/last', { at, body });
   }
 }
 
