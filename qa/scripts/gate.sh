@@ -19,8 +19,9 @@ if [ -d "$R/game" ]; then
   run "game: typecheck" bash -c 'cd game && npm run -s typecheck'
   run "game: sim smoke" bash -c 'cd game && npm run -s sim:smoke'
   run "game: gesture check" bash -c 'cd game && npm run -s gesture:check'
-  # Achievement rules and the Daily Tower's days, seeds and attempts, in Node (#37, #60).
-  for c in achievements:check daily:check; do
+  # Achievement rules, the Daily Tower's days, seeds, attempts and shape sets, and the ladder's name filter,
+  # in Node (#37, #60, #68).
+  for c in achievements:check daily:check names:check; do
     grep -q "\"$c\"" "$R/game/package.json" && run "game: ${c/:/ }" bash -c "cd game && npm run -s $c"
   done
   run "game: build" bash -c 'cd game && npm run -s build'
@@ -30,8 +31,9 @@ if [ -d "$R/game" ]; then
     # its last shapes (the shapes-left warnings, #51), the level-up celebration with its avatar picker,
     # a Zen run through pause, Finish, the summary and back to Endless (#57), the achievements' toast,
     # strip, tally and panel (#37), the Daily Tower's card, attempts and played day (#60), the loading
-    # splash (#61), and a checkpoint hold's grey, knock freeze and colour overshoot (#62).
-    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check; do
+    # splash (#61), a checkpoint hold's grey, knock freeze and colour overshoot (#62), and the Daily ladder
+    # against the ladder API run in memory on this machine, never the live one (#68).
+    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check ladder-check; do
       [ -f "$R/game/tests/$t.mjs" ] && run "game: $t" bash -c "cd game && node tests/$t.mjs"
     done
   fi
@@ -46,6 +48,12 @@ fi
 if [ -d "$R/audio" ]; then
   run "audio: npm ci" bash -c 'cd audio && npm ci --no-audit --no-fund'
   run "audio: test" bash -c 'cd audio && npm test'
+fi
+# The Daily ladder's API (#68): its handler's rules against an in-memory store.
+if [ -d "$R/online" ]; then
+  run "online: npm ci" bash -c 'cd online && npm ci --no-audit --no-fund'
+  run "online: typecheck" bash -c 'cd online && npm run -s typecheck'
+  run "online: api check" bash -c 'cd online && npm run -s api:check'
 fi
 if [ -d "$R/qa" ]; then
   run "qa: npm ci" bash -c 'cd qa && npm ci --no-audit --no-fund --legacy-peer-deps'
