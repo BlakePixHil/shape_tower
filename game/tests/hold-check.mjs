@@ -106,6 +106,18 @@ step('the checkpoint goes on its own plain camera meanwhile', during.split && du
 const ratio = k => Math.round(colour1[k] / Math.max(0.001, colour0[k]) * 100) / 100;
 step('on screen, the scene loses colour and the checkpoint plaque keeps it', colour1.filterOn && !colour0.filterOn && colour0.scene > 0.05 && ratio('scene') < 1 - 0.6 * during.grey && ratio('plaque') > 0.9, JSON.stringify({ grey: colour1, plain: colour0, scene: ratio('scene'), plaque: ratio('plaque') }));
 
+// Objects are sorted onto the cameras when the split starts, and the ones added during it at the
+// next frame, once their depth is set (#65): an effect in front of the line, a backdrop piece behind it.
+const added = await page.evaluate(() => new Promise(res => {
+  const sc = window.__wobble.scene, m = sc.cameras.main.id, l = sc.lineCam.id, f = sc.frontCam.id;
+  const fx = sc.add.rectangle(0, 0, 4, 4, 0xffffff).setDepth(30), bg = sc.add.rectangle(0, 0, 4, 4, 0xffffff).setDepth(1);
+  sc.game.events.once('postrender', () => {
+    res({ split: sc.split, front: fx.cameraFilter === (m | l), back: bg.cameraFilter === (l | f) });
+    fx.destroy(); bg.destroy();
+  });
+}));
+step('shapes and effects added during the hold land on the right camera', added.split && added.front && added.back, JSON.stringify(added));
+
 // The shape in hand, hard-dropped onto the tower during the hold, knocks it (a hard drop lands at
 // 2 blocks/s): a freeze-frame, even when the knock jostles the top and breaks the hold.
 await drop(0);

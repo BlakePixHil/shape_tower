@@ -481,9 +481,14 @@ export class Hud {
     const el = document.createElement('div');
     el.className = `ui ui-hcard${still ? ' ui-still' : ''}`;
     el.setAttribute('role', 'status');
-    const icon = this.preview(shape, true).toDataURL();
-    el.innerHTML = `<div class="ui-hc-title"><img alt="" src="${icon}" style="object-fit:contain"><span>Brittle shape!</span></div>`
+    el.innerHTML = '<div class="ui-hc-title"><span>Brittle shape!</span></div>'
       + '<span class="ui-chip amber">Breaks under 3 shapes</span><span class="ui-chip amber">Set it in stone, or toss it free</span>';
+    // The cached preview canvas goes in the card as it is: encoding it as an image first waited on
+    // the GPU, a 0.3 s freeze just as the shape came in (#50). The card shows once, so it's never
+    // wanted in two places.
+    const icon = this.preview(shape, true);
+    icon.style.cssText = 'width:40px;height:40px;object-fit:contain';
+    el.firstElementChild!.prepend(icon);
     el.addEventListener('animationend', e => { if (e.animationName.startsWith('ui-hc')) el.remove(); });
     setTimeout(() => el.remove(), 5000);
     this.root.appendChild(el);
