@@ -10,7 +10,7 @@ import { ART_SHAPES, pose } from '../shapes.ts';
 import { BIOMES } from '../biomes.ts';
 import { type Expression, drawFace } from '../face.ts';
 import { faceAnchor } from '../geometry.ts';
-import { ctx2d, hash, makeCanvas } from '../util.ts';
+import { type Ctx, ctx2d, hash, makeCanvas } from '../util.ts';
 import { achievementsRow } from './achievements.ts';
 import { badgeTier, badgeUrl, newTitleAt, titleFor } from './badge.ts';
 import { type UiIcon, uiIconUrl } from './icons.ts';
@@ -270,10 +270,25 @@ export function avatarUrl(a: AvatarSpec = {}, cssPx = 56, dpr = DPR()): string {
   c.beginPath(); c.arc(R, R, R - lw / 2, 0, Math.PI * 2); c.fillStyle = g; c.fill();
   c.save(); c.clip();
   c.fillStyle = '#7FD36B'; c.fillRect(0, px * 0.8, px, px);
+  drawAvatarFigure(c, a, px);
+  c.restore();
+  c.beginPath(); c.arc(R, R, R - lw / 2, 0, Math.PI * 2); c.lineWidth = lw; c.strokeStyle = INK; c.stroke();
+  u = cv.toDataURL('image/png');
+  avatars.set(id, u);
+  return u;
+}
+
+/**
+ * The avatar's Blockling in its hat, standing on the line 80% of the way down a `px` square disc (where
+ * the avatar's grass starts), with nothing behind it. Portraits put it on their own backgrounds.
+ */
+export function drawAvatarFigure(c: Ctx, a: AvatarSpec, px: number): void {
+  const key = a.shape ?? 'O', face = a.face ?? 'idle', hat = a.hat ? HATS.find(h => h.key === a.hat) : undefined, R = px / 2;
   // A hat (about a block across) sits over the face; shrink the Blockling so both fit the disc. The flat
   // I would be a sliver at that size, so it spans most of the disc's width instead.
   const p = pose(key, 0), hw = 1.35, fit = p.w >= p.h * 3 ? (px * 0.8) / p.w : (px * 0.56) / Math.max(p.w, p.h, 1.6);
   const s = Math.min(fit, hat ? (px * 0.7) / (p.h + hat.h * hw) : Infinity);
+  c.save();
   c.translate(R - (p.w * s) / 2, px * 0.8 - p.h * s + s * 0.04);
   drawPiece(c, key, 0, s, { face, shadow: false, detail: s >= 20 });
   if (hat) {
@@ -281,10 +296,6 @@ export function avatarUrl(a: AvatarSpec = {}, cssPx = 56, dpr = DPR()): string {
     drawHat(c, hat.key, ax * s, top * s + s * 0.06, hw * s);
   }
   c.restore();
-  c.beginPath(); c.arc(R, R, R - lw / 2, 0, Math.PI * 2); c.lineWidth = lw; c.strokeStyle = INK; c.stroke();
-  u = cv.toDataURL('image/png');
-  avatars.set(id, u);
-  return u;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -486,6 +486,32 @@ export function uiCss(): string {
 @keyframes ui-sa-flash { 0% { opacity: 0; } 15% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes ui-edge { from { opacity: 0.45; } to { opacity: 1; } }
 
+/* Portraits (portraits.ts): baked layers placed in % of the disc or the box, moved by transform and opacity only. */
+.ui-portrait { position: relative; display: inline-block; flex: none; width: var(--s, 48px); height: var(--s, 48px); vertical-align: middle; contain: layout paint; }
+.ui-portrait .ui-pt-l, .ui-portrait .ui-pt-tilt { position: absolute; display: block; max-width: none; pointer-events: none; }
+.ui-pt-disc { position: absolute; left: 8%; top: 8%; width: 84%; height: 84%; border-radius: 50%; overflow: hidden; isolation: isolate; }
+.ui-pt-tilt { overflow: visible; }
+.ui-pt-tilt > .ui-pt-l { position: absolute; }
+.ui-pt-spin { animation: ui-pt-spin var(--d) linear infinite; }
+.ui-pt-spin.rev { animation-direction: reverse; }
+.ui-pt-scroll { animation: ui-pt-scroll var(--d) linear infinite; }
+.ui-pt-twinkle { animation: ui-pt-twinkle var(--d) ease-in-out infinite; }
+.ui-pt-glitter { animation: ui-pt-glitter var(--d) ease-in-out infinite; }
+.ui-pt-bob { animation: ui-pt-bob var(--d) ease-in-out infinite; }
+.ui-pt-beat { animation: ui-pt-beat var(--d) ease-out infinite; }
+.ui-pt-sway { animation: ui-pt-sway var(--d) ease-in-out infinite; }
+.ui-pt-glint { position: absolute; left: 2%; top: 2%; width: 96%; height: 96%; border-radius: 50%; overflow: hidden; pointer-events: none; }
+.ui-pt-glint i { position: absolute; inset: 0; background: linear-gradient(105deg, transparent 36%, rgba(255,255,255,0.75) 50%, transparent 64%); transform: translateX(-110%); animation: ui-pt-glint 4.2s ease-in-out infinite; }
+.ui-still .ui-pt-glint { display: none; }
+@keyframes ui-pt-spin { to { transform: rotate(360deg); } }
+@keyframes ui-pt-scroll { from { transform: var(--f); } to { transform: var(--t); } }
+@keyframes ui-pt-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+@keyframes ui-pt-glitter { 0%, 100% { opacity: 1; transform: scale(1) rotate(0deg); } 50% { opacity: 0.2; transform: scale(0.35) rotate(45deg); } }
+@keyframes ui-pt-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(var(--a)); } }
+@keyframes ui-pt-beat { 0%, 40%, 100% { transform: scale(1); } 10%, 30% { transform: scale(1.1); } 20% { transform: scale(1.02); } }
+@keyframes ui-pt-sway { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(var(--g)); } 75% { transform: rotate(calc(var(--g) * -1)); } }
+@keyframes ui-pt-glint { 0% { transform: translateX(-110%); } 24%, 100% { transform: translateX(110%); } }
+
 /* Still: no motion. Information keeps its timing: the hazard countdown still fills, and the hazard, biome and achievement cards and the shapes banner fade in and out. */
 .ui-still:not(.ui-hcard):not(.ui-btitle):not(.ui-achtoast):not(.ui-salert), .ui-still *:not(.cd) { animation-duration: 1ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
 .ui-still .ui-confetti, .ui-still .ui-rays { display: none; }
@@ -506,6 +532,7 @@ export function uiCss(): string {
   .ui-achtoast.stay { animation-name: ui-fade; animation-duration: 300ms; }
   .ui-salert { animation-name: ui-sa-fade; }
   .ui .ui-at-badge i { display: none; }
+  .ui .ui-pt-glint { display: none; }
 }
 `;
 }
