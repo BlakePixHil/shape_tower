@@ -61,6 +61,7 @@ const GROUPS: [string, [NumKey, string, number, number, number, boolean?][]][] =
     ['holdTime', 'Hold steady (s)', 0.5, 4, 0.1],
     ['holdGrey', 'Hold: fade to grey', 0, 1, 0.05],
     ['holdHitstop', 'Hold: knock freeze (ms)', 0, 200, 10],
+    ['rampPace', 'Difficulty pace ×', 0, 2, 0.05],
     ['slabBoost', 'Wider slabs early (+ blocks in the Meadow)', 0, 4, 1],
     ['slackStart', 'Brick slack', 1, 2.5, 0.05, true],
     ['hearts', 'Hearts', 1, 6, 1, true],
@@ -91,6 +92,7 @@ const TOGGLES: [BoolKey, string][] = [
   ['powerUps', 'Power-up bubbles and grants'],
   ['gusts', 'Gusts from Treetops (checkpoint 3)'],
   ['lateHazards', 'Late hazards from the Storm Belt (checkpoint 7)'],
+  ['widestSlabs', 'Widest slab on every claim'],
 ];
 
 const VIEW_TOGGLES: [keyof ViewSettings, string][] = [

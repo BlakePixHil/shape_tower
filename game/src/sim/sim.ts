@@ -182,7 +182,6 @@ export interface SimOptions {
 const ROOKIE_OPENING = ['O', 'I', 'L', 'O', 'J', 'T', 'I', 'O', 'L', 'J'];
 const BAG_SIZE = 10;
 const RESCUE = new Set(['O', 'I', 'Plank']);
-const FIRST_FOUNDATION_WIDTH = 8;
 const BULLET_SPEED = 10; // blocks/s
 
 export class Sim {
@@ -289,7 +288,7 @@ export class Sim {
   constructor(opts: SimOptions = {}) {
     this.tuning = { ...DEFAULT_TUNING, ...(opts.tuning ?? {}) };
     // Zen (gameplay.md §12): nothing to count and nothing to lose, so nothing to win back either.
-    if (this.tuning.zen) { this.tuning.infiniteBudget = true; this.tuning.infiniteHearts = true; }
+    if (this.tuning.zen) { this.tuning.infiniteBudget = true; this.tuning.infiniteHearts = true; this.tuning.widestSlabs = true; }
     this.seed = (opts.seed ?? 1) >>> 0;
     this.rng = makeStreams(this.seed);
     this.autoSpawn = opts.autoSpawn ?? true;
@@ -301,8 +300,8 @@ export class Sim {
     if (!make) throw new Error(`physics engine "${opts.engine}" is not loaded: await useRapier() from testApi.ts first (or registerEngine after initRapier)`);
     this.engine = make({ gravity: this.tuning.gravity, pushoutVelocity: this.tuning.pushoutVelocity, hitThreshold: 0.3 });
 
-    // The plinth: an 8-wide raised pedestal, top surface at y = 0.
-    const plinth = this.addFoundation(0, FIRST_FOUNDATION_WIDTH, 0, 1.0);
+    // The plinth: a raised pedestal (12 wide), top surface at y = 0.
+    const plinth = this.addFoundation(0, this.tuning.plinthWidth, 0, 1.0);
     this.checkpoint = Math.max(1, Math.floor(opts.startCheckpoint ?? 1));
     const biome = biomeFor(this.checkpoint);
     if (biome.gravity !== 1) { this.gravityScale = biome.gravity; this.engine.setGravity(0, -this.tuning.gravity * biome.gravity); }
@@ -559,7 +558,7 @@ export class Sim {
       // so it blows at half strength with a card.
       const first = this.gustsSeen === 0, intro = first && t.hazardIntro;
       g.dir = this.rng.hazards.int(2) ? 1 : -1;
-      g.strength = spec.strength * t.gustScale * (intro ? 0.5 : 1);
+      g.strength = spec.strength * t.gustScale * this.zenEase * (intro ? 0.5 : 1);
       g.dur = 2 + this.rng.hazards.int(11) / 10;
       g.startStep = this.stepIndex + Math.round(GUST_WARNING / DT);
       g.phase = 'warn';
@@ -602,7 +601,7 @@ export class Sim {
       remix = [REMIX_POOL[a], REMIX_POOL[b]];
     }
     const st = hazardsFor(n, remix), w = this.weather;
-    const k = (h: LateHazard) => t.hazardStrength * (this.introFor(h) ? 0.5 : 1);
+    const k = (h: LateHazard) => t.hazardStrength * this.zenEase * (this.introFor(h) ? 0.5 : 1);
     w.crosswind = 0;
     w.sway = null;
     if (st.crosswind > 0) {
@@ -775,7 +774,7 @@ export class Sim {
     const dir: -1 | 1 = p.cx >= fx ? -1 : 1;
     const a = this.aim(p, 'junk', dir);
     const { intro, first } = this.meet('junk');
-    const k = this.tuning.hazardStrength * this.cosmos() * (intro ? 0.5 : 1);
+    const k = this.tuning.hazardStrength * this.zenEase * this.cosmos() * (intro ? 0.5 : 1);
     const warn = Math.round(HAZARD_WARNING / DT), flight = 1.4;
     const s: Shot = {
       id: ++this.hazardSeq, kind: 'junk', skin: this.rng.late.int(3), phase: 'warn', x: a.wx + dir * 7, y: a.wy + 1.1, hitX: a.wx, hitY: a.wy,
@@ -793,7 +792,7 @@ export class Sim {
     const dir: -1 | 1 = this.rng.late.int(2) ? 1 : -1;
     const n = 2 + this.rng.late.int(3);
     const { intro, first } = this.meet('meteor');
-    const k = this.tuning.hazardStrength * this.cosmos() * (intro ? 0.5 : 1);
+    const k = this.tuning.hazardStrength * this.zenEase * this.cosmos() * (intro ? 0.5 : 1);
     const flight = 0.8, list: Record<string, unknown>[] = [];
     for (let i = 0; i < n; i++) {
       const p = c[this.rng.late.int(c.length)];
@@ -861,7 +860,7 @@ export class Sim {
       this.devilCracked.clear();
       const start = this.stepIndex + Math.round(HAZARD_WARNING / DT);
       d = this.devil = {
-        id: ++this.hazardSeq, dir, strength: spec.strength * this.tuning.hazardStrength * (intro ? 0.5 : 1), phase: 'warn',
+        id: ++this.hazardSeq, dir, strength: spec.strength * this.tuning.hazardStrength * this.zenEase * (intro ? 0.5 : 1), phase: 'warn',
         startStep: start, endStep: start + Math.round(2 * half / DEVIL_SPEED / DT), x0: f.x - dir * half, x: f.x - dir * half, y: top - 4,
       };
       this.bus.emit('hazard_warning', { type: 'dust', id: d.id, dir, eta: HAZARD_WARNING, strength: d.strength, x: d.x, y: top - 1, first, intro });
@@ -891,6 +890,9 @@ export class Sim {
 
   /** Deep Cosmos's extra punch for junk and meteors (strengths and intervals are in hazardsFor). */
   private cosmos(): number { return this.checkpoint >= 23 ? Math.max(1, Math.min(2, 1 + 0.05 * (this.checkpoint - 22))) : 1; }
+  /** Zen is the gentle way up (Blake, 2026-10-22): every hazard pushes and hits at half strength, as
+   * gustScale and hazardStrength 0.5 would make it outside Zen. */
+  private get zenEase(): number { return this.tuning.zen ? 0.5 : 1; }
 
   // ------------------------------------------------------------------ steering
 
@@ -902,10 +904,12 @@ export class Sim {
     return this.engine.overlapBoxes(this.boxes(shape, rot), x, y, rotQ(rot)).length === 0;
   }
 
+  /** Steering reaches 3 blocks past the foundation's edges (7 from its middle at least), so any shape can be tossed off either side. */
   private clampX(c: Controlled, x: number): number {
     const e = extents(c.shape, c.rot);
     const f = this.foundation;
-    const lo = f.x - 7 - e.minX, hi = f.x + 7 - e.maxX;
+    const reach = Math.max(7, f.width / 2 + 3);
+    const lo = f.x - reach - e.minX, hi = f.x + reach - e.maxX;
     return Math.max(snapUp(lo, this.tuning.snapStep), Math.min(snapDown(hi, this.tuning.snapStep), x));
   }
 
@@ -1625,7 +1629,8 @@ export class Sim {
     const coverage = covered * 0.25;
     const centre = covered ? sumX / covered : this.foundation.x;
     const grade = gradeFor(coverage, maxSlabWidthFor(n));
-    const width = Math.max(minSlabWidthFor(t, n), Math.min(maxSlabWidthFor(n + 1), Math.round(coverage) + 1));
+    // Zen always gets the widest slab: the grade still shows, but a needle costs nothing there.
+    const width = t.widestSlabs ? maxSlabWidthFor(n + 1) : Math.max(minSlabWidthFor(t, n), Math.min(maxSlabWidthFor(n + 1), Math.round(coverage) + 1));
     // Keep slab edges on the half-block grid: even widths centre on whole blocks, odd on half blocks.
     const cx = width % 2 === 0 ? Math.round(centre) : Math.round(centre - 0.5) + 0.5;
     const slab = this.addFoundation(cx, width, towerTop + 0.01 + t.slabThickness, t.slabThickness);
@@ -1640,8 +1645,8 @@ export class Sim {
     const biome = biomeFor(n);
     const before = this.hearts;
     const from = t.heartsEveryFrom;
-    // Up to the Stratosphere every claim gives a heart back and a biome's last one refills them.
-    // From Orbit on, a heart comes back every third claim (13, 16, 19, ...) and never all of them.
+    // Up to the Moon every claim gives a heart back and a biome's last one refills them. From the
+    // Red Planet on (heartsEveryFrom 17), a heart comes back every third claim (19, 22, 25, ...).
     if (from > 0 && n >= from) { if ((n - from + 1) % 3 === 0) this.hearts = Math.min(t.hearts, this.hearts + 1); }
     else this.hearts = n === biome.lastCp ? t.hearts : Math.min(t.hearts, this.hearts + 1);
     if (this.hearts > before) this.bus.emit('heart_restored', { left: this.hearts });
@@ -1728,12 +1733,12 @@ export class Sim {
 
   private makeBubble(top: number): void {
     const f = this.foundation;
-    // Beside the foundation, 1 to 1.5 blocks out from its edge (kept on screen), 2.2 to 4.2
-    // blocks above the tower. Shapes dropped onto the foundation miss it, so collecting one
-    // takes a deliberate steer out and back (QA found bubbles over the foundation were picked
-    // up by accident).
+    // Beside the foundation, 1 to 1.5 blocks out from its edge (1.25 at most on slabs 8 wide or
+    // more, which the camera's overhang zoom keeps in view), 2.2 to 4.2 blocks above the tower. Shapes dropped
+    // onto the foundation miss it, so collecting one takes a deliberate steer out and back (QA
+    // found bubbles over the foundation were picked up by accident).
     const side = this.rng.powers.int(2) ? 1 : -1;
-    const x = f.x + side * Math.min(f.width / 2 + 1 + 0.5 * this.rng.powers.int(2), 5.25);
+    const x = f.x + side * Math.min(f.width / 2 + 1 + 0.5 * this.rng.powers.int(2), Math.max(5.25, f.width / 2 + 1.25));
     const y = top + 2.2 + 0.5 * this.rng.powers.int(5);
     this.bubble = { id: ++this.bubbleSeq, kind: this.pickKind(), x, y, r: this.tuning.bubbleRadius, shapesLeft: Math.max(1, Math.round(this.tuning.bubbleLife)) };
     this.bubbleIn = this.bubbleGap();

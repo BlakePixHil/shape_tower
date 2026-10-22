@@ -2,7 +2,7 @@
 // presentation; the sim never reads from the view, so juice can't change physics (gameplay.md §11).
 //
 // World px: x * ppb, y down (py = -y * ppb), ground under the pedestal at y = -1. The main camera
-// scrolls and zooms (12 to 15 blocks across). Layers are depths.
+// scrolls and zooms (12 blocks across at zoom 1, wider to fit the foundation and overhangs). Layers are depths.
 
 import * as Phaser from 'phaser';
 import {
@@ -78,9 +78,10 @@ export interface RunOpts {
 const BEST_KEY = 'shape-tower-best';
 
 const ACROSS = 12;
+/** Blocks kept in view beside the foundation, and the most the camera zooms out past that for overhangs. */
+const SLAB_MARGIN = 3, OVERHANG_ZOOM = 3;
 /** The longest the run-over panorama waits at the top for the backdrop to bake its path (ms). */
 const PANO_WAIT = 1000;
-const ACROSS_MAX = 15;
 const TAU = Math.PI * 2;
 const PEDESTAL_LEGS = 0.4; // deck 0.6 + legs 0.4 = the sim's 1-block plinth
 /** Blocks of settled height between celebrations (height_milestone, gameplay.md §11.1). */
@@ -305,9 +306,6 @@ export class PlayScene extends Phaser.Scene {
     this.pano = null;
     this.backdrop?.endTour();
     this.skyMarks = [{ y: -1, sp: 0 }];
-    this.cam.x = 0;
-    this.cam.y = -1 + 0.3 * this.H / this.ppb;
-    this.cam.across = ACROSS;
     this.hooks.hud.reset();
     this.demoing = demo;
     if (demo) {
@@ -315,6 +313,7 @@ export class PlayScene extends Phaser.Scene {
       this.demoIdx = 0;
       this.demoAt = performance.now() + 500;
       this.sim = new Sim({ seed: 7, tuning: { ...this.hooks.lab.tuning, ...DEMO_TUNING }, autoSpawn: false, rookieOpening: false, secondWind: 'off' });
+      this.resetCam();
       this.hooks.onDemo?.(this.sim);
       for (const e of this.sim.drainEvents()) this.onEvent(e);
       return;
@@ -331,9 +330,17 @@ export class PlayScene extends Phaser.Scene {
       ...(run.record ?? {}),
     };
     this.sim = new Sim({ seed, tuning: { ...info.tuning }, autoSpawn: true, rookieOpening: first, secondWind: info.secondWind });
+    this.resetCam();
     this.hooks.hud.showHint();
     this.hooks.onRunStart?.(this.sim, info);
     for (const e of this.sim.drainEvents()) this.onEvent(e);
+  }
+
+  /** The camera at a run's start: over the plinth, with the ground in the bottom fifth of the screen. */
+  private resetCam(): void {
+    this.cam.x = 0;
+    this.cam.across = this.baseAcross();
+    this.cam.y = -1 + 0.3 * this.H / (this.W / this.cam.across);
   }
 
   /** The saved best under this run's key (Endless's before the first run). */
@@ -1205,12 +1212,14 @@ export class PlayScene extends Phaser.Scene {
       if (t >= 1 && pano.done && now - pano.t0 >= pano.dur + 350) { const d = pano.done; pano.done = null; this.backdrop.endTour(); d(); }
       return;
     }
-    // Zoom out up to 15 blocks when overhangs reach the screen edge (gameplay.md §11.2).
+    // The foundation always fits with room beside it (12 blocks across for a slab up to 9 wide), and
+    // overhangs zoom out up to 3 blocks more when they reach the screen edge (gameplay.md §11.2).
     let dev = 0;
     for (const v of this.views) if (v.state !== 'lost') dev = Math.max(dev, Math.abs(v.x - this.cam.x) + 2.2);
     // A power bubble beside the foundation stays fully in view, halo included.
     if (sim.bubble) dev = Math.max(dev, Math.abs(sim.bubble.x - this.cam.x) + sim.bubble.r + 0.9);
-    const across = Math.max(ACROSS, Math.min(ACROSS_MAX, dev * 2));
+    const base = this.baseAcross();
+    const across = Math.max(base, Math.min(base + OVERHANG_ZOOM, dev * 2));
     this.cam.across += (across - this.cam.across) * (1 - Math.exp(-dt * 2));
     const ppbScreen = this.W / this.cam.across;
     const visH = this.H / ppbScreen;
@@ -1238,6 +1247,9 @@ export class PlayScene extends Phaser.Scene {
     }
     this.cam.x += (sim.foundation.x - this.cam.x) * (1 - Math.exp(-dt * 2));
   }
+
+  /** Blocks across the screen with nothing overhanging: the foundation and a block and a half each side. */
+  private baseAcross(): number { return Math.max(ACROSS, this.sim.foundation.width + SLAB_MARGIN); }
 
   private drawSlabs(now: number): void {
     const plinthId = this.sim.foundations[0].id;

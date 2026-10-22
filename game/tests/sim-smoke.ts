@@ -3,10 +3,10 @@
 
 import { readFileSync } from 'node:fs';
 import { Box2DEngine } from '../src/sim/engine/box2d.ts';
-import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
+import { SHAPES, colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { runBench } from '../src/sim/bench.ts';
 import { createSim, replay, restore, useRapier } from '../src/sim/testApi.ts';
-import { DEFAULT_TUNING, cosmosScale, fallSpeedFor, gustFor, hazardsFor, minSlabWidthFor, setStreakFor, startWaitFor } from '../src/sim/tuning.ts';
+import { DEFAULT_TUNING, bondDelayFor, cosmosScale, fallSpeedFor, gustFor, hazardsFor, maxSlabWidthFor, minSlabWidthFor, mortarStrengthFor, rampFor, setStreakFor, slackFor, startWaitFor, type Tuning } from '../src/sim/tuning.ts';
 
 if (process.env.SIM_ENGINE === 'rapier') await useRapier();
 
@@ -41,10 +41,11 @@ for (const mortar of [true, false]) {
   t.dispose();
 }
 
-// The same wall with the default line (8) claims checkpoint 1; its stone must not move.
+// The wall made as wide as the 12-wide plinth, at the default line (8), claims checkpoint 1; its
+// stone must not move.
 {
   const t = createSim({});
-  for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) t.placePiece({ shape: 'O', x: -3 + col * 2, y: 1 + row * 2 + 0.001 * row });
+  for (let row = 0; row < 4; row++) for (let col = 0; col < 6; col++) t.placePiece({ shape: 'O', x: -5 + col * 2, y: 1 + row * 2 + 0.001 * row });
   t.step(60);
   const before = new Map(t.pieces().map(p => [p.id, [p.x, p.y] as [number, number]]));
   t.step(600);
@@ -79,9 +80,10 @@ for (const mortar of [true, false]) {
   check(`Ghost touchdown matches first contact (${n} drops)`, worst < 0.002, `worst error ${worst.toExponential(2)} blocks`);
 }
 
-// Ghost tint: an O hanging 1.5 off the plinth edge is red; centred is ok.
+// Ghost tint: an O hanging 1.5 off the plinth edge is red; centred is ok. (On an 8-wide plinth,
+// like the other tests that place shapes by the plinth's edges.)
 {
-  const t = createSim({});
+  const t = createSim({ tuning: { plinthWidth: 8 } });
   t.spawnControlled({ shape: 'O', x: 0 });
   check('Ghost centred O is ok', t.ghost()!.tint === 'ok', t.ghost()!.tint);
   t.intent({ type: 'moveTo', x: 3.5 });
@@ -96,9 +98,9 @@ for (const mortar of [true, false]) {
   t.dispose();
 }
 
-// Full row: two horizontal I pieces across the 8-wide plinth make a Solid Row.
+// Full row: two horizontal I pieces across an 8-wide plinth make a Solid Row.
 {
-  const t = createSim({});
+  const t = createSim({ tuning: { plinthWidth: 8 } });
   t.spawnControlled({ shape: 'I', x: -2 });
   t.intent({ type: 'hardDrop' });
   t.step(120);
@@ -116,7 +118,7 @@ for (const mortar of [true, false]) {
 // row. Two flat I pieces fill row 1 (ready, still wood); two more fill row 2 and reach the streak,
 // so both rows turn to stone at once and the streak starts again.
 {
-  const t = createSim({ startCheckpoint: 7, tuning: { gusts: false, lateHazards: false, firstGap: 20 } });
+  const t = createSim({ startCheckpoint: 7, tuning: { gusts: false, lateHazards: false, firstGap: 20, plinthWidth: 8 } });
   const drop = (x: number) => { t.spawnControlled({ shape: 'I', x }); t.intent({ type: 'hardDrop' }); t.step(150); };
   drop(-2); drop(2);
   const ev1 = t.drainEvents();
@@ -161,7 +163,7 @@ for (const mortar of [true, false]) {
 // A brittle shape holds two O pieces (8 cells) with cracks, and crumbles under a third (12 cells).
 // What it held drops into the gap. Off the tower it costs nothing; turned to stone it is safe.
 {
-  const mk = () => createSim({ startCheckpoint: 5, tuning: { gusts: false, lateHazards: false, firstGap: 20 } });
+  const mk = () => createSim({ startCheckpoint: 5, tuning: { gusts: false, lateHazards: false, firstGap: 20, plinthWidth: 8 } });
   const drop = (t: ReturnType<typeof mk>, shape: string, brittle = false) => { t.spawnControlled({ shape, brittle }); t.intent({ type: 'hardDrop' }); t.step(150); };
   const t = mk();
   drop(t, 'Domino', true); drop(t, 'O'); drop(t, 'O');
@@ -218,7 +220,7 @@ for (const mortar of [true, false]) {
 }
 
 // Needle: two vertical I pieces claim checkpoint 1 and get a grade C foundation of the narrowest
-// width for the claim: 6 in the Meadow (§7.3), the old 3 with slabBoost 0.
+// width for the claim: 10 in the Meadow (§7.3), 6 with slabBoost 0.
 {
   const needle = (tuning: Record<string, unknown>) => {
     const t = createSim({ tuning: { mortar: true, ...tuning } });
@@ -232,16 +234,22 @@ for (const mortar of [true, false]) {
     t.dispose();
     return claim?.payload;
   };
-  const wide = needle({}), old = needle({ slabBoost: 0 });
-  check('T19 needle claims CP1 with grade C and the Meadow\'s narrowest slab, 6 wide (3 with slabBoost 0)',
-    wide?.grade === 'C' && wide.width === 6 && old?.grade === 'C' && old.width === 3, `${JSON.stringify(wide ?? 'no claim')} / ${JSON.stringify(old ?? 'no claim')}`);
+  const wide = needle({}), old = needle({ slabBoost: 0 }), zen = needle({ zen: true });
+  check('T19 needle claims CP1 with grade C and the Meadow\'s narrowest slab, 10 wide (6 with slabBoost 0)',
+    wide?.grade === 'C' && wide.width === 10 && old?.grade === 'C' && old.width === 6, `${JSON.stringify(wide ?? 'no claim')} / ${JSON.stringify(old ?? 'no claim')}`);
+  check('Zen: a needle still gets the widest slab', zen?.grade === 'C' && zen.width === 12, JSON.stringify(zen ?? 'no claim'));
   const mins = [1, 2, 3, 4, 5, 6, 7, 10, 11, 20].map(n => minSlabWidthFor(DEFAULT_TUNING, n));
-  check('Narrowest slab by claim: 6 in the Meadow, 5 in Treetops, 4 in Cloudlands, then 3', mins.join(',') === '6,6,5,5,4,4,3,3,3,3', mins.join(', '));
+  check('Narrowest slab by claim: 10 in the Meadow, 9 in Treetops, 8 in Cloudlands, 7 in the Storm Belt, then 6', mins.join(',') === '10,10,9,9,8,8,7,6,6,6', mins.join(', '));
+  const maxes = [1, 6, 7, 10, 11, 16, 17, 22, 23, 40].map(n => maxSlabWidthFor(n));
+  check('Widest slab by stretch: 12 to Cloudlands, 11 to the Stratosphere, 10 to the Moon, 9 to the Ringed Giant, then 8', maxes.join(',') === '12,12,11,11,10,10,9,9,8,8', maxes.join(', '));
+  const plinth = createSim({});
+  check('The plinth is 12 wide', plinth.sim.foundation.width === 12, `${plinth.sim.foundation.width}`);
+  plinth.dispose();
 }
 
 // A piece pushed off the edge is Lost and costs one heart.
 {
-  const t = createSim({});
+  const t = createSim({ tuning: { plinthWidth: 8 } });
   t.spawnControlled({ shape: 'O', x: 6 });
   t.intent({ type: 'hardDrop' });
   t.step(400);
@@ -595,15 +603,37 @@ const loose = (t: ReturnType<typeof createSim>) => t.pieces().filter(p => p.stat
       if (e.name === 'bubble_spawned') {
         spawned++;
         const f = t.sim.foundation, b = e.payload as { x: number };
-        if (Math.abs(b.x - f.x) < Math.min(f.width / 2 + 1, 5.25) - 1e-9) inside++;
+        const out = Math.abs(b.x - f.x) - f.width / 2; // past the foundation's edge
+        if (out < 1 - 1e-9 || out > 1.5 + 1e-9) inside++;
       }
       if (e.name === 'power_collected') collected++;
       if (e.name === 'piece_landed') landed++;
     }
     for (let s = 0; s < 2; s++) t.sim.slots[s] = null;
   }
-  check('Bubbles sit beside the foundation and building on it rarely collects one', spawned >= 4 && inside === 0 && collected <= spawned / 4, `${landed} landed, ${spawned} bubbles, ${inside} over the foundation, ${collected} collected`);
+  check('Bubbles sit 1 to 1.5 blocks past the foundation\'s edge (12-wide plinth) and building on it rarely collects one', spawned >= 4 && inside === 0 && collected <= spawned / 4, `${landed} landed, ${spawned} bubbles, ${inside} not 1 to 1.5 past the edge, ${collected} collected`);
   t.dispose();
+}
+
+// Any shape, in any rotation, can be steered off either side of any foundation a run can have and
+// tossed (gameplay.md §4.3 "free to toss"; QA, 2026-10-22: the old ±7 reach was only 1 block past a
+// 12-wide plinth).
+{
+  const misses: string[] = [];
+  let drops = 0;
+  for (const width of [6, 7, 8, 9, 10, 11, 12]) for (const shape of Object.keys(SHAPES)) for (let rot = 0; rot < 4; rot++) for (const side of [-1, 1]) {
+    const t = createSim({ seed: 1, tuning: { plinthWidth: width } });
+    t.spawnControlled({ shape, rot, wait: false });
+    t.intent({ type: 'moveTo', x: side * 50 });
+    for (let i = 0; i < 120 && Math.abs(t.controlled()!.x - t.controlled()!.xTarget) > 1e-6; i++) t.step();
+    t.intent({ type: 'hardDrop' });
+    let lost = false;
+    for (let i = 0; i < 60 * 4 && !lost; i++) { t.step(); lost = t.drainEvents().some(e => e.name === 'piece_lost'); }
+    drops++;
+    if (!lost) misses.push(`${shape} rot ${rot} ${side < 0 ? 'left' : 'right'} of ${width}`);
+    t.dispose();
+  }
+  check('Every shape in every rotation can be tossed off both sides of every foundation width from 6 to 12', misses.length === 0, `${drops - misses.length} of ${drops} left the tower${misses.length ? `; stayed: ${misses.slice(0, 6).join(', ')}` : ''}`);
 }
 
 // With Mortar off, Glue is never offered and a Glue already in a slot is refused (QA-006).
@@ -690,11 +720,11 @@ const loose = (t: ReturnType<typeof createSim>) => t.pieces().filter(p => p.stat
   t.dispose();
 }
 
-// Glue: a glued O hanging 1.5 off the plinth sticks where it lands; without Glue it falls.
+// Glue: a glued O hanging 1.5 off an 8-wide plinth sticks where it lands; without Glue it falls.
 {
   const result: Record<string, string> = {};
   for (const glue of [false, true]) {
-    const t = createSim({});
+    const t = createSim({ tuning: { plinthWidth: 8 } });
     t.spawnControlled({ shape: 'O', x: 4.5 });
     if (glue) { t.sim.slots = ['glue', null]; t.intent({ type: 'power', slot: 0 }); }
     t.intent({ type: 'hardDrop' });
@@ -725,12 +755,12 @@ const loose = (t: ReturnType<typeof createSim>) => t.pieces().filter(p => p.stat
   check('Slow-Mo halves the fall speed', Math.abs(speeds[1] / speeds[0] - 0.5) < 1e-6, `${speeds[0].toFixed(3)} → ${speeds[1].toFixed(3)} blocks/s`);
 }
 
-/** Builds two short stretches (2-block gaps) out of O walls, claiming checkpoints 1 and 2. */
+/** Builds two short stretches (2-block gaps) out of O walls as wide as the foundation (grade S), claiming checkpoints 1 and 2. */
 function twoClaims(t: ReturnType<typeof createSim>): Record<string, any>[] {
   const out: Record<string, any>[] = [];
   for (let n = 0; n < 2; n++) {
-    const top = t.sim.foundation.top;
-    for (const x of [-3, -1, 1, 3]) t.placePiece({ shape: 'O', x, y: top + 1.001 });
+    const f = t.sim.foundation, top = f.top;
+    for (let x = f.x - f.width / 2 + 1; x < f.x + f.width / 2; x += 2) t.placePiece({ shape: 'O', x, y: top + 1.001 });
     const e = stepUntil(t, 'checkpoint_claimed', 900);
     if (e) out.push(e);
     t.step(100);
@@ -832,8 +862,8 @@ function twoClaims(t: ReturnType<typeof createSim>): Record<string, any>[] {
   }
   const lead = starts.every(st => warns.some(w => st.step - w.step === 120));
   const inHold = starts.filter(st => st.hold).length;
-  const firstHalf = warns.length > 1 && warns[0].first && warns[0].intro && Math.abs(warns[0].strength - 0.025) < 1e-9 && !warns[warns.length - 1].first && !warns[warns.length - 1].intro;
-  const strengths = starts.slice(1).every(st => Math.abs(st.strength - (st.cp === 3 ? 0.05 : st.cp === 4 ? 0.08 : st.strength)) < 1e-9);
+  const firstHalf = warns.length > 1 && warns[0].first && warns[0].intro && Math.abs(warns[0].strength - 0.02) < 1e-9 && !warns[warns.length - 1].first && !warns[warns.length - 1].intro;
+  const strengths = starts.slice(1).every(st => Math.abs(st.strength - (st.cp === 3 ? 0.04 : st.cp === 4 ? 0.06 : st.strength)) < 1e-9);
   const durs = starts.every(st => st.dur >= 2 && st.dur <= 3);
   check('Gusts: none before Treetops, warned 2 s ahead, never start in a hold, first at half strength', early === 0 && starts.length >= 2 && lead && inHold === 0 && firstHalf && strengths && durs,
     `reached CP ${t.sim.checkpoint}, ${warns.length} warnings, ${starts.length} gusts, ${ends.filter(e => e.cancelled).length} called off by a hold, early ${early}, lead ${lead}, in hold ${inHold}, first ${warns[0]?.strength} ${warns[0]?.first} ${warns[0]?.intro}`);
@@ -866,8 +896,8 @@ for (const cp of [3, 6]) {
 // gusts off doesn't move.
 {
   const drift = (gusts: boolean) => {
-    const t = createSim({ seed: 3, tuning: { gusts, infiniteBudget: true, infiniteHearts: true, mortar: false, friction: 0.05, foundationFriction: 0.05 } });
-    t.sim.checkpoint = 6; // Cloudlands: 0.12 g
+    const t = createSim({ seed: 3, tuning: { gusts, infiniteBudget: true, infiniteHearts: true, mortar: false, friction: 0.02, foundationFriction: 0.02 } });
+    t.sim.checkpoint = 6; // Cloudlands: 0.08 g, the run's first gust at half that
     t.placePiece({ shape: 'O', x: 0, y: 1, as: 'dynamic' });
     t.step(60);
     const x0 = t.pieces()[0].x;
@@ -889,14 +919,14 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
 // The schedule: one new hazard per biome from the Storm Belt, ramping over the biome.
 {
   const h = (n: number) => hazardsFor(n);
-  const ok = h(6).crosswind === 0 && h(7).crosswind === 0.04 && h(10).crosswind === 0.1 && h(11).crosswind === 0
-    && h(10).junk === 0 && h(11).junk === 18 && h(13).junk === 12 && h(14).junk === 0
-    && h(14).meteor === 22 && h(16).meteor === 15 && h(17).meteor === 0
-    && h(17).dust?.strength === 0.15 && h(19).dust?.strength === 0.25 && h(20).dust === null
-    && h(20).sway?.amplitude === 0.08 && h(22).sway?.amplitude === 0.14 && h(20).fallMult === 1.15 && h(19).fallMult === 1 && h(23).fallMult === 1
-    && h(11).gust === null && h(10).gust?.strength === 0.15;
+  const ok = h(6).crosswind === 0 && h(7).crosswind === 0.03 && h(10).crosswind === 0.06 && h(11).crosswind === 0
+    && h(10).junk === 0 && h(11).junk === 20 && h(13).junk === 16 && h(14).junk === 0
+    && h(14).meteor === 24 && h(16).meteor === 18 && h(17).meteor === 0
+    && h(17).dust?.strength === 0.1 && h(19).dust?.strength === 0.16 && h(20).dust === null
+    && h(20).sway?.amplitude === 0.07 && h(22).sway?.amplitude === 0.11 && h(20).fallMult === 1.15 && h(19).fallMult === 1 && h(23).fallMult === 1
+    && h(11).gust === null && h(10).gust?.strength === 0.12;
   const dc = hazardsFor(30, ['junk', 'dust']);
-  const dcOk = dc.junk === 12 / cosmosScale(30) && dc.dust!.strength === 0.25 * cosmosScale(30) && dc.meteor === 0 && dc.gust === null && dc.sway?.period === 24
+  const dcOk = dc.junk === 16 / cosmosScale(30) && dc.dust!.strength === 0.16 * cosmosScale(30) && dc.meteor === 0 && dc.gust === null && dc.sway?.period === 24
     && hazardsFor(30, ['sway', 'gust']).sway?.period === 8 && cosmosScale(23) === 1.05 && cosmosScale(60) === 2;
   check('Late hazards: crosswind 7-10, junk 11-13, meteors 14-16, dust devils 17-19, tidal sway 20-22, Deep Cosmos remixes', ok && dcOk,
     `CP 7 crosswind ${h(7).crosswind}, CP 13 junk every ${h(13).junk} s, CP 16 showers every ${h(16).meteor} s, CP 19 dust ${h(19).dust?.strength} g, CP 22 sway ±${h(22).sway?.amplitude} g; CP 30 remix junk every ${dc.junk.toFixed(1)} s`);
@@ -904,8 +934,8 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
 
 // Crosswind: warned 2 s into the stretch, then a steady push one way; the next checkpoint flips it.
 {
-  // 0.04 g is under any real friction, so the O sits on near-ice here (0.03) to show the push.
-  const t = createSim({ seed: 3, startCheckpoint: 7, tuning: { ...QUIET, mortar: false, friction: 0.03, foundationFriction: 0.03, seenHazards: ['crosswind'] } });
+  // 0.03 g is under any real friction, so the O sits on near-ice here (0.02) to show the push.
+  const t = createSim({ seed: 3, startCheckpoint: 7, tuning: { ...QUIET, mortar: false, friction: 0.02, foundationFriction: 0.02, seenHazards: ['crosswind'] } });
   t.placePiece({ shape: 'O', x: 0, y: 1, as: 'dynamic' });
   const evs: Ev[] = [];
   const run = (secs: number) => { for (let i = 0; i < 60 * secs; i++) { t.step(); evs.push(...t.drainEvents()); } };
@@ -923,7 +953,7 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
   t.dispose();
   const lead = warn && start ? (start.step - warn.step) / 60 : -1;
   check('Crosswind is warned 2 s ahead, pushes steadily its way, and flips at the next checkpoint',
-    lead === 2 && warn!.payload.strength === 0.04 && Math.sign(x1 - x0) === dir1 && Math.abs(x1 - x0) > 0.05 && dir2 === -dir1 && Math.sign(x2 - x1) === dir2 && !warn!.payload.intro,
+    lead === 2 && warn!.payload.strength === 0.03 && Math.sign(x1 - x0) === dir1 && Math.abs(x1 - x0) > 0.05 && dir2 === -dir1 && Math.sign(x2 - x1) === dir2 && !warn!.payload.intro,
     `lead ${lead} s, ${warn?.payload.strength} g, moved ${(x1 - x0).toFixed(2)} (dir ${dir1}), then ${(x2 - x1).toFixed(2)} (dir ${dir2})`);
 }
 
@@ -937,7 +967,7 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
     return w?.payload;
   };
   const fresh = first([]), seen = first(['crosswind']);
-  check('A first-ever crosswind is half strength with intro; a seen one is full', fresh?.intro === true && fresh?.strength === 0.02 && seen?.intro === false && seen?.strength === 0.04,
+  check('A first-ever crosswind is half strength with intro; a seen one is full', fresh?.intro === true && fresh?.strength === 0.015 && seen?.intro === false && seen?.strength === 0.03,
     `fresh ${fresh?.strength} intro ${fresh?.intro}; seen ${seen?.strength} intro ${seen?.intro}`);
 }
 
@@ -1025,7 +1055,7 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
   t.step(2);
   const speed = t.sim.ctrl?.speed ?? 0;
   t.dispose();
-  check('Tidal sway leans ±0.08 g on an 8 s swing and shapes fall 15% faster', Math.abs(hi - 0.08) < 0.002 && Math.abs(lo + 0.08) < 0.002 && Math.abs(period - 8) < 0.05 && Math.abs(speed - fallSpeedFor(DEFAULT_TUNING, 20) * 1.15) < 1e-9,
+  check('Tidal sway leans ±0.07 g on an 8 s swing and shapes fall 15% faster', Math.abs(hi - 0.07) < 0.002 && Math.abs(lo + 0.07) < 0.002 && Math.abs(period - 8) < 0.05 && Math.abs(speed - fallSpeedFor(DEFAULT_TUNING, 20) * 1.15) < 1e-9,
     `tilt ${lo.toFixed(3)} to ${hi.toFixed(3)} g, period ${period.toFixed(2)} s, fall ${speed.toFixed(3)} blocks/s`);
 }
 
@@ -1042,7 +1072,7 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
   check('A dust devil cracks the mortar of a piece its middle passes through', ended && cracked > 0, `ended ${ended}, ${cracked} bonds cracked`);
 }
 
-// Hearts from Orbit on: a heart back every third claim (13, 16, 19, ...), never a full refill.
+// Hearts from the Red Planet on: a heart back every third claim (19, 22, 25, ...), never a full refill.
 {
   const back = (cp: number, tuning: Record<string, unknown> = {}) => {
     const t = createSim({ seed: 1, startCheckpoint: cp, tuning: { ...QUIET, infiniteHearts: false, lateHazards: false, ...tuning } });
@@ -1054,10 +1084,66 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
     t.dispose();
     return h;
   };
-  const got = [9, 10, 11, 12, 13, 14, 16, 23, 25].map(n => back(n));
-  const old = [11, 12, 13].map(n => back(n, { heartsEveryFrom: 0 }));
-  check('Hearts: +1 a claim and a refill at a biome\'s end up to CP 10; from CP 11, +1 every third claim', got.join() === '2,3,1,1,2,1,2,1,2' && old.join() === '2,2,3',
-    `from 1 heart, claiming CP 9..25 leaves ${got.join(', ')}; with the old rule CP 11-13 leave ${old.join(', ')}`);
+  const got = [9, 10, 11, 12, 13, 14, 16, 17, 18, 19, 22, 23, 25].map(n => back(n));
+  const old = [17, 18, 19].map(n => back(n, { heartsEveryFrom: 0 }));
+  check('Hearts: +1 a claim and a refill at a biome\'s end up to CP 16; from CP 17, +1 every third claim', got.join() === '2,3,2,2,3,2,3,1,1,2,2,1,2' && old.join() === '2,2,3',
+    `from 1 heart, claiming CP 9..25 leaves ${got.join(', ')}; with the old rule CP 17-19 leave ${old.join(', ')}`);
+}
+
+// The difficulty ramp (Blake, 2026-10-22: "easy beginning, slightly harder middle and hard end
+// game"): half a step a stretch to CP 6, a step a stretch to CP 16, a step and a half after. Fall
+// speed, mortar, bond delay and budget slack follow it; Zen ramps at half the pace.
+{
+  const t = DEFAULT_TUNING, z = { ...DEFAULT_TUNING, zen: true };
+  const near = (a: number[], b: number[]) => a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) < 1e-9);
+  const cps = [1, 6, 7, 16, 17, 22];
+  const ramp = cps.map(n => rampFor(t, n)), fall = cps.map(n => fallSpeedFor(t, n)), mortar = cps.map(n => mortarStrengthFor(t, n));
+  const ok = near(ramp, [0, 2.5, 3, 12, 13, 20.5]) && near(fall, [1.5, 1.75, 1.8, 2.7, 2.8, 3.55]) && near(mortar, [1, 0.9375, 0.925, 0.7, 0.675, 0.4875])
+    && near([bondDelayFor(t, 17), slackFor(t, 17), slackFor(t, 22)], [1.15, 1.21, 1.15]) && near([rampFor(z, 17), fallSpeedFor(z, 17), mortarStrengthFor(z, 17)], [6.5, 2.15, 0.8375]);
+  check('Ramp: gentle to CP 6, steady to CP 16, steep after; Zen at half pace', ok,
+    `steps ${ramp.join(', ')}; fall ${fall.map(x => x.toFixed(2)).join(', ')}; mortar ${mortar.map(x => x.toFixed(3)).join(', ')}; CP 17 bond ${bondDelayFor(t, 17).toFixed(2)} s, slack ${slackFor(t, 17).toFixed(2)}; Zen CP 17 fall ${fallSpeedFor(z, 17).toFixed(2)}`);
+}
+
+// Zen's hazards push at half strength.
+{
+  const warn = (zen: boolean) => {
+    const t = createSim({ seed: 3, startCheckpoint: 17, tuning: { ...QUIET, zen, seenHazards: ['dust'] } });
+    let w: Record<string, any> | undefined;
+    for (let i = 0; i < 60 * 12 && !w; i++) { t.step(); w = t.drainEvents().find(e => e.name === 'hazard_warning' && e.payload.type === 'dust')?.payload; }
+    t.dispose();
+    return w?.strength;
+  };
+  const endless = warn(false), zen = warn(true);
+  check('Zen: a dust devil blows at half strength', endless === 0.1 && zen === 0.05, `endless ${endless} g, zen ${zen} g`);
+}
+
+// Zen's easing is exactly the levers an Endless run can set (so QA can still compare the two step for
+// step): half rampPace, half gustScale and hazardStrength, widest slabs, unlimited hearts and budget.
+{
+  const run = (tuning: Partial<Tuning>) => {
+    const t = createSim({ autoSpawn: true, seed: 5, startCheckpoint: 7, secondWind: 'off', tuning: { seenHazards: ['crosswind', 'junk', 'meteor', 'dust', 'sway'], ...tuning } });
+    const digests: string[] = [];
+    // Hard drops down the middle: a crosswind-blown pile that claims once, about 140 s in.
+    for (let i = 0; i < 60 * 150 && t.sim.state === 'playing'; i++) {
+      const c = t.sim.ctrl;
+      if (c && !c.hard && c.speed > 0) {
+        if (Math.abs(c.xTarget - t.sim.foundation.x) > 0.01) t.intent({ type: 'moveTo', x: t.sim.foundation.x });
+        else t.intent({ type: 'hardDrop' });
+      }
+      t.step();
+      t.drainEvents();
+      if (t.sim.stepIndex % 60 === 0) digests.push(t.sim.digest());
+    }
+    const out = { digests, claims: t.sim.stats.checkpoints, width: t.sim.foundation.width };
+    t.dispose();
+    return out;
+  };
+  const zen = run({ zen: true });
+  const twin = run({ infiniteHearts: true, infiniteBudget: true, rampPace: 0.5, gustScale: 0.5, hazardStrength: 0.5, widestSlabs: true });
+  const split = zen.digests.findIndex((d, i) => d !== twin.digests[i]);
+  check('Zen: the same run as Endless with half rampPace, gustScale and hazardStrength, widest slabs, no budget and no hearts',
+    split < 0 && zen.digests.length === twin.digests.length && zen.claims >= 1,
+    `${zen.digests.length} and ${twin.digests.length} digests, part at ${split}; ${zen.claims} claims, slab ${zen.width}`);
 }
 
 // Deep Cosmos: each stretch remixes two earlier hazards; gravity drifts unless sway is one of them.
@@ -1132,7 +1218,9 @@ for (const cp of [11, 17, 23]) {
 // Zen: no budget, no hearts to lose and no Second Wind. Shapes keep coming past any budget, and
 // shapes dropped off the edge are only lost: no heart events, and the run never ends on its own.
 {
-  const t = createSim({ autoSpawn: true, seed: 11, tuning: { zen: true } });
+  // Tight budgets (Zen's slabs are always the widest), so the run soon passes them.
+  const ZEN_TEST = { zen: true, plinthWidth: 8, slackStart: 0.3, slackFloor: 0.3 };
+  const t = createSim({ autoSpawn: true, seed: 11, tuning: ZEN_TEST });
   const counts: Record<string, number> = {};
   let landed = 0, pastBudget = false;
   for (let i = 0; i < 60 * 150 && t.sim.state === 'playing'; i++) {
@@ -1168,8 +1256,8 @@ for (const cp of [11, 17, 23]) {
   sim.tuning.zen = true;
   // A Zen run replays exactly from its record: the tuning patch carries zen.
   const steps = sim.stepIndex;
-  const a = replay({ seed: 11, tuning: { zen: true }, inputs: sim.inputLog, steps });
-  const b = replay({ seed: 11, tuning: { zen: true }, inputs: sim.inputLog, steps });
+  const a = replay({ seed: 11, tuning: ZEN_TEST, inputs: sim.inputLog, steps });
+  const b = replay({ seed: 11, tuning: ZEN_TEST, inputs: sim.inputLog, steps });
   check('Zen: a run replays step for step from its inputs', a.digests.join() === b.digests.join() && a.sim.digest() === sim.digest() && a.sim.state === 'over', `${a.digests.length} digests, ${a.sim.digest()} vs ${sim.digest()}`);
   a.sim.dispose(); b.sim.dispose();
   t.dispose();

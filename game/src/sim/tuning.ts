@@ -28,9 +28,9 @@ export interface Tuning {
   mortar: boolean;
   mortarStrength: number;     // multiplier on break thresholds (start of run)
   mortarFloor: number;
-  mortarDecay: number;        // per checkpoint
+  mortarDecay: number;        // per step of the difficulty ramp (rampFor)
   bondDelay: number;          // s at rest before bonding (start of run)
-  bondDelayGrowth: number;    // per checkpoint
+  bondDelayGrowth: number;    // per ramp step
   bondDelayCap: number;
   breakForce: number;         // × lighter body's weight × strength
   breakTorque: number;        // × weight × 1 block × strength
@@ -52,7 +52,7 @@ export interface Tuning {
   startWait: number;          // s a new shape waits at the top before it falls, in the first stretch (gameplay.md §8.1)
   startWaitStep: number;      // s less wait per checkpoint, down to none
   fallBase: number;
-  fallPerCheckpoint: number;
+  fallPerStep: number;        // blocks/s faster per ramp step
   fallCap: number;
   // Checkpoints and budget
   firstGap: number;
@@ -65,9 +65,11 @@ export interface Tuning {
   claimClearance: number;     // blocks: room kept between the new slab and the shape in hand
   minSlabWidth: number;
   slabBoost: number;          // extra minimum slab width for the Meadow's claims, one less per biome after (gameplay.md §7.3)
+  plinthWidth: number;        // the run's first foundation, blocks
+  widestSlabs: boolean;       // every claim gives the widest slab, whatever the grade (always on in Zen)
   slabThickness: number;
   slackStart: number;
-  slackDecay: number;
+  slackDecay: number;         // per ramp step
   slackFloor: number;
   budgetGrace: number;        // s
   rookieBricks: number;
@@ -105,7 +107,9 @@ export interface Tuning {
   meteorImpulse: number;      // kg·m/s per meteor
   heartsEveryFrom: number;    // from this checkpoint on, a heart comes back only every third claim (0: every claim, all the way up)
   // Modes (gameplay.md §12)
-  zen: boolean;               // Zen: no budget, no hearts to lose, no Second Wind, exactly half XP; only quitting ends it
+  zen: boolean;               // Zen: no budget, no hearts to lose, no Second Wind, exactly half XP; only quitting ends it.
+                              // Also gentler: half-pace ramp, half-strength hazards, widest slabs (gameplay.md §12.1)
+  rampPace: number;           // × the difficulty ramp's pace (rampFor; Zen halves it again)
   shapeSet: string[];         // Daily Tower: deal only these shapes, evenly, from the first one (§12.3); empty: the normal bag
   // Debug
   wind: number;               // constant sideways push in g, lab only
@@ -134,10 +138,10 @@ export const DEFAULT_TUNING: Tuning = {
   squareUpGain: 6,
   mortar: true,
   mortarStrength: 1.0,
-  mortarFloor: 0.4,
-  mortarDecay: 0.03,
+  mortarFloor: 0.45,
+  mortarDecay: 0.025,
   bondDelay: 0.5,
-  bondDelayGrowth: 0.06,
+  bondDelayGrowth: 0.05,
   bondDelayCap: 2.0,
   breakForce: 6,
   breakTorque: 3.5,
@@ -157,7 +161,7 @@ export const DEFAULT_TUNING: Tuning = {
   startWait: 1.5,
   startWaitStep: 0.5,
   fallBase: 1.5,
-  fallPerCheckpoint: 0.12,
+  fallPerStep: 0.1,
   fallCap: 4.5,
   firstGap: 8,
   gapGrowth: 1,
@@ -167,11 +171,13 @@ export const DEFAULT_TUNING: Tuning = {
   holdGrey: 0.55,
   holdHitstop: 80,
   claimClearance: 2.5,
-  minSlabWidth: 3,
-  slabBoost: 3,
+  minSlabWidth: 6,
+  slabBoost: 4,
+  plinthWidth: 12,
+  widestSlabs: false,
   slabThickness: 0.5,
   slackStart: 1.6,
-  slackDecay: 0.04,
+  slackDecay: 0.03,
   slackFloor: 1.15,
   budgetGrace: 3,
   rookieBricks: 0,
@@ -200,10 +206,11 @@ export const DEFAULT_TUNING: Tuning = {
   lateHazards: true,
   hazardStrength: 1,
   seenHazards: [],
-  junkImpulse: 8,
-  meteorImpulse: 7,
-  heartsEveryFrom: 11,
+  junkImpulse: 6,
+  meteorImpulse: 6,
+  heartsEveryFrom: 17,
   zen: false,
+  rampPace: 1,
   shapeSet: [],
   wind: 0,
   infiniteBudget: false,
@@ -214,12 +221,12 @@ export const DEFAULT_TUNING: Tuning = {
 
 /**
  * Gusts at checkpoint n (gameplay.md §8.2): strength in g and the average gap between gusts in
- * seconds. Introduced in Treetops (3-4), ramping in Cloudlands (5-6), steady through the Storm
- * Belt and up to 0.15 g in the Stratosphere. None from Orbit on (no wind in space).
+ * seconds. Introduced gently in Treetops (3-4), ramping slowly in Cloudlands (5-6), then up to
+ * 0.12 g through the Storm Belt and the Stratosphere. None from Orbit on (no wind in space).
  */
 export function gustFor(n: number): { strength: number; interval: number } | null {
   const table: Record<number, [number, number]> = {
-    3: [0.05, 18], 4: [0.08, 15], 5: [0.09, 14], 6: [0.12, 12], 7: [0.12, 12], 8: [0.12, 12], 9: [0.135, 12], 10: [0.15, 12],
+    3: [0.04, 20], 4: [0.06, 18], 5: [0.07, 16], 6: [0.08, 15], 7: [0.09, 14], 8: [0.1, 13], 9: [0.11, 12], 10: [0.12, 12],
   };
   const row = table[n];
   return row ? { strength: row[0], interval: row[1] } : null;
@@ -247,11 +254,13 @@ export interface StretchHazards {
   remix: HazardKind[];
 }
 
-const CROSSWIND: Record<number, number> = { 7: 0.04, 8: 0.06, 9: 0.08, 10: 0.1 };
-const JUNK: Record<number, number> = { 11: 18, 12: 15, 13: 12 };
-const METEOR: Record<number, number> = { 14: 22, 15: 18, 16: 15 };
-const DUST: Record<number, [number, number]> = { 17: [0.15, 16], 18: [0.2, 14], 19: [0.25, 12] };
-const SWAY: Record<number, number> = { 20: 0.08, 21: 0.11, 22: 0.14 };
+// Retuned for Blake's playtest (2026-10-22): the middle (Storm Belt to the Moon) a little harder than
+// the start, the end (Red Planet on) hard but beatable.
+const CROSSWIND: Record<number, number> = { 7: 0.03, 8: 0.04, 9: 0.05, 10: 0.06 };
+const JUNK: Record<number, number> = { 11: 20, 12: 18, 13: 16 };
+const METEOR: Record<number, number> = { 14: 24, 15: 21, 16: 18 };
+const DUST: Record<number, [number, number]> = { 17: [0.1, 18], 18: [0.13, 16], 19: [0.16, 14] };
+const SWAY: Record<number, number> = { 20: 0.07, 21: 0.09, 22: 0.11 };
 
 /** Deep Cosmos gets 5% harder every checkpoint, up to twice its starting intensity. */
 export function cosmosScale(n: number): number { return Math.max(1, Math.min(2, 1 + 0.05 * (n - 22))); }
@@ -274,12 +283,12 @@ export function hazardsFor(n: number, remix: HazardKind[] = []): StretchHazards 
   if (n < 23) return out;
   const k = cosmosScale(n), has = (h: HazardKind) => remix.includes(h);
   out.remix = [...remix];
-  out.gust = has('gust') ? { strength: 0.15 * k, interval: Math.max(6, 12 / k) } : null;
-  out.crosswind = has('crosswind') ? 0.1 * k : 0;
-  out.junk = has('junk') ? Math.max(7, 12 / k) : 0;
-  out.meteor = has('meteor') ? Math.max(9, 15 / k) : 0;
-  out.dust = has('dust') ? { strength: 0.25 * k, interval: Math.max(7, 12 / k) } : null;
-  out.sway = has('sway') ? { amplitude: 0.14 * k, period: 8 } : { amplitude: 0.1, period: 24 };
+  out.gust = has('gust') ? { strength: 0.12 * k, interval: Math.max(6, 12 / k) } : null;
+  out.crosswind = has('crosswind') ? 0.06 * k : 0;
+  out.junk = has('junk') ? Math.max(8, 16 / k) : 0;
+  out.meteor = has('meteor') ? Math.max(9, 18 / k) : 0;
+  out.dust = has('dust') ? { strength: 0.16 * k, interval: Math.max(7, 14 / k) } : null;
+  out.sway = has('sway') ? { amplitude: 0.11 * k, period: 8 } : { amplitude: 0.08, period: 24 };
   return out;
 }
 
@@ -287,17 +296,23 @@ export function gapFor(t: Tuning, n: number): number {
   return Math.min(t.firstGap + t.gapGrowth * (n - 1), t.gapCap);
 }
 
+/**
+ * The widest slab a claim can give for stretch n (gameplay.md §7.3; Blake, 2026-10-22: "checkpoint
+ * platforms should be much bigger"): 12 to Cloudlands, then a block narrower as the Storm Belt,
+ * Orbit, the Red Planet and Deep Cosmos begin.
+ */
 export function maxSlabWidthFor(n: number): number {
-  if (n <= 4) return 8;
-  if (n <= 10) return 7;
-  if (n <= 19) return 6;
-  return 5;
+  if (n <= 6) return 12;
+  if (n <= 10) return 11;
+  if (n <= 16) return 10;
+  if (n <= 22) return 9;
+  return 8;
 }
 
 /**
  * The narrowest slab a claim at checkpoint n can give (gameplay.md §7.3): wide early so a new player
- * has room to build, narrowing a block per biome to `minSlabWidth`. 6, 6 in the Meadow, 5, 5 in
- * Treetops, 4, 4 in Cloudlands, then 3.
+ * has room to build, narrowing a block per biome to `minSlabWidth`. 10 in the Meadow, 9 in
+ * Treetops, 8 in Cloudlands, 7 in the Storm Belt, then 6.
  */
 export function minSlabWidthFor(t: Tuning, n: number): number {
   return t.minSlabWidth + Math.max(0, t.slabBoost - (biomeFor(n).id - 1));
@@ -308,12 +323,23 @@ export function startWaitFor(t: Tuning, n: number): number {
   return Math.max(0, t.startWait - t.startWaitStep * (n - 1));
 }
 
+/**
+ * How far the difficulty has ramped by stretch n, in steps (Blake, 2026-10-22: "easy beginning,
+ * slightly harder middle and hard end game"): half a step a stretch up to Cloudlands (1-6), a step
+ * a stretch from the Storm Belt to the Moon (7-16), a step and a half from the Red Planet on, times
+ * `rampPace`. Zen ramps at half that pace. Fall speed, mortar, bond delay and budget slack all follow it.
+ */
+export function rampFor(t: Tuning, n: number): number {
+  const steps = 0.5 * (Math.min(n, 7) - 1) + Math.max(0, Math.min(n, 17) - 7) + 1.5 * Math.max(0, n - 17);
+  return steps * t.rampPace * (t.zen ? 0.5 : 1);
+}
+
 export function fallSpeedFor(t: Tuning, n: number): number {
-  return Math.min(t.fallBase + t.fallPerCheckpoint * (n - 1), t.fallCap);
+  return Math.min(t.fallBase + t.fallPerStep * rampFor(t, n), t.fallCap);
 }
 
 export function slackFor(t: Tuning, n: number): number {
-  return Math.max(t.slackStart - t.slackDecay * (n - 1), t.slackFloor);
+  return Math.max(t.slackStart - t.slackDecay * rampFor(t, n), t.slackFloor);
 }
 
 /**
@@ -331,11 +357,11 @@ export function budgetFor(t: Tuning, n: number, foundationWidth: number): number
 }
 
 export function mortarStrengthFor(t: Tuning, n: number): number {
-  return Math.max(t.mortarStrength - t.mortarDecay * (n - 1), t.mortarFloor);
+  return Math.max(t.mortarStrength - t.mortarDecay * rampFor(t, n), t.mortarFloor);
 }
 
 export function bondDelayFor(t: Tuning, n: number): number {
-  return Math.min(t.bondDelay + t.bondDelayGrowth * (n - 1), t.bondDelayCap);
+  return Math.min(t.bondDelay + t.bondDelayGrowth * rampFor(t, n), t.bondDelayCap);
 }
 
 // ---- Biomes (shared 10-biome list, gameplay.md §8.2). Index is 1..10. ----
