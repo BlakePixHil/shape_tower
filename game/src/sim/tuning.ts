@@ -62,6 +62,7 @@ export interface Tuning {
   holdHover: boolean;         // the shape in hand waits during a hold and the claim's slab drop
   holdGrey: number;           // view: how far the screen fades toward grey as a hold fills, 0 to 1 (gameplay.md §7.2)
   holdHitstop: number;        // view: ms the screen freezes when shapes knock together during a hold, 0 for none
+  holdSplitMs: number;        // view: the checkpoint keeps its colour during a hold only while recent frames draw their cameras within this (ms, 90th percentile), about where the split would push hold frames past the 5 ms render budget; slower devices grey it with the rest (#65)
   claimClearance: number;     // blocks: room kept between the new slab and the shape in hand
   minSlabWidth: number;
   slabBoost: number;          // extra minimum slab width for the Meadow's claims, one less per biome after (gameplay.md §7.3)
@@ -170,6 +171,7 @@ export const DEFAULT_TUNING: Tuning = {
   holdHover: true,
   holdGrey: 0.55,
   holdHitstop: 80,
+  holdSplitMs: 2.75,
   claimClearance: 2.5,
   minSlabWidth: 6,
   slabBoost: 4,

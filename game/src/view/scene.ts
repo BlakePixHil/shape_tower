@@ -149,6 +149,11 @@ export class PlayScene extends Phaser.Scene {
   private lineCam: Phaser.Cameras.Scene2D.Camera | null = null;
   private frontCam: Phaser.Cameras.Scene2D.Camera | null = null;
   private split = false;
+  private holdWant = false; // the line would go on its own cameras this frame
+  private holdLite = false; // this hold greys the line with the rest: the frames were too slow for the split (#65)
+  private camMs = new Float32Array(120); // camera draw time of recent frames outside a split, ms
+  private camN = 0;
+  private camT0 = 0;
   private splitNew: Phaser.GameObjects.GameObject[] = []; // added while split, sorted onto the cameras next frame
   private grey = 0;
   private greyFast = false;
@@ -227,6 +232,7 @@ export class PlayScene extends Phaser.Scene {
       this.frontFilter = grey(this.frontCam);
       this.frontFilter.setActive(false);
       this.events.on(Phaser.Scenes.Events.PRE_RENDER, this.splitCams, this);
+      this.events.on(Phaser.Scenes.Events.RENDER, this.timeCams, this);
       // Sorted at the next frame, once their depth is set.
       this.events.on(Phaser.Scenes.Events.ADDED_TO_SCENE, (o: Phaser.GameObjects.GameObject) => { if (this.split) this.splitNew.push(o); });
     }
@@ -800,7 +806,12 @@ export class PlayScene extends Phaser.Scene {
     const lc = this.lineCam, fc = this.frontCam;
     if (!lc || !fc) return;
     const main = this.cameras.main, line = this.lines[this.lines.length - 1];
-    const split = this.grey > 0 && !!line && !line.claimed;
+    const want = this.grey > 0 && !!line && !line.claimed;
+    // The split costs two more cameras and a second grey pass, so where frames are already slow the
+    // line greys with the rest. Decided as each hold starts, from the frames just before it.
+    if (want && !this.holdWant) this.holdLite = this.camsBusy();
+    this.holdWant = want;
+    const split = want && !this.holdLite;
     const list = this.children.list as Phaser.GameObjects.GameObject[];
     if (split) {
       for (const c of [lc, fc]) {
@@ -820,6 +831,24 @@ export class PlayScene extends Phaser.Scene {
     }
     this.splitNew.length = 0;
     if (split !== this.split) { lc.setVisible(split); fc.setVisible(split); this.split = split; }
+    this.camT0 = performance.now();
+  }
+
+  /** After the cameras have drawn: how long they took, for frames outside a split. */
+  private timeCams(): void {
+    if (!this.split) this.camMs[this.camN++ % this.camMs.length] = performance.now() - this.camT0;
+  }
+
+  /**
+   * Whether the last 120 frames (2 s at 60 Hz) drew too slowly to afford the split: their 90th percentile
+   * over `holdSplitMs`, or over 80% of it to stay grey once a hold has gone grey, so a device near
+   * the line doesn't flip between holds.
+   */
+  private camsBusy(): boolean {
+    const n = Math.min(this.camN, this.camMs.length);
+    if (n < 30) return false;
+    const s = this.camMs.slice(0, n).sort();
+    return s[Math.floor(n * 0.9)] > this.sim.tuning.holdSplitMs * (this.holdLite ? 0.8 : 1);
   }
 
   private onClaim(p: Record<string, any>, now: number): void {
