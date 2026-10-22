@@ -206,7 +206,7 @@ export const DEFAULT_TUNING: Tuning = {
   lateHazards: true,
   hazardStrength: 1,
   seenHazards: [],
-  junkImpulse: 7,
+  junkImpulse: 6,
   meteorImpulse: 6,
   heartsEveryFrom: 17,
   zen: false,
