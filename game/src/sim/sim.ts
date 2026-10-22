@@ -288,7 +288,7 @@ export class Sim {
   constructor(opts: SimOptions = {}) {
     this.tuning = { ...DEFAULT_TUNING, ...(opts.tuning ?? {}) };
     // Zen (gameplay.md §12): nothing to count and nothing to lose, so nothing to win back either.
-    if (this.tuning.zen) { this.tuning.infiniteBudget = true; this.tuning.infiniteHearts = true; }
+    if (this.tuning.zen) { this.tuning.infiniteBudget = true; this.tuning.infiniteHearts = true; this.tuning.widestSlabs = true; }
     this.seed = (opts.seed ?? 1) >>> 0;
     this.rng = makeStreams(this.seed);
     this.autoSpawn = opts.autoSpawn ?? true;
@@ -890,7 +890,8 @@ export class Sim {
 
   /** Deep Cosmos's extra punch for junk and meteors (strengths and intervals are in hazardsFor). */
   private cosmos(): number { return this.checkpoint >= 23 ? Math.max(1, Math.min(2, 1 + 0.05 * (this.checkpoint - 22))) : 1; }
-  /** Zen is the gentle way up (Blake, 2026-10-22): every hazard pushes and hits at half strength. */
+  /** Zen is the gentle way up (Blake, 2026-10-22): every hazard pushes and hits at half strength, as
+   * gustScale and hazardStrength 0.5 would make it outside Zen. */
   private get zenEase(): number { return this.tuning.zen ? 0.5 : 1; }
 
   // ------------------------------------------------------------------ steering
@@ -1627,7 +1628,7 @@ export class Sim {
     const centre = covered ? sumX / covered : this.foundation.x;
     const grade = gradeFor(coverage, maxSlabWidthFor(n));
     // Zen always gets the widest slab: the grade still shows, but a needle costs nothing there.
-    const width = t.zen ? maxSlabWidthFor(n + 1) : Math.max(minSlabWidthFor(t, n), Math.min(maxSlabWidthFor(n + 1), Math.round(coverage) + 1));
+    const width = t.widestSlabs ? maxSlabWidthFor(n + 1) : Math.max(minSlabWidthFor(t, n), Math.min(maxSlabWidthFor(n + 1), Math.round(coverage) + 1));
     // Keep slab edges on the half-block grid: even widths centre on whole blocks, odd on half blocks.
     const cx = width % 2 === 0 ? Math.round(centre) : Math.round(centre - 0.5) + 0.5;
     const slab = this.addFoundation(cx, width, towerTop + 0.01 + t.slabThickness, t.slabThickness);
@@ -1642,8 +1643,8 @@ export class Sim {
     const biome = biomeFor(n);
     const before = this.hearts;
     const from = t.heartsEveryFrom;
-    // Up to the Stratosphere every claim gives a heart back and a biome's last one refills them.
-    // From Orbit on, a heart comes back every third claim (13, 16, 19, ...) and never all of them.
+    // Up to the Moon every claim gives a heart back and a biome's last one refills them. From the
+    // Red Planet on (heartsEveryFrom 17), a heart comes back every third claim (19, 22, 25, ...).
     if (from > 0 && n >= from) { if ((n - from + 1) % 3 === 0) this.hearts = Math.min(t.hearts, this.hearts + 1); }
     else this.hearts = n === biome.lastCp ? t.hearts : Math.min(t.hearts, this.hearts + 1);
     if (this.hearts > before) this.bus.emit('heart_restored', { left: this.hearts });

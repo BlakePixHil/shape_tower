@@ -6,7 +6,7 @@ import { Box2DEngine } from '../src/sim/engine/box2d.ts';
 import { colliderBoxes, rotQ } from '../src/sim/shapes.ts';
 import { runBench } from '../src/sim/bench.ts';
 import { createSim, replay, restore, useRapier } from '../src/sim/testApi.ts';
-import { DEFAULT_TUNING, bondDelayFor, cosmosScale, fallSpeedFor, gustFor, hazardsFor, maxSlabWidthFor, minSlabWidthFor, mortarStrengthFor, rampFor, setStreakFor, slackFor, startWaitFor } from '../src/sim/tuning.ts';
+import { DEFAULT_TUNING, bondDelayFor, cosmosScale, fallSpeedFor, gustFor, hazardsFor, maxSlabWidthFor, minSlabWidthFor, mortarStrengthFor, rampFor, setStreakFor, slackFor, startWaitFor, type Tuning } from '../src/sim/tuning.ts';
 
 if (process.env.SIM_ENGINE === 'rapier') await useRapier();
 
@@ -1093,6 +1093,35 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
   };
   const endless = warn(false), zen = warn(true);
   check('Zen: a dust devil blows at half strength', endless === 0.1 && zen === 0.05, `endless ${endless} g, zen ${zen} g`);
+}
+
+// Zen's easing is exactly the levers an Endless run can set (so QA can still compare the two step for
+// step): half rampPace, half gustScale and hazardStrength, widest slabs, unlimited hearts and budget.
+{
+  const run = (tuning: Partial<Tuning>) => {
+    const t = createSim({ autoSpawn: true, seed: 5, startCheckpoint: 7, secondWind: 'off', tuning: { seenHazards: ['crosswind', 'junk', 'meteor', 'dust', 'sway'], ...tuning } });
+    const digests: string[] = [];
+    // Hard drops down the middle: a crosswind-blown pile that claims once, about 140 s in.
+    for (let i = 0; i < 60 * 150 && t.sim.state === 'playing'; i++) {
+      const c = t.sim.ctrl;
+      if (c && !c.hard && c.speed > 0) {
+        if (Math.abs(c.xTarget - t.sim.foundation.x) > 0.01) t.intent({ type: 'moveTo', x: t.sim.foundation.x });
+        else t.intent({ type: 'hardDrop' });
+      }
+      t.step();
+      t.drainEvents();
+      if (t.sim.stepIndex % 60 === 0) digests.push(t.sim.digest());
+    }
+    const out = { digests, claims: t.sim.stats.checkpoints, width: t.sim.foundation.width };
+    t.dispose();
+    return out;
+  };
+  const zen = run({ zen: true });
+  const twin = run({ infiniteHearts: true, infiniteBudget: true, rampPace: 0.5, gustScale: 0.5, hazardStrength: 0.5, widestSlabs: true });
+  const split = zen.digests.findIndex((d, i) => d !== twin.digests[i]);
+  check('Zen: the same run as Endless with half rampPace, gustScale and hazardStrength, widest slabs, no budget and no hearts',
+    split < 0 && zen.digests.length === twin.digests.length && zen.claims >= 1,
+    `${zen.digests.length} and ${twin.digests.length} digests, part at ${split}; ${zen.claims} claims, slab ${zen.width}`);
 }
 
 // Deep Cosmos: each stretch remixes two earlier hazards; gravity drifts unless sway is one of them.

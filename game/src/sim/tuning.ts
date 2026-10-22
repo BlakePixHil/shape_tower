@@ -66,6 +66,7 @@ export interface Tuning {
   minSlabWidth: number;
   slabBoost: number;          // extra minimum slab width for the Meadow's claims, one less per biome after (gameplay.md §7.3)
   plinthWidth: number;        // the run's first foundation, blocks
+  widestSlabs: boolean;       // every claim gives the widest slab, whatever the grade (always on in Zen)
   slabThickness: number;
   slackStart: number;
   slackDecay: number;         // per ramp step
@@ -106,7 +107,9 @@ export interface Tuning {
   meteorImpulse: number;      // kg·m/s per meteor
   heartsEveryFrom: number;    // from this checkpoint on, a heart comes back only every third claim (0: every claim, all the way up)
   // Modes (gameplay.md §12)
-  zen: boolean;               // Zen: no budget, no hearts to lose, no Second Wind, exactly half XP; only quitting ends it
+  zen: boolean;               // Zen: no budget, no hearts to lose, no Second Wind, exactly half XP; only quitting ends it.
+                              // Also gentler: half-pace ramp, half-strength hazards, widest slabs (gameplay.md §12.1)
+  rampPace: number;           // × the difficulty ramp's pace (rampFor; Zen halves it again)
   shapeSet: string[];         // Daily Tower: deal only these shapes, evenly, from the first one (§12.3); empty: the normal bag
   // Debug
   wind: number;               // constant sideways push in g, lab only
@@ -171,6 +174,7 @@ export const DEFAULT_TUNING: Tuning = {
   minSlabWidth: 6,
   slabBoost: 4,
   plinthWidth: 12,
+  widestSlabs: false,
   slabThickness: 0.5,
   slackStart: 1.6,
   slackDecay: 0.03,
@@ -206,6 +210,7 @@ export const DEFAULT_TUNING: Tuning = {
   meteorImpulse: 6,
   heartsEveryFrom: 17,
   zen: false,
+  rampPace: 1,
   shapeSet: [],
   wind: 0,
   infiniteBudget: false,
@@ -321,12 +326,12 @@ export function startWaitFor(t: Tuning, n: number): number {
 /**
  * How far the difficulty has ramped by stretch n, in steps (Blake, 2026-10-22: "easy beginning,
  * slightly harder middle and hard end game"): half a step a stretch up to Cloudlands (1-6), a step
- * a stretch from the Storm Belt to the Moon (7-16), a step and a half from the Red Planet on. Zen
- * ramps at half that pace. Fall speed, mortar, bond delay and budget slack all follow it.
+ * a stretch from the Storm Belt to the Moon (7-16), a step and a half from the Red Planet on, times
+ * `rampPace`. Zen ramps at half that pace. Fall speed, mortar, bond delay and budget slack all follow it.
  */
 export function rampFor(t: Tuning, n: number): number {
   const steps = 0.5 * (Math.min(n, 7) - 1) + Math.max(0, Math.min(n, 17) - 7) + 1.5 * Math.max(0, n - 17);
-  return t.zen ? steps / 2 : steps;
+  return steps * t.rampPace * (t.zen ? 0.5 : 1);
 }
 
 export function fallSpeedFor(t: Tuning, n: number): number {
