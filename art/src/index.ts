@@ -38,6 +38,9 @@ export { HAZARDS, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob,
 export { biomeCard, type BiomeCardOptions } from './ui/biomecard.ts';
 export { prewarmUi } from './ui/prewarm.ts';
 export { bagButton, bagLayerUrl, bagSwap, drawBag, setBag, type BagState } from './ui/bag.ts';
+export {
+  PORTRAIT_ART, bakePortrait, portraitElement, portraitHtml, portraitUrl, type PortraitArt, type PortraitId, type PortraitKind,
+} from './ui/portraits.ts';
 export { SHAPES_ALERT, SHAPES_LOW, alertEdge, setAlertEdge, setShapeCounter, shapeAlert, shapeCounter } from './ui/budget.ts';
 export { warmUrls } from './urls.ts';
 export { HATS, drawHat, hatUrl, type Hat, type HatInfo } from './ui/hats.ts';
@@ -47,7 +50,7 @@ export {
   type AchTier, type AchTierInfo, type AchievementBadge, type AchievementGroup, type AchievementItem, type AchievementStripItem, type AchievementToastData, type AchievementToastOptions,
 } from './ui/achievements.ts';
 export {
-  AVATAR_FACES, AVATAR_SHAPES, MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarPanel, avatarUrl, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel,
+  AVATAR_FACES, AVATAR_SHAPES, MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarPanel, avatarUrl, drawAvatarFigure, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel,
   readAvatar, readSettings, rewardAt, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, xpBar,
   type AvatarPanelData, type AvatarSpec, type LevelUpOptions, type MenuData, type MenuMode, type PauseOptions, type ProfileData, type ProfileStats,
   type SettingGroup, type SettingItem, type SettingValue, type SummaryData, type Unlock, type XpState,
