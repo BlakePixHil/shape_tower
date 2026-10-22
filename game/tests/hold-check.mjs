@@ -33,29 +33,30 @@ const mood = () => page.evaluate(() => {
   };
 });
 
-// The screenshot's colour: mean chroma (max - min channel, 0 to 1) inside a box, read in the page.
-// Boxes are in world px around a point, and turned into screenshot px through the main camera.
-const where = () => page.evaluate(k => {
-  const sc = window.__wobble.scene, cam = sc.cameras.main, cv = sc.game.canvas, r = cv.getBoundingClientRect();
-  const toShot = (wx, wy) => [(r.left + (wx - cam.worldView.x) * cam.zoom * r.width / cv.width) * k, (r.top + (wy - cam.worldView.y) * cam.zoom * r.height / cv.height) * k];
-  const plaque = sc.lines.at(-1).parts()[2], cell = sc.ppb * cam.zoom * r.width / cv.width * k;
-  return { plaque: [...toShot(plaque.x, plaque.y), 0.35 * cell], sky: [0.25 * innerWidth * k, 0.22 * innerHeight * k, 0.12 * innerWidth * k] };
-}, DSF);
-const chroma = (png, boxes) => page.evaluate(async ({ b64, boxes }) => {
-  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
-  const c = new OffscreenCanvas(bmp.width, bmp.height), g = c.getContext('2d');
-  g.drawImage(bmp, 0, 0);
-  const res = {};
-  for (const [k, [x, y, h]] of Object.entries(boxes)) {
-    const d = g.getImageData(Math.round(x - h), Math.round(y - h), Math.round(2 * h), Math.round(2 * h)).data;
-    let sum = 0;
-    for (let i = 0; i < d.length; i += 4) sum += (Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2])) / 255;
-    res[k] = Math.round(sum / (d.length / 4) * 1000) / 1000;
-  }
-  return res;
-}, { b64: png.toString('base64'), boxes });
-const shoot = async name => { const png = await page.screenshot({ path: `${out}/${name}.png` }); return chroma(png, await where()); };
+// The frame's colour, read from the canvas itself at the end of the next frame (so no HUD or toast
+// gets in), with the hold's grey left on or switched off for that one frame. Two frames in a row
+// show the same scene, so nothing moves between them. Mean chroma (max - min channel, 0 to 1) in
+// two boxes: the scene above the line (sky, clouds, the shape in hand) and the checkpoint plaque.
+const frameColour = grey => page.evaluate(grey => new Promise(res => {
+  const sc = window.__wobble.scene, game = sc.game, gl = game.renderer.gl;
+  sc.events.once('prerender', () => { if (!grey) { sc.holdFilter.setActive(false); sc.frontFilter.setActive(false); } });
+  game.events.once('postrender', () => {
+    const cam = sc.cameras.main, W = gl.drawingBufferWidth, H = gl.drawingBufferHeight, prev = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const box = (x, y, w, h) => {
+      [x, y, w, h] = [x, y, w, h].map(Math.round);
+      const d = new Uint8Array(w * h * 4);
+      gl.readPixels(x, H - y - h, w, h, gl.RGBA, gl.UNSIGNED_BYTE, d);
+      let sum = 0;
+      for (let i = 0; i < d.length; i += 4) sum += (Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2])) / 255;
+      return Math.round(sum / (d.length / 4) * 1000) / 1000;
+    };
+    const plaque = sc.lines.at(-1).parts()[2], r = 0.35 * sc.ppb * cam.zoom;
+    const px = (plaque.x - cam.worldView.x) * cam.zoom, py = (plaque.y - cam.worldView.y) * cam.zoom;
+    res({ scene: box(0, 0.05 * H, W, 0.35 * H), plaque: box(px - r, py - r, 2 * r, 2 * r), filterOn: sc.holdFilter.active });
+    gl.bindFramebuffer(gl.FRAMEBUFFER, prev);
+  });
+}), grey);
 
 await page.waitForSelector('.sc-root.show [data-action="play"]', { timeout: 20000 });
 await page.waitForTimeout(2000);
@@ -93,15 +94,17 @@ for (let i = 0; i < 2; i++) { await inHand(); await drop(i * 2 - 1); }
 await page.waitForFunction(() => { const s = window.__wobble.scene.sim; return s.stats.placed >= 2 && s.height().committed > s.foundation.top + 0.5; }, null, { timeout: 30000 });
 await inHand();
 await page.waitForTimeout(1500);
-const colour0 = await shoot('00-before-hold');
 await holdAt(0.6);
-await page.waitForFunction(() => window.__wobble.scene.grey > 0.35, null, { timeout: 30000 }).catch(() => {});
+// A tower still settling can break the hold and start it again from nothing, so the ring is pinned
+// back to 60% until the grey is in.
+await page.waitForFunction(() => { const sc = window.__wobble.scene, s = sc.sim; if (s.holdState().active && s.hold.progress < 0.6) s.hold.progress = 0.6; return sc.grey > 0.35; }, null, { timeout: 30000 }).catch(() => {});
 const during = await mood();
-const colour1 = await shoot('01-hold-grey');
+await page.screenshot({ path: `${out}/01-hold-grey.png` });
+const colour1 = await frameColour(true), colour0 = await frameColour(false);
 step('the screen fades part-way to grey while the hold fills', during.hold.active && during.active && during.grey > 0.15 && during.grey <= 0.56 && during.alpha === during.grey && during.front === during.grey, JSON.stringify(during));
 step('the checkpoint goes on its own plain camera meanwhile', during.split && during.cams[0] && during.cams[1] && during.lineOn === true, JSON.stringify(during));
 const ratio = k => Math.round(colour1[k] / Math.max(0.001, colour0[k]) * 100) / 100;
-step('on screen, the sky loses colour and the checkpoint plaque keeps it', ratio('sky') < 1 - 0.6 * during.grey && ratio('plaque') > 0.9, JSON.stringify({ before: colour0, during: colour1, sky: ratio('sky'), plaque: ratio('plaque') }));
+step('on screen, the scene loses colour and the checkpoint plaque keeps it', colour1.filterOn && !colour0.filterOn && colour0.scene > 0.05 && ratio('scene') < 1 - 0.6 * during.grey && ratio('plaque') > 0.9, JSON.stringify({ grey: colour1, plain: colour0, scene: ratio('scene'), plaque: ratio('plaque') }));
 
 // The shape in hand, hard-dropped onto the tower during the hold, knocks it (a hard drop lands at
 // 2 blocks/s): a freeze-frame, even when the knock jostles the top and breaks the hold.
