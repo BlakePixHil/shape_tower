@@ -1,9 +1,12 @@
 // The ladder server's rules without a network (gameplay.md §12.3): names are claimed once and checked,
 // renames wait a week, submissions are believable and only grow, the ladder ranks by height, three
 // reports hide a name, a player can delete themselves, and two phones writing at once lose nothing.
+// Runs on the memory store, then (argument "sql") on SQLite as the live server keeps it.
 // Run: npm run api:check (in online/)
 
+import { DatabaseSync } from 'node:sqlite';
 import { handle } from '../src/handler.ts';
+import { SqlStore, type Sql } from '../src/sql.ts';
 import { MemoryStore, type Store } from '../src/store.ts';
 import { playerId } from '../../game/src/meta/ladder.ts';
 import type { LadderReply, LadderRequest, Me } from '../../game/src/online/protocol.ts';
@@ -23,7 +26,21 @@ const me = (r: LadderReply): Me | null => ('me' in r ? r.me : null);
 const view = (r: LadderReply): LadderView | null => ('view' in r ? r.view : null);
 const sub = (height: number, o: Partial<Submission> = {}): Submission => ({ day: DAY, height, score: height * 100, checkpoints: Math.floor(height / 8), finished: false, startedAt: T0, ...o });
 
-let store = new MemoryStore();
+const useSql = process.argv[2] === 'sql';
+console.log(`-- ${useSql ? 'SQLite' : 'memory'} store`);
+/** SQLite in memory, counting the rows each statement hands back. */
+function sqlite(): { sql: Sql; rowsRead: () => number } {
+  const db = new DatabaseSync(':memory:');
+  let read = 0;
+  const sql: Sql = (q, ...b) => {
+    const rows = db.prepare(q).all(...b) as Record<string, string | number | null>[];
+    read += rows.length;
+    return rows;
+  };
+  return { sql, rowsRead: () => read };
+}
+const fresh = (): Store => (useSql ? new SqlStore(sqlite().sql) : new MemoryStore());
+let store = fresh();
 const call = (req: LadderRequest, now = T0 + 600_000, s: Store = store) => handle(req, s, now);
 
 // ---------------------------------------------------------------- names
@@ -49,7 +66,7 @@ const call = (req: LadderRequest, now = T0 + 600_000, s: Store = store) => handl
 
 // ---------------------------------------------------------------- submissions
 
-store = new MemoryStore();
+store = fresh();
 {
   const a = key(1), b = key(2);
   check('no name, no ladder', err(await call({ op: 'submit', key: a, sub: sub(10) })) === 'noname');
@@ -74,7 +91,7 @@ store = new MemoryStore();
 
 // ---------------------------------------------------------------- ranking
 
-store = new MemoryStore();
+store = fresh();
 {
   const names = ['Ann Stack', 'Bob Brick', 'Cy Crane', 'Di Domino', 'Ed Edge'];
   const heights = [50, 70, 70, 20, 70];
@@ -94,7 +111,7 @@ store = new MemoryStore();
 
 // ---------------------------------------------------------------- reports and restyle
 
-store = new MemoryStore();
+store = fresh();
 {
   const target = key(9), targetId = await playerId(target);
   await call({ op: 'name', key: target, name: 'Sneaky Sid' });
@@ -115,21 +132,21 @@ store = new MemoryStore();
   check('a hidden name may be replaced at once, which clears the reports', me(await call({ op: 'name', key: target, name: 'Nice Sid' }))?.hidden === false);
   row = view(await call({ op: 'ladder', day: DAY }))!.top[0];
   check('today\'s row takes the new name', row.name === 'Nice Sid' && !row.hidden, JSON.stringify(row));
-  const etag = store.docs.get(`ladder/${DAY}`)!.etag;
+  const rowPath = `ladder/${DAY}/${targetId}`;
+  const etag = (await store.get(rowPath))!.etag;
   await call({ op: 'name', key: target, name: 'Nice Sid' });
-  check('picking the same name again doesn\'t rewrite the ladder', store.docs.get(`ladder/${DAY}`)!.etag === etag);
+  check('picking the same name again doesn\'t rewrite the ladder', (await store.get(rowPath))!.etag === etag);
   await call({ op: 'look', key: target, look: { portrait: 'nightsky', avatar: { shape: 'L', face: 'idle', hat: 'crown' } } });
   row = view(await call({ op: 'ladder', day: DAY }))!.top[0];
   check('a new look reaches today\'s row', row.portrait === 'nightsky' && row.avatar.shape === 'L');
   // A name stored before the filter learned a word still never shows.
-  const doc = store.docs.get(`ladder/${DAY}`)!.data as { entries: Record<string, { name: string }> };
-  doc.entries[targetId].name = 'shitstack';
+  await store.put(rowPath, { ...(await store.get<object>(rowPath))!.data, name: 'shitstack' });
   check('a stored name the filter now refuses is blanked', view(await call({ op: 'ladder', day: DAY }))!.top[0].name === '');
 }
 
 // ---------------------------------------------------------------- forget
 
-store = new MemoryStore();
+store = fresh();
 {
   const a = key(5), id = await playerId(a);
   await call({ op: 'name', key: a, name: 'Gone Gwen' });
@@ -138,13 +155,13 @@ store = new MemoryStore();
   check('delete me answers ok', 'ok' in await call({ op: 'forget', key: a }));
   check('their rows are gone from every day', view(await call({ op: 'ladder', day: DAY }))!.total === 0 && view(await call({ op: 'ladder', day: '2026-10-21' }))!.total === 0);
   check('their name is free and nothing about them is kept', me(await call({ op: 'name', key: key(6), name: 'Gone Gwen' }))?.name === 'Gone Gwen'
-    && ![...store.docs.keys()].some(k => k.includes(id)));
+    && !(await store.list('')).some(d => JSON.stringify(d.data).includes(id)));
   check('deleting twice is harmless', 'ok' in await call({ op: 'forget', key: a }));
 }
 
 // ---------------------------------------------------------------- two phones at once
 
-store = new MemoryStore();
+store = fresh();
 {
   const n = 12;
   const racers = ['Ada', 'Bea', 'Cal', 'Dot', 'Eve', 'Fay', 'Gus', 'Hal', 'Ivy', 'Jem', 'Kit', 'Lux'];
@@ -154,12 +171,42 @@ store = new MemoryStore();
     get: p => store.get(p),
     put: async (p, d, o) => (Math.random() < 0.3 ? false : store.put(p, d, o)),
     del: p => store.del(p),
+    list: p => store.list(p),
   };
   await Promise.all(Array.from({ length: n }, (_, i) => call({ op: 'submit', key: key(i + 1), sub: sub(10 + i) }, T0 + 600_000, racy)));
   const v = view(await call({ op: 'ladder', day: DAY }))!;
   check('twelve submissions at once all land', v.total === n, `${v.total} of ${n}`);
   const both = await Promise.all([call({ op: 'name', key: key(50), name: 'Same Sam' }), call({ op: 'name', key: key(51), name: 'Same Sam' })]);
   check('two devices claiming one name: exactly one gets it', both.filter(r => me(r)?.name === 'Same Sam').length === 1 && both.filter(r => err(r) === 'taken').length === 1);
+}
+
+// ---------------------------------------------------------------- SQLite: kept, and read once
+
+if (useSql) {
+  const db = sqlite();
+  const a = key(1);
+  let s: Store = new SqlStore(db.sql);
+  await call({ op: 'name', key: a, name: 'Tower Tess' }, T0 + 600_000, s);
+  const crew = 'Ada Bea Cal Dot Eve Fay Gus Hal Ivy Jem Kit Lux Max Ned Oz Pip Quin Rex Sue Tod Uma Vic Wes Xia Yan Zed Ari Bo Cy'.split(' ');
+  for (let i = 2; i <= 30; i++) {
+    await call({ op: 'name', key: key(i), name: `Climber ${crew[i - 2]}` }, T0 + 600_000, s);
+    await call({ op: 'submit', key: key(i), sub: sub(i) }, T0 + 600_000, s);
+  }
+  await call({ op: 'submit', key: a, sub: sub(45) }, T0 + 600_000, s);
+  // A Durable Object restarts with nothing in memory: everything must come back from the table.
+  s = new SqlStore(db.sql);
+  const v = view(await call({ op: 'ladder', day: DAY, id: await playerId(a) }, T0 + 600_000, s))!;
+  check('a restarted server has every row', v.total === 30 && v.top[0].name === 'Tower Tess' && v.me?.rank === 1, `${v.total} rows`);
+  const before = db.rowsRead();
+  for (let i = 0; i < 5; i++) await call({ op: 'ladder', day: DAY }, T0 + 600_000, s);
+  check('looking again reads no rows', db.rowsRead() === before, `${db.rowsRead() - before} rows`);
+  await call({ op: 'submit', key: key(2), sub: sub(60) }, T0 + 600_000, s);
+  const after = view(await call({ op: 'ladder', day: DAY }, T0 + 600_000, s))!;
+  check('a new height shows at once', after.top[0].height === 60 && after.total === 30);
+  const first = await s.put('t/x', 1, { create: true }), second = await s.put('t/x', 2, { create: true });
+  check('creating twice is refused the second time', first && !second);
+  const t = (await s.get<number>('t/x'))!;
+  check('writes only land on the version read', (await s.put('t/x', 3, { ifMatch: t.etag })) && !(await s.put('t/x', 4, { ifMatch: t.etag })) && (await s.get<number>('t/x'))!.data === 3);
 }
 
 check('unknown ops are refused', err(await call({ op: 'explode' as never, key: key(1) })) === 'badop' && err(await call(null as never)) === 'badop');

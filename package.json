@@ -1,0 +1,12 @@
+{
+  "name": "shape-tower",
+  "private": true,
+  "description": "Only the ladder server's Cloudflare deploy lives at the root (wrangler.jsonc). The game, art, audio, online and QA folders each have their own package.",
+  "scripts": {
+    "ladder:dev": "wrangler dev",
+    "ladder:check": "node online/tests/worker-check.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.148.0"
+  }
+}

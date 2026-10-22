@@ -1,0 +1,14 @@
+// The Daily ladder's server on Cloudflare (code in online/cloudflare, rules in gameplay.md §12.3).
+// Cloudflare builds and deploys it from this repo on every push to main: npm ci here, then wrangler deploy.
+// One Durable Object ("ladder") holds everything in its own SQLite database.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "shape-tower",
+  "main": "online/cloudflare/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "durable_objects": {
+    "bindings": [{ "name": "LADDER", "class_name": "Ladder" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Ladder"] }],
+  "observability": { "enabled": true }
+}

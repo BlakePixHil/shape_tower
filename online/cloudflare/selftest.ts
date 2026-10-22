@@ -1,0 +1,50 @@
+// The live check (GET /selftest): the real Worker code and a real Durable Object with its SQLite database,
+// on a scratch copy of the ladder that starts and ends empty, so the real ladder is only ever read.
+// Racing phones included. Answers { pass, out: [[PASS|FAIL, check, detail on a failure]] }.
+
+import { ladderOf, respond, type Env, type LadderRpc } from './worker.ts';
+import { dailyDay } from '../../game/src/meta/daily.ts';
+
+const key = (n: number) => n.toString(16).padStart(2, '0').repeat(32);
+const URL_ = 'https://selftest.invalid/api/v1';
+
+export async function selftest(env: Env): Promise<Response> {
+  const out: [string, string, string?][] = [];
+  const check = (name: string, ok: boolean, detail?: unknown) => out.push(ok ? ['PASS', name] : ['FAIL', name, detail === undefined ? undefined : JSON.stringify(detail)]);
+  const scratch: LadderRpc = ladderOf(env, 'selftest');
+  const call = async (body: unknown): Promise<any> => (await respond(new Request(URL_, { method: 'POST', body: JSON.stringify(body) }), scratch)).json();
+  try {
+    await scratch.wipe();
+    const now = Date.now(), day = dailyDay(new Date(now));
+
+    const info = await respond(new Request(URL_), scratch);
+    check('says what it is', info.status === 200 && ((await info.json()) as { service?: string }).service === 'shape-tower-ladder');
+    const pre = await respond(new Request(URL_, { method: 'OPTIONS' }), scratch);
+    check('lets browsers call it', pre.status === 204 && pre.headers.get('access-control-allow-origin') === '*');
+    check('refuses a body too big', (await respond(new Request(URL_, { method: 'POST', body: 'x'.repeat(5000) }), scratch)).status === 413);
+    check('refuses a body that isn\'t JSON', (await respond(new Request(URL_, { method: 'POST', body: '{nope' }), scratch)).status === 400);
+
+    const names = ['Ada', 'Bea', 'Cal', 'Dot', 'Eve', 'Fay'];
+    const named = await Promise.all(names.map((n, i) => call({ op: 'name', key: key(200 + i), name: `Selftest ${n}` })));
+    check('six names at once', named.every(x => x.me), named);
+    const subs = await Promise.all(names.map((_, i) => call({ op: 'submit', key: key(200 + i), sub: { day, height: 5 + i, score: 100 * i, checkpoints: 0, finished: false, startedAt: now - 60_000 } })));
+    check('six submissions at once all land', subs.every(x => x.ok), subs);
+    const v = await (await respond(new Request(`${URL_}?day=${day}&id=${named[0].me?.id}`), scratch)).json() as { view?: { total: number; top: { name: string }[]; me: { name: string } | null } };
+    check('all six ranked, highest first', v.view?.total === 6 && v.view.top[0].name === 'Selftest Fay' && v.view.me?.name === 'Selftest Ada', v);
+    const both = await Promise.all([call({ op: 'name', key: key(220), name: 'Selftest Same' }), call({ op: 'name', key: key(221), name: 'Selftest Same' })]);
+    check('one of two racing claims wins', both.filter(x => x.me).length === 1 && both.filter(x => x.error === 'taken').length === 1, both);
+    check('a rude name is refused', (await call({ op: 'name', key: key(222), name: 'shitstacker' })).error === 'blocked');
+    check('a climb nobody could make is refused', (await call({ op: 'submit', key: key(200), sub: { day, height: 900, score: 1, checkpoints: 0, finished: false, startedAt: now - 60_000 } })).error === 'implausible');
+
+    // Leave the scratch copy empty.
+    await scratch.wipe();
+    check('wiped clean', (await call({ op: 'ladder', day })).view?.total === 0);
+
+    const real = await respond(new Request(`${URL_}?day=${day}`), ladderOf(env));
+    const rv = await real.json() as { view?: { day: string } };
+    check('the real ladder answers', real.status === 200 && rv.view?.day === day, rv.view ? undefined : rv);
+  } catch (e) {
+    check('no errors', false, String((e as Error)?.stack ?? e));
+  }
+  return new Response(JSON.stringify({ pass: out.every(c => c[0] === 'PASS'), out }, null, 1), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+}

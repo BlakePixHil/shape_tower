@@ -1,5 +1,5 @@
-// Where the ladder server keeps its JSON documents. Blob storage in production (blob.ts), memory in tests.
-// Every write can be conditional, so two phones posting at once never lose an update.
+// Where the ladder server keeps its JSON documents. SQLite in a Cloudflare Durable Object in production
+// (sql.ts), memory in tests. Every write can be conditional, so two phones posting at once never lose an update.
 
 export interface Stored<T> { data: T; etag: string }
 
@@ -11,6 +11,8 @@ export interface Store {
    */
   put(path: string, data: unknown, o?: { create?: boolean; ifMatch?: string }): Promise<boolean>;
   del(path: string): Promise<void>;
+  /** Every document whose path starts with `prefix`, in no particular order. */
+  list<T>(prefix: string): Promise<Stored<T>[]>;
 }
 
 export class MemoryStore implements Store {
@@ -28,4 +30,9 @@ export class MemoryStore implements Store {
     return true;
   }
   async del(path: string): Promise<void> { this.docs.delete(path); }
+  async list<T>(prefix: string): Promise<Stored<T>[]> {
+    const out: Stored<T>[] = [];
+    for (const path of this.docs.keys()) if (path.startsWith(prefix)) out.push((await this.get<T>(path))!);
+    return out;
+  }
 }
