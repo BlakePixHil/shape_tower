@@ -1175,6 +1175,27 @@ for (const cp of [11, 17, 23]) {
   t.dispose();
 }
 
+// What a run banks stops at run over (QA #76): a shape still settling when the run ends doesn't
+// change its stats, score or XP afterwards, though the tower itself still grows.
+{
+  const t = createSim({ autoSpawn: false, seed: 5 });
+  for (const x of [-1, 1]) { t.spawnControlled({ shape: 'O', x }); t.intent({ type: 'hardDrop' }); t.step(150); }
+  t.spawnControlled({ shape: 'I', x: 0 });
+  t.intent({ type: 'hardDrop' });
+  for (let i = 0; i < 120 && t.sim.ctrl; i++) t.step();
+  t.step(2);
+  t.intent({ type: 'quit' });
+  t.step();
+  const over = t.drainEvents().find(e => e.name === 'run_over')?.payload;
+  const snap = () => ({ xp: t.sim.xp(true), score: Math.round(t.sim.score), height: t.sim.stats.maxHeight, placed: t.sim.stats.placed, perfects: t.sim.stats.perfects, cleans: t.sim.stats.cleans, messies: t.sim.stats.messies });
+  const atEnd = snap(), top = t.sim.height().committed;
+  t.step(300);
+  const later = snap(), grew = t.sim.height().committed - top;
+  check('A run\'s stats, score and XP stop at run over while the tower settles on', JSON.stringify(later) === JSON.stringify(atEnd) && over?.xp === atEnd.xp && over?.height === atEnd.height && grew > 0.5,
+    `at the end ${JSON.stringify(atEnd)}, later ${JSON.stringify(later)}, run_over ${JSON.stringify(over)}, tower grew ${grew.toFixed(2)} after`);
+  t.dispose();
+}
+
 // Zen never earns Second Wind: checkpoint 2 hands out a power-up instead, as in a scored Daily.
 {
   const t = createSim({ autoSpawn: false, seed: 3, tuning: { zen: true }, secondWind: 'earn' });
