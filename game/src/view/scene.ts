@@ -148,6 +148,7 @@ export class PlayScene extends Phaser.Scene {
   private lineCam: Phaser.Cameras.Scene2D.Camera | null = null;
   private frontCam: Phaser.Cameras.Scene2D.Camera | null = null;
   private split = false;
+  private splitNew: Phaser.GameObjects.GameObject[] = []; // added while split, sorted onto the cameras next frame
   private grey = 0;
   private greyFast = false;
   private greyPop = -1; // when the claim's colour overshoot started, -1 for none
@@ -209,10 +210,12 @@ export class PlayScene extends Phaser.Scene {
     this.party = new Celebration(this.art, { width: this.W, height: this.H });
     this.cracks = this.add.graphics().setDepth(D.piece + 2);
     this.ctrlCracks = this.add.graphics().setDepth(D.ctrl + 1);
-    // Off (no extra pass) outside a hold. The HUD is DOM, so the hold pill keeps its colour.
+    // Off (no extra pass) outside a hold. The HUD is DOM, so the hold pill keeps its colour. External:
+    // a colour matrix looks the same either way, and an external one draws straight to the screen,
+    // which saves each camera a full-screen copy (#65).
     if (this.cameras.main.filters) {
       const grey = (cam: Phaser.Cameras.Scene2D.Camera) => {
-        const f = cam.filters!.internal.addColorMatrix();
+        const f = cam.filters!.external.addColorMatrix();
         f.colorMatrix.desaturate();
         f.colorMatrix.alpha = 0;
         return f;
@@ -223,6 +226,8 @@ export class PlayScene extends Phaser.Scene {
       this.frontFilter = grey(this.frontCam);
       this.frontFilter.setActive(false);
       this.events.on(Phaser.Scenes.Events.PRE_RENDER, this.splitCams, this);
+      // Sorted at the next frame, once their depth is set.
+      this.events.on(Phaser.Scenes.Events.ADDED_TO_SCENE, (o: Phaser.GameObjects.GameObject) => { if (this.split) this.splitNew.push(o); });
     }
 
     this.gestures = new Gestures(this.game.canvas.parentElement ?? this.game.canvas, {
@@ -796,13 +801,17 @@ export class PlayScene extends Phaser.Scene {
         c.setZoom(main.zoom).setRoundPixels(main.roundPixels);
         c.setScroll(main.scrollX, main.scrollY);
       }
-      // Depth order holds: the main camera draws up to the line, then the line, then the rest.
+      // Depth order holds: the main camera draws up to the line, then the line, then the rest. Every
+      // object is sorted when the split starts, then only the ones added since (#65).
       const back = lc.id | fc.id, front = main.id | lc.id, mid = main.id | fc.id, cut = (D.line + D.piece) / 2;
-      for (const o of list) o.cameraFilter = ((o as unknown as { depth?: number }).depth ?? 0) < cut ? back : front;
-      for (const o of line.parts()) (o as unknown as Phaser.GameObjects.GameObject).cameraFilter = mid;
+      const parts = line.parts() as unknown as Phaser.GameObjects.GameObject[];
+      const sort = (o: Phaser.GameObjects.GameObject) => { o.cameraFilter = parts.includes(o) ? mid : ((o as unknown as { depth?: number }).depth ?? 0) < cut ? back : front; };
+      if (!this.split) list.forEach(sort);
+      else for (const o of this.splitNew) if (o.displayList === this.children) sort(o);
     } else if (this.split) {
       for (const o of list) o.cameraFilter = 0;
     }
+    this.splitNew.length = 0;
     if (split !== this.split) { lc.setVisible(split); fc.setVisible(split); this.split = split; }
   }
 
