@@ -2,6 +2,8 @@
 // (it wraps pages in its own doctype, head and body).
 //   npm run build && node scripts/artifact.mjs [out.html]
 //   npm run build:game && node scripts/artifact.mjs out.html dist-game/game.html
+// For the game page it also prints the capabilities to publish with: the page's database keeps the QA
+// run records and the Daily ladder (gameplay.md §12.3), whose rows each viewer may only write their own of.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -19,3 +21,13 @@ const scripts = head.match(/<script\b[\s\S]*?<\/script>/g) ?? [];
 if (!scripts.length) throw new Error(`no inline script found in ${from.pathname}`);
 writeFileSync(out, [title, ...links, ...styles, body.trim(), ...scripts].join('\n'));
 console.log(`wrote ${out} (${(readFileSync(out).length / 1024).toFixed(0)} KB)`);
+if (process.argv[3]?.includes('game')) {
+  const capabilities = {
+    db: { rules: [
+      { path: 'ladder', read: 'view', write: 'owner' }, { path: 'ladder/{self}', write: 'interact' },
+      { path: 'reports', read: 'view', write: 'owner' }, { path: 'reports/{self}', write: 'interact' },
+    ] },
+    user: {},
+  };
+  console.log(`publish with capabilities: ${JSON.stringify(capabilities)}`);
+}

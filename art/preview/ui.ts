@@ -2,7 +2,8 @@
 // &ui=menu|pause|summary|levelup|profile|settings|avatar opens that screen (buttons work: Settings, Profile,
 // Close and so on). &ui=achievements opens the Achievements panel (&all=1: everything earned), &ui=achtoast plays three toasts (&plain=1: juice off).
 // &ui=shapes shows the bag and the shapes-left counter, banners and red edge counting down (see budget.ts).
-// &ui=daily opens the Daily Tower card with today's try still open (&done=1: today's score, the streak and best days).
+// &ui=daily opens the Daily Tower card with today's try still open (&done=1: today's score, the streak and best days;
+// &ladder=loading|offline|none|empty|join for the ladder's other states). &ui=namecard opens the ladder name card.
 // &ui=icons|badges|logo|brand|hats|ach|portraits shows a sheet (brand: app icon, Android layers, splash, share card; portraits: see portraits.ts). &lv=<level> sets the player's level (default 7).
 // &still=1 skips the animations, as Reduce Motion does. Without &ui, a Screens row sits above the biome picker.
 // &rail=1 shows the altitude rail climbing through a few biomes, with the off-screen checkpoint and lost-piece chips.
@@ -17,7 +18,8 @@ import {
   altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail,
   BADGE_TIERS, BIOMES, HATS, INK, UI_ICONS, avatarPanel, avatarUrl, hatUrl, readAvatar, biomeCard, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
   postcardElement, profilePanel, readSettings, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, titleFor, uiIconUrl, xpBar,
-  armDailyScored, dailyCard, dailyMenuDot,
+  armDailyScored, armReport, dailyCard, dailyMenuDot, nameCard, PORTRAIT_ART, setDailyTab, setNameHint,
+  type LadderPanelData,
   type AvatarSpec, type SettingValue, type XpState,
 } from '../src/index.ts';
 
@@ -36,6 +38,25 @@ function mount(el: HTMLElement): HTMLElement {
   return el;
 }
 
+/** A Daily ladder to look at: &ladder= picks a state, &done=1 puts the player on it. */
+function demoLadder(): LadderPanelData {
+  const st = qs.get('ladder');
+  const names = ['Tower Tess', 'Plank Pete', 'Wobbly Wen', 'Brick Queen', 'Sir Stacksalot', 'Domino Dan', 'Builder 4821', 'Ava', 'Gusty', 'Hat Trick Hal'];
+  const looks = ['golden_crown', 'disco', 'moonwalk', 'sunset', 'meadow', 'nightsky', 'meadow', 'rainbow', 'cloudland', 'meteor_shower'];
+  const shapes = ['T', 'L', 'O', 'S', 'J', 'Z', 'I'];
+  const rows = st === 'empty' ? [] : names.map((n, i) => ({
+    id: `p${i}`, rank: i + 1, name: n, height: Math.round((164.2 - i * 11.7 - (i % 3) * 2.1) * 10) / 10, portrait: looks[i],
+    avatar: { shape: shapes[i % shapes.length], face: 'idle' as const, hat: null }, live: i === 1, reported: i === 6,
+  }));
+  const joined = qs.has('done') && st !== 'join';
+  const me = joined ? { id: 'me', rank: 23, name: 'Blake', height: 63.4, portrait: 'sunset', avatar, me: true } : null;
+  return {
+    state: st === 'loading' || st === 'offline' || st === 'none' ? st : 'ready', scope: 'Everyone', total: st === 'empty' ? 0 : 37,
+    rows, me, joined, you: { name: 'Blake', portrait: 'sunset', avatar }, still,
+    note: joined ? undefined : 'Your try counts as a personal best until you pick a name.',
+  };
+}
+
 /** Open one screen; its buttons open the others or close it. */
 export function openScreen(name: string): void {
   const close = (el: HTMLElement) => () => el.remove();
@@ -46,13 +67,30 @@ export function openScreen(name: string): void {
   } else if (name === 'daily') {
     const done = qs.has('done');
     const d = mount(dailyCard({
-      number: 12, day: '2026-11-01', countdown: '9h 41m', opening: ['O', 'T', 'L', 'I', 'S'],
+      number: 12, day: '2026-11-01', countdown: '9h 41m', shapes: qs.has('done') ? ['I', 'T', 'Z', 'Plank', 'Arch'] : ['O', 'L', 'Plus'], ladder: demoLadder(),
       scored: done ? { height: 63.4, score: 18240, checkpoints: 6, finished: true } : null,
       practice: { runs: done ? 3 : 0, best: done ? { height: 58.1, score: 15020, checkpoints: 5, finished: true } : null },
       streak: done ? 4 : 0,
       bestDays: done ? [{ number: 12, height: 63.4, score: 18240, today: true }, { number: 9, height: 70.2, score: 17110 }, { number: 11, height: 41.0, score: 9050 }] : [],
     }));
-    onAction(d, a => { if (a === 'scored' && !d.querySelector('.armed')) armDailyScored(d, true); else d.remove(); });
+    onAction(d, (a, t) => {
+      if (a === 'scored' && !d.querySelector('.armed')) armDailyScored(d, true);
+      else if (a === 'tab') setDailyTab(d, t.dataset.tab as 'ladder' | 'best');
+      else if (a === 'report') armReport(d, t.dataset.id!);
+      else if (a === 'reportNo' || a === 'reportYes') armReport(d, null);
+      else if (a === 'join' || a === 'edit') openScreen('namecard');
+      else if (a !== 'retry') d.remove();
+    });
+  } else if (name === 'namecard') {
+    const joined = qs.has('done');
+    const n = mount(nameCard({
+      name: joined ? 'Blake' : '', portrait: 'sunset', avatar, joined, still,
+      rule: joined ? 'You can change your name once a week. Next change in 4 days.' : 'Letters, numbers, spaces, - and _. You can change it once a week.',
+      portraits: PORTRAIT_ART.map((p, i) => ({ id: p.id, name: p.name, animated: p.animated, owned: i < 2 || p.id === 'moonwalk',
+        lock: p.kind === 'free' ? `Level ${[1, 4, 8, 12][i] ?? 1}` : p.kind === 'shop' ? 'Workshop · Soon' : p.kind === 'supporter' ? 'Supporter Pack · Soon' : 'Achievement' })),
+    }));
+    n.addEventListener('input', () => { const v = (n.querySelector('input[type=text]') as HTMLInputElement).value; setNameHint(n, v.length < 3 ? 'At least 3 characters' : 'Looks good', v.length >= 3); });
+    onAction(n, a => { if (a === 'close' || a === 'save') n.remove(); });
   } else if (name === 'pause') {
     const p = mount(pauseCard());
     onAction(p, a => { if (a === 'settings') openScreen('settings'); else p.remove(); });
@@ -208,7 +246,7 @@ function sheet(name: string): void {
 export function screensBar(): void {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 62px);display:flex;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;z-index:3;font:600 11px Fredoka,Nunito,system-ui,sans-serif';
-  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama'], ['avatar', 'Avatar'], ['hats', 'Hats'], ['ach', 'Badges 2'], ['achievements', 'Achievements'], ['achtoast', 'Toast'], ['shapes', 'Bag + shapes'], ['daily', 'Daily'], ['portraits', 'Portraits']]) {
+  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama'], ['avatar', 'Avatar'], ['hats', 'Hats'], ['ach', 'Badges 2'], ['achievements', 'Achievements'], ['achtoast', 'Toast'], ['shapes', 'Bag + shapes'], ['daily', 'Daily'], ['namecard', 'Ladder name'], ['portraits', 'Portraits']]) {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = `background:#FFC23D;color:${INK};border:2px solid ${INK};border-radius:10px;box-shadow:0 2px 0 ${INK};padding:2px 8px;font:inherit;cursor:pointer`;

@@ -1,6 +1,8 @@
-// The Daily Tower (gameplay.md §12, QA F17): one seed per UTC day for everyone, one scored attempt
-// per seed ever, unlimited practice, and local results until online leaderboards arrive (QA Q23).
+// The Daily Tower (gameplay.md §12, QA F17): one seed per UTC day for everyone, only that day's 3 or 5
+// shapes, one scored attempt per seed ever, unlimited practice, ranked by height on the ladder (§12.3).
 // Plain data and pure functions, so it runs in Node for tests; the profile stores the state.
+
+import { Rng } from '../sim/rng.ts';
 
 /** Daily #1 is the UTC day the mode shipped. */
 export const DAILY_EPOCH = '2026-10-21';
@@ -19,7 +21,14 @@ export interface DailyResult {
   finished: boolean;
   /** When it started (ISO time). */
   at: string;
+  /** The rules it was played under: 2 from Daily v2 (the day's shape set, the ladder). Absent: 1. */
+  v?: number;
 }
+
+/** The Daily's rules version (§12.3). A scored try under older rules never goes on the ladder. */
+export const RULES_V = 2;
+/** The day Daily v2 shipped: a try spent under the old rules on or after it doesn't use up that day's v2 try. */
+export const V2_DAY = '2026-10-22';
 
 export interface DailyState {
   /** Scored attempts by seed day (YYYY-MM-DD, UTC). One per seed, ever (QA Q31). */
@@ -52,6 +61,32 @@ export function dailySeed(day: string): number {
   return h >>> 0;
 }
 
+// The day's shape set (§12.3). Every set has one flat "rescue" shape to fix a ragged top with, and
+// at least one awkward one, so no day is a gift and none is unbuildable.
+const RESCUE = ['O', 'I', 'Plank'];
+const CORE = ['T', 'L', 'J', 'Domino'];
+const TRICKY = ['S', 'Z', 'P', 'U', 'V', 'Arch', 'Plus'];
+/** The order sets are shown in (the bag's own order). */
+const ORDER = ['I', 'O', 'T', 'L', 'J', 'S', 'Z', 'Domino', 'Plank', 'P', 'U', 'V', 'Arch', 'Plus'];
+
+/**
+ * The only shapes that fall on this day, the same for everyone: 3 on about two days in five ("tight"
+ * days: a rescue, a core and an awkward shape), otherwise 5 (one or two rescues, the rest core and
+ * awkward). Its own hash of the date, so it never moves the bag's stream.
+ */
+export function dailyShapes(day: string): string[] {
+  const r = new Rng(dailySeed(day) ^ 0x5eed5e75);
+  const pick = (pool: string[], n: number, out: string[]): void => {
+    const left = pool.filter(k => !out.includes(k));
+    for (let i = 0; i < n && left.length; i++) out.push(left.splice(r.int(left.length), 1)[0]);
+  };
+  const out: string[] = [];
+  if (r.int(5) < 2) { pick(RESCUE, 1, out); pick(CORE, 1, out); pick(TRICKY, 1, out); }
+  else if (r.int(2) === 0) { pick(RESCUE, 1, out); pick(CORE, 2, out); pick(TRICKY, 2, out); }
+  else { pick(RESCUE, 2, out); pick(CORE, 1, out); pick(TRICKY, 2, out); }
+  return out.sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+}
+
 /** Milliseconds until the next seed (00:00 UTC). */
 export function msToNextDaily(now = new Date()): number {
   const t = now.getTime();
@@ -67,8 +102,17 @@ export function countdown(ms: number): string {
   return `${s}s`;
 }
 
-/** Whether the scored attempt for this seed is gone. A clock moved back never reopens it (D14). */
-export const scoredUsed = (s: DailyState, day: string): boolean => day in s.scored;
+/**
+ * Whether the scored attempt for this seed is gone. A clock moved back never reopens it (D14). Daily v2
+ * changed the tower, so a try under the old rules from its first day on leaves the new try open.
+ */
+export function scoredUsed(s: DailyState, day: string): boolean {
+  const r = s.scored[day];
+  return !!r && ((r.v ?? 1) >= RULES_V || day < V2_DAY);
+}
+
+/** Whether a scored result can go on the ladder: played under the current rules. */
+export const ladderReady = (r: DailyResult | null | undefined): r is DailyResult => !!r && (r.v ?? 1) >= RULES_V;
 
 /**
  * Uses up the day's scored attempt (call it when its first shape spawns, QA Q32). Returns false,
@@ -76,7 +120,7 @@ export const scoredUsed = (s: DailyState, day: string): boolean => day in s.scor
  */
 export function beginScored(s: DailyState, day: string, now = new Date()): boolean {
   if (scoredUsed(s, day)) return false;
-  s.scored[day] = { height: 0, score: 0, checkpoints: 0, biome: 1, finished: false, at: now.toISOString() };
+  s.scored[day] = { height: 0, score: 0, checkpoints: 0, biome: 1, finished: false, at: now.toISOString(), v: RULES_V };
   return true;
 }
 
@@ -91,10 +135,10 @@ export function updateScored(s: DailyState, day: string, r: Omit<DailyResult, 'a
   e.finished = finished;
 }
 
-/** Score first, then height: the order the leaderboard will use. */
+/** Height first, then score: the ladder's order (§12.3, "the highest distance wins"). */
 export function better(a: DailyResult, b: DailyResult | null | undefined): boolean {
   if (!b) return true;
-  return a.score !== b.score ? a.score > b.score : a.height > b.height;
+  return a.height !== b.height ? a.height > b.height : a.score > b.score;
 }
 
 /** Adds a finished practice run. Returns whether it beat the day's practice best. */
@@ -148,7 +192,9 @@ export function loadDaily(raw: unknown): DailyState {
   if (!raw || typeof raw !== 'object') return s;
   const r = raw as Partial<DailyState>;
   const ok = (x: unknown): x is DailyResult => !!x && typeof x === 'object' && typeof (x as DailyResult).score === 'number' && typeof (x as DailyResult).height === 'number';
-  const fix = (x: DailyResult): DailyResult => ({ height: x.height, score: x.score, checkpoints: x.checkpoints ?? 0, biome: x.biome ?? 1, finished: !!x.finished, at: String(x.at ?? '') });
+  const fix = (x: DailyResult): DailyResult => ({
+    height: x.height, score: x.score, checkpoints: x.checkpoints ?? 0, biome: x.biome ?? 1, finished: !!x.finished, at: String(x.at ?? ''), ...(x.v === RULES_V ? { v: RULES_V } : {}),
+  });
   const isDay = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
   if (r.scored && typeof r.scored === 'object') for (const [d, x] of Object.entries(r.scored)) if (isDay(d) && ok(x)) s.scored[d] = fix(x);
   if (r.practice && typeof r.practice === 'object') {

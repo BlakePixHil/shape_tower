@@ -1096,12 +1096,16 @@ export class Sim {
 
   private makeBag(): string[] {
     const n = this.checkpoint;
-    const weights: [string, number][] = [['O', 2], ['I', 2], ['L', 2], ['J', 2], ['T', 2]];
-    if (n >= 2) { const w = n >= 5 ? 1.5 : 1; weights.push(['S', w], ['Z', w]); }
-    if (n >= 5) weights.push(['Domino', 1], ['Plank', 1]);
-    // Bigger and odder shapes from the Storm Belt and the Red Planet, low at first (gameplay.md §4.1).
-    if (n >= 7) { const w = n >= 9 ? 1 : 0.5; weights.push(['P', w], ['U', w], ['V', w]); }
-    if (n >= 17) { const w = n >= 19 ? 1 : 0.5; weights.push(['Arch', w], ['Plus', w]); }
+    // The Daily Tower's shape set (§12.3): only these shapes, evenly, all the way up.
+    const set = this.tuning.shapeSet.filter(k => k in SHAPES);
+    const weights: [string, number][] = set.length ? set.map(k => [k, 2] as [string, number]) : [['O', 2], ['I', 2], ['L', 2], ['J', 2], ['T', 2]];
+    if (!set.length) {
+      if (n >= 2) { const w = n >= 5 ? 1.5 : 1; weights.push(['S', w], ['Z', w]); }
+      if (n >= 5) weights.push(['Domino', 1], ['Plank', 1]);
+      // Bigger and odder shapes from the Storm Belt and the Red Planet, low at first (gameplay.md §4.1).
+      if (n >= 7) { const w = n >= 9 ? 1 : 0.5; weights.push(['P', w], ['U', w], ['V', w]); }
+      if (n >= 17) { const w = n >= 19 ? 1 : 0.5; weights.push(['Arch', w], ['Plus', w]); }
+    }
     const total = weights.reduce((a, [, w]) => a + w * 2, 0); // integer weights in halves
     const bag: string[] = [];
     const recent = this.queue.slice(-2);
@@ -1115,7 +1119,9 @@ export class Sim {
       }
       bag.push(pick);
     }
-    if (!bag.some(k => RESCUE.has(k))) bag[this.rng.bag.int(BAG_SIZE)] = 'O';
+    // Every bag has a flat shape to fix a ragged top with; a shape set brings its own (its first rescue shape).
+    const rescue = set.length ? set.find(k => RESCUE.has(k)) : 'O';
+    if (rescue && !bag.some(k => RESCUE.has(k))) bag[this.rng.bag.int(BAG_SIZE)] = rescue;
     return bag;
   }
 
