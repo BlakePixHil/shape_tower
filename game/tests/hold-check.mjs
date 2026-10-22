@@ -64,23 +64,37 @@ await page.waitForFunction(() => window.__wobble.scene.sim.ctrl !== null, null, 
 const before = await mood();
 step('a run starts in full colour, with the filter off and one camera', before.juice && before.grey === 0 && before.active === false && !before.split && !before.cams[0] && !before.cams[1], JSON.stringify(before));
 
-// Log the scene's hit-stops, and whether a hold was filling at the time.
+// Log the scene's hit-stops and the sim's knocks (contacts of 1 block/s or more), each with whether
+// a hold was filling at the time.
 await page.evaluate(() => {
-  const sc = window.__wobble.scene, orig = sc.hooks.onJuice;
+  const sc = window.__wobble.scene, orig = sc.hooks.onJuice, onEvent = sc.onEvent.bind(sc);
   window.__stops = [];
-  sc.hooks.onJuice = (n, p) => { if (n === 'hitstop') window.__stops.push({ ms: p.ms, hold: sc.sim.holdState().active, zen: sc.sim.tuning.zen }); orig?.(n, p); };
+  window.__knocks = [];
+  // "During the hold" is the scene's own reading of the events: a knock that breaks the hold counts.
+  sc.hooks.onJuice = (n, p) => { if (n === 'hitstop') window.__stops.push({ ms: p.ms, hold: sc.holdOn, zen: sc.sim.tuning.zen }); orig?.(n, p); };
+  sc.onEvent = e => { if (e.name === 'contact_hit' && e.payload.approachSpeed >= 1) window.__knocks.push({ speed: Math.round(e.payload.approachSpeed * 10) / 10, hold: sc.holdOn }); onEvent(e); };
   sc.sim.tuning.infiniteHearts = true;
   sc.sim.tuning.infiniteBudget = true;
 });
-// Two shapes on the slab, then bring the line down to the tower so the hold starts. The hold is
-// slowed so the grey gets deep enough to measure.
+// The ring fills in sim time, and the sim's pace under the software renderer swings from run to
+// run, so the test never races it: the ring is held at 60% (deep enough grey to measure) until the
+// knock is in, then let go. A shape is in hand before each hold starts, because the next shape
+// waits until a hold resolves.
 const drop = x => page.evaluate(x => { const sim = window.__wobble.scene.sim; if (sim.ctrl && !sim.ctrl.hard) { sim.intent({ type: 'moveTo', x }); sim.intent({ type: 'hardDrop' }); return true; } return false; }, x);
-for (let i = 0, t0 = Date.now(); i < 2 && Date.now() - t0 < 20000;) { if (await drop(i * 2 - 1)) i++; await page.waitForTimeout(300); }
+const inHand = () => page.waitForFunction(() => { const s = window.__wobble.scene.sim; return !!s.ctrl && !s.ctrl.hard; }, null, { timeout: 30000 });
+const placed = () => page.evaluate(() => window.__wobble.scene.sim.stats.placed);
+const holdAt = progress => page.evaluate(progress => {
+  const s = window.__wobble.scene.sim;
+  s.tuning.holdTime = 1e9;
+  s.lineY = s.height().committed;
+  return new Promise(res => { const t0 = performance.now(), tick = () => { if (s.holdState().active) { s.hold.progress = progress; res(true); } else if (performance.now() - t0 > 15000) res(false); else setTimeout(tick, 20); }; tick(); });
+}, progress);
+for (let i = 0; i < 2; i++) { await inHand(); await drop(i * 2 - 1); }
 await page.waitForFunction(() => { const s = window.__wobble.scene.sim; return s.stats.placed >= 2 && s.height().committed > s.foundation.top + 0.5; }, null, { timeout: 30000 });
+await inHand();
 await page.waitForTimeout(1500);
 const colour0 = await shoot('00-before-hold');
-await page.evaluate(() => { const s = window.__wobble.scene.sim; s.tuning.holdTime = 8; s.lineY = s.height().committed; });
-await page.waitForFunction(() => window.__wobble.scene.sim.holdState().active, null, { timeout: 15000 });
+await holdAt(0.6);
 await page.waitForFunction(() => window.__wobble.scene.grey > 0.35, null, { timeout: 30000 }).catch(() => {});
 const during = await mood();
 const colour1 = await shoot('01-hold-grey');
@@ -89,24 +103,26 @@ step('the checkpoint goes on its own plain camera meanwhile', during.split && du
 const ratio = k => Math.round(colour1[k] / Math.max(0.001, colour0[k]) * 100) / 100;
 step('on screen, the sky loses colour and the checkpoint plaque keeps it', ratio('sky') < 1 - 0.6 * during.grey && ratio('plaque') > 0.9, JSON.stringify({ before: colour0, during: colour1, sky: ratio('sky'), plaque: ratio('plaque') }));
 
-// A hard drop onto the tower during the hold knocks it: a freeze-frame.
-for (let t0 = Date.now(); Date.now() - t0 < 20000;) { if (await drop(0)) break; await page.waitForTimeout(200); }
+// The shape in hand, hard-dropped onto the tower during the hold, knocks it (a hard drop lands at
+// 2 blocks/s): a freeze-frame, even when the knock jostles the top and breaks the hold.
+await drop(0);
 await page.waitForFunction(() => window.__stops.some(s => s.hold), null, { timeout: 20000 }).catch(() => {});
-const stops = await page.evaluate(() => window.__stops);
-const knock = stops.find(s => s.hold);
+const stops = await page.evaluate(() => ({ stops: window.__stops, knocks: window.__knocks.filter(k => k.hold), hold: window.__wobble.scene.sim.holdState() }));
+const knock = stops.stops.find(s => s.hold);
 step('a knock during the hold freezes the frame for a beat', !!knock && knock.ms >= 60 && knock.ms <= 120, JSON.stringify(stops));
 
-// Let it claim (the line sits just under the tower top), sampling the filter's mix each frame:
-// colour comes back past normal (a negative mix) for a moment, then settles.
+// Let the ring finish (the line sits just under the tower top; a broken hold starts again once the
+// top settles), sampling the filter's mix each frame from before the claim: colour comes back past
+// normal (a negative mix), then settles.
 await page.evaluate(() => {
   const sc = window.__wobble.scene, s = sc.sim;
-  s.tuning.holdTime = 2;
-  s.lineY = Math.min(s.lineY, s.height().committed);
   window.__mix = [];
   const tick = () => { window.__mix.push({ t: performance.now(), mix: sc.holdFilter.colorMatrix.alpha, pop: sc.greyPop, cp: s.checkpoint, split: sc.split }); if (window.__mix.length < 2000) requestAnimationFrame(tick); };
   tick();
+  s.lineY = Math.min(s.lineY, s.height().committed);
+  s.tuning.holdTime = 0.5;
 });
-await page.waitForFunction(() => window.__wobble.scene.sim.checkpoint >= 2, null, { timeout: 60000 }).catch(() => {});
+await page.waitForFunction(() => window.__wobble.scene.sim.checkpoint >= 2, null, { timeout: 30000 }).catch(() => {});
 await page.waitForFunction(() => window.__wobble.scene.grey === 0 && window.__wobble.scene.greyPop === -1, null, { timeout: 15000 }).catch(() => {});
 const after = await mood();
 await page.screenshot({ path: `${out}/02-claimed.png` });
@@ -125,16 +141,23 @@ step('on the claim the colour overshoots (about 1.2 saturation for 150 ms) on on
 step('after the claim the colour is back, the filter is off and the extra cameras are hidden', after.grey === 0 && after.active === false && !after.split && !after.cams[0] && !after.cams[1] && (await page.evaluate(() => window.__wobble.scene.sim.checkpoint)) >= 2, JSON.stringify(after));
 
 // Zen has no countdown to build up to: a hold there stays in colour, and a knock doesn't freeze.
-await page.evaluate(() => { const s = window.__wobble.scene.sim; s.tuning.zen = true; s.tuning.holdTime = 8; window.__stops.length = 0; });
-for (let t0 = Date.now(); Date.now() - t0 < 20000;) { if (await drop(0)) break; await page.waitForTimeout(200); }
+// One shape on the new slab, then a hold (held open again) with a shape in hand to knock with.
+await page.evaluate(() => { const s = window.__wobble.scene.sim; s.tuning.zen = true; window.__stops.length = 0; window.__knocks.length = 0; });
+await inHand();
+const n0 = await placed();
+await drop(0);
+await page.waitForFunction(n0 => window.__wobble.scene.sim.stats.placed > n0, n0, { timeout: 30000 }).catch(() => {});
+await inHand();
 await page.waitForTimeout(1500);
-await page.evaluate(() => { const s = window.__wobble.scene.sim; s.lineY = s.height().committed; });
-await page.waitForFunction(() => window.__wobble.scene.sim.holdState().active, null, { timeout: 15000 }).catch(() => {});
-for (let t0 = Date.now(); Date.now() - t0 < 20000;) { if (await drop(0)) break; await page.waitForTimeout(200); }
+const zenHeld = await holdAt(0.6);
+const zenGrey = await mood();
+const n1 = await placed();
+await drop(0);
+await page.waitForFunction(n1 => window.__wobble.scene.sim.stats.placed > n1, n1, { timeout: 30000 }).catch(() => {});
 await page.waitForTimeout(1500);
 const zen = await mood();
-const zenStops = await page.evaluate(() => window.__stops.filter(s => s.hold));
-step('in Zen a hold stays in colour and a knock does not freeze', zen.hold.active && zen.grey === 0 && !zen.active && !zen.split && zenStops.length === 0, JSON.stringify({ zen, zenStops }));
+const zenHits = await page.evaluate(() => ({ stops: window.__stops.filter(s => s.hold), knocks: window.__knocks.filter(k => k.hold) }));
+step('in Zen a hold stays in colour and a knock does not freeze', zenHeld && [zenGrey, zen].every(m => m.grey === 0 && !m.active && !m.split) && zenHits.knocks.length > 0 && zenHits.stops.length === 0, JSON.stringify({ zenHeld, zenGrey, zen, zenHits }));
 
 const failed = steps.filter(s => !s.ok).map(s => s.name);
 console.log(JSON.stringify({ steps, failed, errors: errors.slice(0, 10) }, null, 1));
