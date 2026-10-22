@@ -154,6 +154,9 @@ export class PlayScene extends Phaser.Scene {
   private greyPopFrom = 0;
   private greyWarm = 3; // frames the filter runs at no strength on boot, so its shader compiles behind the menu, not at the first hold
   private holdKnockAt = 0;
+  // The hold as the events tell it, in order. A knock that breaks a hold comes before the cancel in
+  // the same step, so by the time events are read the sim already says no hold; this still counts it.
+  private holdOn = false;
   private overPayload: Record<string, unknown> | null = null;
   private bubbleView: { id: number; view: PowerBubble } | null = null;
   private poppedBubbles: PowerBubble[] = []; // still playing their collect or fade
@@ -276,6 +279,7 @@ export class PlayScene extends Phaser.Scene {
     this.greyFast = false;
     this.greyPop = -1;
     this.holdKnockAt = 0;
+    this.holdOn = false;
     this.backdrop?.setTilt(0);
     this.guide.hide();
     for (const l of this.lines) l.destroy();
@@ -578,9 +582,11 @@ export class PlayScene extends Phaser.Scene {
         else if (p.type === 'crosswind') this.wind.steady(0);
         break;
       case 'hazard_hit': this.onHazardHit(p); break;
-      case 'checkpoint_cancelled': this.pop('Wobbly!', this.sim.foundation.x, this.sim.lineY + 0.6, AMBER, 18); break;
+      case 'checkpoint_hold': this.holdOn = true; break;
+      case 'checkpoint_cancelled': this.holdOn = false; this.pop('Wobbly!', this.sim.foundation.x, this.sim.lineY + 0.6, AMBER, 18); break;
       case 'contact_hit': this.onHoldKnock(Number(p.approachSpeed), now); break;
       case 'checkpoint_claimed':
+        this.holdOn = false;
         this.onClaim(p, now);
         this.skyMarks.push({ y: this.sim.foundation.top, sp: this.skyClock.sp });
         this.backdrop.setCosmos(this.sim.checkpoint); // Deep Cosmos changes palette every 6 checkpoints
@@ -741,7 +747,7 @@ export class PlayScene extends Phaser.Scene {
   private onHoldKnock(speed: number, now: number): void {
     const ms = this.sim.tuning.holdHitstop;
     // Knocks Sound plays as more than a tap (1 block/s), no closer than half a second apart.
-    if (!(ms > 0) || this.demoing || this.sim.tuning.zen || !this.sim.holdState().active || !(speed >= 1) || now < this.holdKnockAt) return;
+    if (!(ms > 0) || this.demoing || this.sim.tuning.zen || !this.holdOn || !(speed >= 1) || now < this.holdKnockAt) return;
     const stop = Math.min(ms * 1.5, ms * (0.75 + speed / 12));
     this.holdKnockAt = now + stop + 450;
     this.hitstop(now, stop);
