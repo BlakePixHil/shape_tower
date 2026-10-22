@@ -1,6 +1,6 @@
 // The ladder server's logic (gameplay.md §12.3), apart from HTTP and storage so tests run it directly.
 // Documents: players/<id> (name, look, reports, days played), names/<name key> (who holds a name),
-// ladder/<day> (that day's entries). The rules themselves are the game's own (game/src/meta).
+// ladder/<day>/<id> (a player's entry for a day). The rules themselves are the game's own (game/src/meta).
 
 import { DEFAULT_PORTRAIT } from '../../game/src/meta/portraits.ts';
 import { KEY_RE, REPORTS_TO_HIDE, cleanLook, mergeEntry, playerId, rankLadder, submitProblem, type LadderAvatar, type LadderEntry } from '../../game/src/meta/ladder.ts';
@@ -23,15 +23,11 @@ interface PlayerDoc {
   /** Days with an entry, so "delete me" can find them. */
   days: string[];
 }
-interface LadderDoc { entries: Record<string, LadderEntry> }
-
 const fail = (error: LadderError): LadderReply => ({ error });
 const isDay = (d: unknown): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
+const entryPath = (day: string, id: string) => `ladder/${day}/${id}`;
 
-/**
- * Read, change and write back a document, retrying when someone else wrote it in between. Everyone's
- * tries for a day share one document, so busy moments mean a few rounds; a write takes about 0.1 s.
- */
+/** Read, change and write back a document, retrying when someone else wrote it in between. */
 async function edit<T>(store: Store, path: string, change: (cur: T | null) => T | null | 'skip'): Promise<T | null | 'skip'> {
   for (let i = 0; i < 12; i++) {
     const cur = await store.get<T>(path);
@@ -57,14 +53,11 @@ async function restyle(store: Store, p: PlayerDoc, now: number): Promise<void> {
   const today = dailyDay(new Date(now));
   for (const day of p.days.slice(-2)) {
     if (day !== today && Date.parse(`${today}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`) > 86_400_000) continue;
-    await edit<LadderDoc>(store, `ladder/${day}`, cur => {
-      const e = cur?.entries[p.id];
-      if (!cur || !e) return 'skip';
+    await edit<LadderEntry>(store, entryPath(day, p.id), e => {
+      if (!e) return 'skip';
       const next: LadderEntry = { ...e, name: p.name ?? '', portrait: p.portrait, avatar: p.avatar };
       if (p.hidden) next.hidden = true; else delete next.hidden;
-      if (JSON.stringify(next) === JSON.stringify(e)) return 'skip'; // nothing shown changed: no write
-      cur.entries[p.id] = next;
-      return cur;
+      return JSON.stringify(next) === JSON.stringify(e) ? 'skip' : next; // nothing shown changed: no write
     });
   }
 }
@@ -73,9 +66,9 @@ export async function handle(req: LadderRequest, store: Store, now = Date.now())
   if (!req || typeof req !== 'object') return fail('badop');
   if (req.op === 'ladder') {
     if (!isDay(req.day)) return fail('bad');
-    const doc = await store.get<LadderDoc>(`ladder/${req.day}`);
+    const stored = await store.list<LadderEntry>(`ladder/${req.day}/`);
     // A hidden or refused name never leaves the server: the game shows its stand-in.
-    const entries = Object.values(doc?.data.entries ?? {}).map(e => (!e.hidden && nameShowable(e.name) ? e : { ...e, name: '' }));
+    const entries = stored.map(({ data: e }) => (!e.hidden && nameShowable(e.name) ? e : { ...e, name: '' }));
     return { view: rankLadder(req.day, entries, typeof req.id === 'string' ? req.id : null) };
   }
   if (typeof req.key !== 'string' || !KEY_RE.test(req.key)) return fail('nokey');
@@ -129,13 +122,12 @@ export async function handle(req: LadderRequest, store: Store, now = Date.now())
       const s = req.sub!;
       const day = s?.day;
       let problem: LadderError | null = null;
-      await edit<LadderDoc>(store, `ladder/${isDay(day) ? day : 'x'}`, cur => {
-        const doc = cur ?? { entries: {} };
-        problem = submitProblem(s, doc.entries[id], now);
+      await edit<LadderEntry>(store, entryPath(isDay(day) ? day : 'x', id), cur => {
+        problem = submitProblem(s, cur ?? undefined, now);
         if (problem) return 'skip';
-        doc.entries[id] = mergeEntry(doc.entries[id], s, { id, name: p.name!, portrait: p.portrait, avatar: p.avatar });
-        if (p.hidden) doc.entries[id].hidden = true;
-        return doc;
+        const e = mergeEntry(cur ?? undefined, s, { id, name: p.name!, portrait: p.portrait, avatar: p.avatar });
+        if (p.hidden) e.hidden = true;
+        return e;
       });
       if (problem) return fail(problem);
       if (!p.days.includes(day)) await edit<PlayerDoc>(store, path, cur => (cur ? { ...cur, days: [...cur.days.filter(d => d !== day), day].slice(-400) } : 'skip'));
@@ -160,11 +152,7 @@ export async function handle(req: LadderRequest, store: Store, now = Date.now())
     case 'forget': {
       const p = await player();
       if (p) {
-        for (const day of p.days) await edit<LadderDoc>(store, `ladder/${day}`, cur => {
-          if (!cur?.entries[id]) return 'skip';
-          delete cur.entries[id];
-          return cur;
-        });
+        for (const day of p.days) await store.del(entryPath(day, id));
         if (p.nameKey) {
           const held = await store.get<{ id: string }>(`names/${p.nameKey}`);
           if (held?.data.id === id) await store.del(`names/${p.nameKey}`);
