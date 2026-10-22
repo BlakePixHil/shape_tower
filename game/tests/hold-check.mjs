@@ -76,6 +76,8 @@ await page.evaluate(() => {
   sc.onEvent = e => { if (e.name === 'contact_hit' && e.payload.approachSpeed >= 1) window.__knocks.push({ speed: Math.round(e.payload.approachSpeed * 10) / 10, hold: sc.holdOn }); onEvent(e); };
   sc.sim.tuning.infiniteHearts = true;
   sc.sim.tuning.infiniteBudget = true;
+  // The checkpoint keeps its colour however slowly the software renderer draws, until the step that checks the other way.
+  sc.sim.tuning.holdSplitMs = 1e9;
 });
 // The ring fills in sim time, and the sim's pace under the software renderer swings from run to
 // run, so the test never races it: the ring is held at 60% (deep enough grey to measure) until the
@@ -154,6 +156,25 @@ const mix = await page.evaluate(() => {
 const c = mix.curve, over = Object.entries(c).filter(([, v]) => v <= -0.19).map(([t]) => Number(t));
 step('on the claim the colour overshoots (about 1.2 saturation for 150 ms) on one camera, then settles', mix.seen.popped && !mix.seen.splitWhilePop && c[0] === 0.5 && Math.min(...Object.values(c)) >= -0.2 && over.length && Math.max(...over) - Math.min(...over) >= 100 && Math.max(...over) - Math.min(...over) <= 200 && c[300] < 0 && c[300] > -0.2 && c[480] === 0 && mix.after === -1, JSON.stringify(mix));
 step('after the claim the colour is back, the filter is off and the extra cameras are hidden', after.grey === 0 && after.active === false && !after.split && !after.cams[0] && !after.cams[1] && (await page.evaluate(() => window.__wobble.scene.sim.checkpoint)) >= 2, JSON.stringify(after));
+
+// Where frames already draw slowly, the split's two extra cameras and second grey pass cost too
+// much (#65): the hold greys the checkpoint with the rest, on one camera. Then the ring finishes.
+await page.evaluate(() => { window.__wobble.scene.sim.tuning.holdSplitMs = 0; });
+await inHand();
+const n2 = await placed(), cp2 = await page.evaluate(() => window.__wobble.scene.sim.checkpoint);
+await drop(0);
+await page.waitForFunction(n2 => window.__wobble.scene.sim.stats.placed > n2, n2, { timeout: 30000 }).catch(() => {});
+await inHand();
+await page.waitForTimeout(1500);
+const liteHeld = await holdAt(0.6);
+await page.waitForFunction(() => { const sc = window.__wobble.scene, s = sc.sim; if (s.holdState().active && s.hold.progress < 0.6) s.hold.progress = 0.6; return sc.grey > 0.35; }, null, { timeout: 30000 }).catch(() => {});
+const lite = await mood();
+const liteGrey = await frameColour(true), litePlain = await frameColour(false);
+const liteRatio = k => Math.round(liteGrey[k] / Math.max(0.001, litePlain[k]) * 100) / 100;
+step('where frames draw slowly, the hold greys the checkpoint too, on one camera', liteHeld && lite.hold.active && lite.active && lite.grey > 0.15 && !lite.split && !lite.cams[0] && !lite.cams[1] && liteGrey.filterOn && liteRatio('scene') < 1 - 0.6 * lite.grey && liteRatio('plaque') < 1 - 0.6 * lite.grey, JSON.stringify({ liteHeld, lite, grey: liteGrey, plain: litePlain, scene: liteRatio('scene'), plaque: liteRatio('plaque') }));
+await page.evaluate(() => { const s = window.__wobble.scene.sim; s.lineY = Math.min(s.lineY, s.height().committed); s.tuning.holdTime = 0.5; s.tuning.holdSplitMs = 1e9; });
+await page.waitForFunction(cp2 => window.__wobble.scene.sim.checkpoint > cp2, cp2, { timeout: 30000 }).catch(() => {});
+await page.waitForFunction(() => window.__wobble.scene.grey === 0 && window.__wobble.scene.greyPop === -1, null, { timeout: 15000 }).catch(() => {});
 
 // Zen has no countdown to build up to: a hold there stays in colour, and a knock doesn't freeze.
 // One shape on the new slab, then a hold (held open again) with a shape in hand to knock with.
