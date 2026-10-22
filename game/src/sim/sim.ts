@@ -210,7 +210,14 @@ export class Sim {
   combo = 0;
   /** Clean or Perfect placements in a row; full rows turn to stone once it reaches setNeed (§9.1). */
   streak = 0;
-  stats = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0, hazards: 0, hits: 0, brittle: 0, mended: 0, crumbled: 0 };
+  private live = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0, hazards: 0, hits: 0, brittle: 0, mended: 0, crumbled: 0 };
+  private banked: typeof this.live | null = null;
+  private overAt: number | null = null;
+  /**
+   * The run's stats. They stop at run over, as the run banked them: pieces still settle afterwards
+   * (the panorama, the summary), and nothing read later should disagree with the run's XP and height.
+   */
+  get stats(): typeof this.live { return this.banked ?? this.live; }
 
   // Steering
   ctrl: Controlled | null = null;
@@ -452,7 +459,7 @@ export class Sim {
     let raw = 3 * H + cp + this.stats.perfects + 8 * this.stats.rows + 15 * this.stats.biomes + 2 * this.stats.clutches;
     if (this.stats.placed >= 10) raw += 10;
     if (quit || this.tuning.zen) raw *= 0.5;
-    const floor = this.time >= 30 ? 5 : 1;
+    const floor = (this.overAt ?? this.time) >= 30 ? 5 : 1;
     return Math.max(floor, Math.round(raw));
   }
 
@@ -475,7 +482,7 @@ export class Sim {
     this.updateBrittle();
     this.updateTension();
     const h = this.height().committed;
-    if (h > this.stats.maxHeight) this.stats.maxHeight = h;
+    if (h > this.live.maxHeight) this.live.maxHeight = h;
     if (this.state === 'playing') {
       this.updateCheckpoint();
       this.applyHeartLosses();
@@ -567,7 +574,7 @@ export class Sim {
       } else if (this.stepIndex >= g.startStep) {
         g.phase = 'blow';
         this.gustsSeen++;
-        this.stats.gusts++;
+        this.live.gusts++;
         this.bus.emit('hazard_start', { type: 'gust', strength: g.strength, dir: g.dir, duration: g.dur });
       }
       return 0;
@@ -613,7 +620,7 @@ export class Sim {
   private meet(h: LateHazard): { first: boolean; intro: boolean } {
     const first = !this.met.has(h), intro = this.introFor(h);
     this.met.add(h);
-    this.stats.hazards++;
+    this.live.hazards++;
     return { first, intro };
   }
 
@@ -817,7 +824,7 @@ export class Sim {
     const hit = this.pieces.get(s.target);
     if (hit) this.crack(hit, s.kind);
     this.engine.applyImpulse(s.target, ux * s.impulse, uy * s.impulse, s.hitX, s.hitY);
-    this.stats.hits++;
+    this.live.hits++;
     this.tensionSpike = Math.max(this.tensionSpike, 0.5);
     this.bus.emit('hazard_hit', { type: s.kind, id: s.id, x: s.hitX, y: s.hitY, pieceId: s.target, impulse: s.impulse, dir: -s.dir });
     s.phase = 'out';
@@ -974,7 +981,7 @@ export class Sim {
     p.brittle = c.brittle;
     this.ctrl = null;
     this.used++;
-    this.stats.placed++;
+    this.live.placed++;
     this.lastPlaced = p.id;
     this.nextSpawnAt = this.time + t.spawnDelay;
     this.bus.emit('piece_landed', {
@@ -996,7 +1003,7 @@ export class Sim {
     p.brittle = c.brittle;
     this.ctrl = null;
     this.used++;
-    this.stats.placed++;
+    this.live.placed++;
     this.lastPlaced = null;
     this.nextSpawnAt = this.time + this.tuning.spawnDelay;
     this.markLost(p);
@@ -1077,7 +1084,7 @@ export class Sim {
     if (++this.sinceBrittle <= gap || RESCUE.has(shape) || this.brittleInPlay()) return false;
     if (this.rng.brittle.int(Math.max(1, t.brittleEvery - gap)) !== 0) return false;
     this.sinceBrittle = 0;
-    this.stats.brittle++;
+    this.live.brittle++;
     return true;
   }
 
@@ -1260,7 +1267,7 @@ export class Sim {
       this.bus.emit('brittle_tossed', { id: p.id, shape: p.shape });
       return;
     }
-    this.stats.lost++;
+    this.live.lost++;
     this.combo = 0;
     this.tensionSpike = 1;
     if (!p.claimed) { this.pendingLost.push(p); this.setStreak(0); }
@@ -1303,7 +1310,7 @@ export class Sim {
     p.load = 0;
     const points = 300 * this.biomeMult();
     this.addScore(points);
-    this.stats.mended++;
+    this.live.mended++;
     this.bus.emit('brittle_mended', { id: p.id, shape: p.shape, points, x: p.cx, y: p.cy });
   }
 
@@ -1360,7 +1367,7 @@ export class Sim {
     this.removePiece(p);
     // Wake what it held, so it drops into the gap at once.
     for (const id of above) this.engine.applyImpulse(id, 0, -0.01 * this.engine.mass(id), this.pieces.get(id)!.cx, this.pieces.get(id)!.cy);
-    this.stats.crumbled++;
+    this.live.crumbled++;
     this.tensionSpike = 1;
   }
 
@@ -1379,10 +1386,10 @@ export class Sim {
     const mult = this.biomeMult();
     const clutch = p.tintAtDrop === 'amber' || p.tintAtDrop === 'red';
     let pts: number;
-    if (grade === 'perfect') { this.combo++; this.stats.perfects++; } else this.combo = 0;
-    if (grade === 'clean') this.stats.cleans++;
-    if (grade === 'messy') this.stats.messies++;
-    if (clutch) { pts = 200; this.stats.clutches++; this.tensionSpike = Math.max(this.tensionSpike, 0.8); }
+    if (grade === 'perfect') { this.combo++; this.live.perfects++; } else this.combo = 0;
+    if (grade === 'clean') this.live.cleans++;
+    if (grade === 'messy') this.live.messies++;
+    if (clutch) { pts = 200; this.live.clutches++; this.tensionSpike = Math.max(this.tensionSpike, 0.8); }
     else pts = grade === 'perfect' ? 150 * Math.min(1 + 0.5 * (this.combo - 1), 4) : grade === 'clean' ? 50 : 10;
     p.points = pts * mult;
     this.addScore(p.points);
@@ -1468,7 +1475,7 @@ export class Sim {
       this.setStreak(0);
     }
     if (!newRows) return;
-    this.stats.rows += newRows;
+    this.live.rows += newRows;
     const pts = [0, 500, 1200, 2000, 3000][Math.min(newRows, 4)];
     this.addScore(pts * this.biomeMult());
     this.bus.emit('row_solid', { count: newRows, rows, x: f.x, width: f.width, streak: need > 0 });
@@ -1623,8 +1630,8 @@ export class Sim {
     const cx = width % 2 === 0 ? Math.round(centre) : Math.round(centre - 0.5) + 0.5;
     const slab = this.addFoundation(cx, width, towerTop + 0.01 + t.slabThickness, t.slabThickness);
     slab.grade = grade;
-    this.stats.grades.push(grade);
-    this.stats.checkpoints++;
+    this.live.grades.push(grade);
+    this.live.checkpoints++;
 
     const leftover = t.infiniteBudget ? 0 : Math.max(0, this.budget - this.used);
     const gradeBonus = { S: 1500, A: 1000, B: 500, C: 0 }[grade];
@@ -1651,7 +1658,7 @@ export class Sim {
     this.endWeather(); // the next stretch is planned at the start of the next step
     const nb = biomeFor(this.checkpoint);
     if (nb.id !== biome.id) {
-      this.stats.biomes++;
+      this.live.biomes++;
       this.gravityScale = nb.gravity;
       this.engine.setGravity(0, -t.gravity * nb.gravity);
       this.bus.emit('biome_entered', { id: nb.id, name: nb.name });
@@ -1696,6 +1703,8 @@ export class Sim {
     this.state = 'over';
     this.cause = cause;
     this.ctrl = null;
+    this.banked = { ...this.live, grades: [...this.live.grades] };
+    this.overAt = this.time;
     this.bus.emit('run_over', { cause, height: this.stats.maxHeight, checkpoints: this.stats.checkpoints, score: Math.round(this.score), xp: this.xp(cause === 'quit') });
   }
 
@@ -1798,7 +1807,7 @@ export class Sim {
     // Nothing for it to do (no loose pieces, nothing to take back, already running): it stays.
     if (!detail) { this.bus.emit('power_refused', { kind, slot }); return; }
     this.slots[slot] = null;
-    this.stats.powers++;
+    this.live.powers++;
     this.bus.emit('power_used', { kind, slot, ...detail });
   }
 
@@ -1850,7 +1859,7 @@ export class Sim {
     const out = { id: p.id, shape: p.shape, x: p.cx, y: p.cy };
     this.removePiece(p);
     this.used = Math.max(0, this.used - 1);
-    this.stats.placed = Math.max(0, this.stats.placed - 1);
+    this.live.placed = Math.max(0, this.live.placed - 1);
     this.score -= p.points;
     this.outOfBricksAt = null;
     // The shape already falling goes back to the front of the queue.
@@ -1868,7 +1877,7 @@ export class Sim {
     const { pieces, refund } = this.sweep();
     const before = this.hearts;
     this.secondWind = 'used';
-    this.stats.secondWind = true;
+    this.live.secondWind = true;
     this.hearts = Math.max(this.hearts, this.tuning.hearts);
     this.used = 0;
     this.outOfBricksAt = null;
@@ -1987,7 +1996,7 @@ export class Sim {
 
   private biomeMult(): number { return 1 + 0.25 * (biomeFor(this.checkpoint).id - 1); }
 
-  private addScore(pts: number): void { this.score += pts; }
+  private addScore(pts: number): void { if (!this.banked) this.score += pts; } // banked at run over, like stats
 }
 
 function snap(x: number, step: number): number { return Math.round(x / step) * step; }
