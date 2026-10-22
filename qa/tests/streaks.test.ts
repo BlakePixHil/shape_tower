@@ -252,6 +252,44 @@ describe.runIf(brittly)(`brittle shapes on ${sut.kind} (${sut.engine})`, () => {
     expect(problems).toEqual([]);
   });
 
+  it('§4.3 any shape steered as far out as it goes and dropped leaves the tower, off either side of every foundation width a run can have', () => {
+    // "Toss it free" needs room to toss: the steering range has to reach past the foundation's edge
+    // far enough for every shape, in every rotation, on the 12-wide plinth and on every slab (6 to 12
+    // since 2026-10-22, §7.3). The foundation width is set through plinthWidth, the same foundation code.
+    const problems: string[] = [];
+    const lines: string[] = [];
+    const all = Object.keys(game!.shapes.SHAPES as Record<string, unknown>);
+    for (const width of [12, 11, 10, 9, 8, 7, 6]) {
+      const stuck: string[] = [];
+      let drops = 0;
+      for (const shape of all) {
+        for (const rot of [0, 1, 2, 3]) {
+          for (const side of [1, -1]) {
+            // Not kept until afterEach: hundreds of worlds at once run Box2D out of memory.
+            const t = game!.api.createSim({ engine: sut.engine, seed: 41, startCheckpoint: 5, tuning: { firstGap: 1000, infiniteHearts: true, infiniteBudget: true, powerUps: false, gusts: false, lateHazards: false, plinthWidth: width } }) as T;
+            const s = S(t);
+            if (s.foundation.width !== width) { problems.push(`setup: asked for a ${width}-wide foundation and got ${s.foundation.width}`); t.dispose(); continue; }
+            t.spawnControlled({ shape, x: s.foundation.x, rot });
+            t.intent({ type: 'moveTo', x: s.foundation.x + side * 50 });
+            for (let i = 0; i < 120 && s.ctrl && s.ctrl.x !== s.ctrl.xTarget; i++) t.step();
+            const reach = s.ctrl ? s.ctrl.x - s.foundation.x : NaN;
+            t.intent({ type: 'hardDrop' });
+            const ev: Ev[] = [];
+            for (let i = 0; i < 900 && !named(ev, 'piece_lost').length && !named(ev, 'piece_landed').length; i++) { t.step(); ev.push(...(t.drainEvents() as Ev[])); }
+            for (let i = 0; i < 240 && !named(ev, 'piece_lost').length; i++) { t.step(); ev.push(...(t.drainEvents() as Ev[])); }
+            t.dispose();
+            drops++;
+            if (!named(ev, 'piece_lost').length) stuck.push(`${shape} rot ${rot} ${side > 0 ? 'right' : 'left'} (steered to ${fmt(reach, 2)})`);
+          }
+        }
+      }
+      lines.push(`${width} wide: ${drops - stuck.length} of ${drops} drops left the tower${stuck.length ? `; stayed: ${stuck.slice(0, 6).join(', ')}${stuck.length > 6 ? ', ...' : ''}` : ''}`);
+      if (stuck.length) problems.push(`${width} wide: ${stuck.length} of ${drops} shapes steered as far out as they go stayed on the foundation (${stuck.slice(0, 4).join(', ')}${stuck.length > 4 ? ', ...' : ''})`);
+    }
+    writeReport({ suite: 'toss-reach', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', [...lines, ...problems.map((p) => `FAIL ${p}`)], {});
+    expect(problems).toEqual([]);
+  });
+
   it('F3.6 runs with brittle shapes replay exactly; the brittle stream leaves the shape bag alone', () => {
     const { api, shapes } = game!;
     const problems: string[] = [];

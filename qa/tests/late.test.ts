@@ -2,7 +2,7 @@
 // only, on builds whose tuning has lateHazards. Each stretch's hazards against the table, every hit
 // warned 2 s ahead, half strength the first time, never two brand-new hazards at once, nothing in a
 // hold or the claim pause, hits never on stone or the steered shape, hearts back every third claim
-// from Orbit, and runs with late hazards replaying exactly without moving gusts or the shape bag.
+// from the Red Planet (CP 17 since the 2026-10-22 retune), and runs with late hazards replaying exactly without moving gusts or the shape bag.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -28,12 +28,14 @@ type Kind = 'gust' | 'crosswind' | 'junk' | 'meteor' | 'dust' | 'sway';
 const LATE: Kind[] = ['crosswind', 'junk', 'meteor', 'dust', 'sway'];
 const WARN_STEPS = 120;
 
-// gameplay.md §8.2, written out from the doc rather than read from the game's tuning.
-const CROSSWIND: Record<number, number> = { 7: 0.04, 8: 0.06, 9: 0.08, 10: 0.1 };
-const JUNK: Record<number, number> = { 11: 18, 12: 15, 13: 12 };
-const METEOR: Record<number, number> = { 14: 22, 15: 18, 16: 15 };
-const DUST: Record<number, [number, number]> = { 17: [0.15, 16], 18: [0.2, 14], 19: [0.25, 12] };
-const SWAY: Record<number, number> = { 20: 0.08, 21: 0.11, 22: 0.14 };
+// gameplay.md §8.2 (retuned 2026-10-22), written out from the doc rather than read from the game's tuning.
+const CROSSWIND: Record<number, number> = { 7: 0.03, 8: 0.04, 9: 0.05, 10: 0.06 };
+const JUNK: Record<number, number> = { 11: 20, 12: 18, 13: 16 };
+const METEOR: Record<number, number> = { 14: 24, 15: 21, 16: 18 };
+const DUST: Record<number, [number, number]> = { 17: [0.1, 18], 18: [0.13, 16], 19: [0.16, 14] };
+const SWAY: Record<number, number> = { 20: 0.07, 21: 0.09, 22: 0.11 };
+/** gameplay.md §7.1: from this checkpoint on a claim gives a heart back only every third time (19, 22, 25, ...). */
+const HEARTS_EVERY_FROM = 17;
 const cosmosK = (n: number) => Math.min(2, 1 + 0.05 * (n - 22));
 /** The late hazards a stretch should have; Deep Cosmos picks two from the pool, checked separately. */
 function expected(n: number): Kind[] {
@@ -149,7 +151,7 @@ describe.runIf(late)(`late hazards on ${sut.kind} (${sut.engine})`, () => {
   it('F7.1 Deep Cosmos: each stretch runs two different hazards at top intensity × k', () => {
     const problems: string[] = [];
     const lines: string[] = [];
-    const top: Record<string, number> = { gust: 0.15, crosswind: 0.1, dust: 0.25, sway: 0.14 };
+    const top: Record<string, number> = { gust: 0.12, crosswind: 0.06, dust: 0.16, sway: 0.11 };
     for (const n of FULL ? [23, 24, 25, 26, 28, 32, 42] : [23, 26, 42]) {
       for (const seed of FULL ? [1, 2, 3, 4] : [1, 2]) {
         const t = make(n, {}, 400 + 10 * n + seed);
@@ -171,7 +173,7 @@ describe.runIf(late)(`late hazards on ${sut.kind} (${sut.engine})`, () => {
           const want = top[h] ? top[h] * k : null;
           const got = h === 'sway' ? e.payload.amplitude : e.payload.strength;
           if (h === 'sway' && !remix.includes('sway')) {
-            if (Math.abs(got - 0.1) > 1e-9 || e.payload.period !== 24) problems.push(`${where}: the background drift is ±${got} g over ${e.payload.period} s, the doc says ±0.1 g over 24 s`);
+            if (Math.abs(got - 0.08) > 1e-9 || e.payload.period !== 24) problems.push(`${where}: the background drift is ±${got} g over ${e.payload.period} s, the doc says ±0.08 g over 24 s`);
           } else if (want !== null && got !== undefined && Math.abs(got - want) > 1e-9) problems.push(`${where}: ${h} at ${fmt(got, 4)}, top × k is ${fmt(want, 4)}`);
         }
         lines.push(`${where}: ${remix.join(' + ')} (k ${fmt(k, 2)}), ${ev.filter((e) => e.name === 'hazard_start' || e.name === 'hazard_hit').length} starts and hits in ${FULL ? 120 : 60} s`);
@@ -237,7 +239,7 @@ describe.runIf(late)(`late hazards on ${sut.kind} (${sut.engine})`, () => {
     expect(problems).toEqual([]);
   });
 
-  it('F7.8 Q25 F7.1 over bot runs from Storm Belt on: nothing starts in a hold or the claim pause, hits never land on stone or the steered shape, hearts come back every third claim from Orbit', () => {
+  it('F7.8 Q25 F7.1 over bot runs from Storm Belt on: nothing starts in a hold or the claim pause, hits never land on stone or the steered shape, hearts come back every third claim from the Red Planet', () => {
     const { api, shapes } = game!;
     const problems: string[] = [];
     const lines: string[] = [];
@@ -264,7 +266,7 @@ describe.runIf(late)(`late hazards on ${sut.kind} (${sut.engine})`, () => {
             claimAt = sim.stepIndex;
             totals.claims++;
             const n = e.payload.n as number;
-            const want = n >= 11 ? ((n - 11 + 1) % 3 === 0 ? 2 : 1) : n === lastCp(n) ? 3 : 2;
+            const want = n >= HEARTS_EVERY_FROM ? ((n - HEARTS_EVERY_FROM + 1) % 3 === 0 ? 2 : 1) : n === lastCp(n) ? 3 : 2;
             if (sim.hearts !== want) bad(`claiming CP ${n} left ${sim.hearts} hearts from 1, expected ${want}`);
             restored.push(`${n}:${sim.hearts - 1}`);
           }
@@ -301,7 +303,7 @@ describe.runIf(late)(`late hazards on ${sut.kind} (${sut.engine})`, () => {
     lines.push(`totals: ${totals.warnings} late-hazard warnings, ${totals.starts} starts, ${totals.hits} hits, ${totals.cracks} bonds cracked, ${totals.holds} holds, ${totals.claims} claims`);
     lines.push(`hearts given back per claim (CP:hearts): ${restored.join(' ')}`);
     if (!totals.hits) problems.push('setup: the bots met no hits');
-    if (!restored.some((r) => +r.split(':')[0] >= 11)) problems.push('setup: no claim at or past CP 11');
+    if (!restored.some((r) => +r.split(':')[0] >= HEARTS_EVERY_FROM)) problems.push(`setup: no claim at or past CP ${HEARTS_EVERY_FROM}`);
     writeReport({ suite: 'late-runs', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', [...lines, ...problems.map((p) => `FAIL ${p}`)], totals);
     expect(problems).toEqual([]);
   });

@@ -59,7 +59,9 @@ export const FULL = process.env.QA_FULL === '1';
  */
 export function sandboxTuning(sut: SimUnderTest, extra: Record<string, unknown> = {}): Record<string, unknown> | undefined {
   if (sut.kind !== 'game') return Object.keys(extra).length ? extra : undefined;
-  return { firstGap: 1000, infiniteHearts: true, infiniteBudget: true, ...extra };
+  // The canonical towers and guide bases are drawn on an 8-wide plinth, as the reference sim's is;
+  // the game's plinth is 12 since 2026-10-22 (gameplay.md §7.3, §16), so the sandbox pins 8.
+  return { firstGap: 1000, infiniteHearts: true, infiniteBudget: true, plinthWidth: 8, ...extra };
 }
 
 /** Mortar on or off, in the sim's own tuning terms (the reference sim has no Mortar). */

@@ -21,12 +21,12 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
 type T = Record<string, any>;
 const S = (t: T) => t.sim as Record<string, any>;
 
-/** gameplay.md §8.2: gust strength in g and how often they come, per checkpoint. None outside 3 to 10. */
+/** gameplay.md §8.2 (retuned 2026-10-22): gust strength in g and how often they come, per checkpoint. None outside 3 to 10. */
 const SPEC: Record<number, { strength: number; every: number }> = {
-  3: { strength: 0.05, every: 18 }, 4: { strength: 0.08, every: 15 },
-  5: { strength: 0.09, every: 14 }, 6: { strength: 0.12, every: 12 },
-  7: { strength: 0.12, every: 12 }, 8: { strength: 0.12, every: 12 },
-  9: { strength: 0.135, every: 12 }, 10: { strength: 0.15, every: 12 },
+  3: { strength: 0.04, every: 20 }, 4: { strength: 0.06, every: 18 },
+  5: { strength: 0.07, every: 16 }, 6: { strength: 0.08, every: 15 },
+  7: { strength: 0.09, every: 14 }, 8: { strength: 0.1, every: 13 },
+  9: { strength: 0.11, every: 12 }, 10: { strength: 0.12, every: 12 },
 };
 const WARN_STEPS = 120;
 
