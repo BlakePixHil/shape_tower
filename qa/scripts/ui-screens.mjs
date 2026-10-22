@@ -33,8 +33,9 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}/index.html`;
 
-// 'daily' needs an art build with the Daily Tower card (#60); '&done=1' shows a played day.
-const SCREENS = ['menu', 'pause', 'summary', 'levelup', 'profile', 'settings', 'daily', 'daily&done=1'];
+// 'daily' needs an art build with the Daily Tower card (#60); '&done=1' shows a played day. 'portraits' is the
+// Daily ladder's 19 portrait styles, animated (#67).
+const SCREENS = ['menu', 'pause', 'summary', 'levelup', 'profile', 'settings', 'daily', 'daily&done=1', 'portraits'];
 const SIZES = [
   { name: 'small 16:9', width: 360, height: 640 },
   { name: 'tall 19.5:9', width: 390, height: 844 },
