@@ -1,6 +1,8 @@
-// The Daily Tower (gameplay.md §12, QA F17): one seed per UTC day for everyone, one scored attempt
-// per seed ever, unlimited practice, and local results until online leaderboards arrive (QA Q23).
+// The Daily Tower (gameplay.md §12, QA F17): one seed per UTC day for everyone, only that day's 3 or 5
+// shapes, one scored attempt per seed ever, unlimited practice, ranked by height on the ladder (§12.3).
 // Plain data and pure functions, so it runs in Node for tests; the profile stores the state.
+
+import { Rng } from '../sim/rng.ts';
 
 /** Daily #1 is the UTC day the mode shipped. */
 export const DAILY_EPOCH = '2026-10-21';
@@ -52,6 +54,32 @@ export function dailySeed(day: string): number {
   return h >>> 0;
 }
 
+// The day's shape set (§12.3). Every set has one flat "rescue" shape to fix a ragged top with, and
+// at least one awkward one, so no day is a gift and none is unbuildable.
+const RESCUE = ['O', 'I', 'Plank'];
+const CORE = ['T', 'L', 'J', 'Domino'];
+const TRICKY = ['S', 'Z', 'P', 'U', 'V', 'Arch', 'Plus'];
+/** The order sets are shown in (the bag's own order). */
+const ORDER = ['I', 'O', 'T', 'L', 'J', 'S', 'Z', 'Domino', 'Plank', 'P', 'U', 'V', 'Arch', 'Plus'];
+
+/**
+ * The only shapes that fall on this day, the same for everyone: 3 on about two days in five ("tight"
+ * days: a rescue, a core and an awkward shape), otherwise 5 (one or two rescues, the rest core and
+ * awkward). Its own hash of the date, so it never moves the bag's stream.
+ */
+export function dailyShapes(day: string): string[] {
+  const r = new Rng(dailySeed(day) ^ 0x5eed5e75);
+  const pick = (pool: string[], n: number, out: string[]): void => {
+    const left = pool.filter(k => !out.includes(k));
+    for (let i = 0; i < n && left.length; i++) out.push(left.splice(r.int(left.length), 1)[0]);
+  };
+  const out: string[] = [];
+  if (r.int(5) < 2) { pick(RESCUE, 1, out); pick(CORE, 1, out); pick(TRICKY, 1, out); }
+  else if (r.int(2) === 0) { pick(RESCUE, 1, out); pick(CORE, 2, out); pick(TRICKY, 2, out); }
+  else { pick(RESCUE, 2, out); pick(CORE, 1, out); pick(TRICKY, 2, out); }
+  return out.sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
+}
+
 /** Milliseconds until the next seed (00:00 UTC). */
 export function msToNextDaily(now = new Date()): number {
   const t = now.getTime();
@@ -91,10 +119,10 @@ export function updateScored(s: DailyState, day: string, r: Omit<DailyResult, 'a
   e.finished = finished;
 }
 
-/** Score first, then height: the order the leaderboard will use. */
+/** Height first, then score: the ladder's order (§12.3, "the highest distance wins"). */
 export function better(a: DailyResult, b: DailyResult | null | undefined): boolean {
   if (!b) return true;
-  return a.score !== b.score ? a.score > b.score : a.height > b.height;
+  return a.height !== b.height ? a.height > b.height : a.score > b.score;
 }
 
 /** Adds a finished practice run. Returns whether it beat the day's practice best. */
