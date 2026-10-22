@@ -81,13 +81,15 @@ function claimWith(t: T, xs: number[], log: Ev[]): Ev[] {
 }
 
 /**
- * Where a bubble may be (gameplay.md §13, from game/power-fixes): beside the foundation, 1 or 1.5
- * blocks out from its edge, capped at 5.25 from its centre to stay on screen. Null when it is.
+ * Where a bubble may be (gameplay.md §13.1, from game/power-fixes; 2026-10-22 for the bigger
+ * platforms): beside the foundation, 1 or 1.5 blocks out from its edge, at most 1.25 out on slabs 8
+ * wide or more and at most 5.25 from its centre on narrower ones. Never over the foundation, however
+ * wide. Null when it is.
  */
 function besideFoundation(x: number, f: { x: number; width: number }): string | null {
   const d = Math.abs(x - f.x);
   const near = f.width / 2 + 1;
-  const far = Math.min(f.width / 2 + 1.5, 5.25);
+  const far = f.width >= 8 ? f.width / 2 + 1.25 : Math.min(f.width / 2 + 1.5, 5.25);
   if (Math.abs(d - near) < 1e-9 || Math.abs(d - far) < 1e-9) return null;
   return `x ${fmt(x - f.x, 2)} from the centre of a ${f.width}-wide foundation, not ±${near} or ±${far}`;
 }
@@ -139,7 +141,8 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
   });
 
   it('F18.2 Quick-Set turns everything resting to stone, leaves free fall and the hand alone, counts rows; refused with nothing resting', () => {
-    const t = make();
+    // The F3.8 row below is 8 wide, so it pins the plinth it was drawn for (12 since 2026-10-22).
+    const t = make({ plinthWidth: 8 });
     const problems: string[] = [];
     give(t, 0, 'quickset');
     if (!named(use(t, 0), 'power_refused').length || S(t).slots[0] !== 'quickset') problems.push('with nothing resting it was not refused, or it left the slot');
@@ -208,7 +211,7 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     give(t, 1, 'quickset');
     use(t, 1);
     if (!named(use(t, 0), 'power_refused').length) problems.push('Undo of a shape turned to stone was not refused');
-    const lost = drop(t, 'O', S(t).foundation.x + 6);
+    const lost = drop(t, 'O', S(t).foundation.x + S(t).foundation.width / 2 + 2);
     if (lost !== -1) problems.push('setup: the O off the edge landed');
     t.step(60);
     if (!named(use(t, 0), 'power_refused').length) problems.push('Undo of a Lost shape was not refused');
@@ -622,11 +625,12 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     const problems: string[] = [];
     const lines: string[] = [];
     const tuning = { firstGap: 2, gapGrowth: 0, powerUps: true, bubbleGap: 1000 };
-    // S grade: four O pieces cover the whole foundation.
+    // S grade: a row of O pieces covers the whole foundation (six on the 12-wide plinth).
+    const wall = (t: T) => Array.from({ length: S(t).foundation.width / 2 }, (_, k) => -S(t).foundation.width / 2 + 1 + 2 * k);
     {
       const t = make(tuning);
       const log: Ev[] = [];
-      const ev = claimWith(t, [-3, -1, 1, 3], log);
+      const ev = claimWith(t, wall(t), log);
       const grade = named(ev, 'checkpoint_claimed')[0].payload.grade;
       const granted = named(ev, 'power_granted').filter((e) => e.payload.why === 'grade');
       lines.push(`a full-width claim graded ${grade} and granted ${granted.map((e) => e.payload.kind).join(', ') || 'nothing'}`);
@@ -640,7 +644,7 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
       const t3 = make(tuning);
       give(t3, 0, 'glue');
       give(t3, 1, 'slowmo');
-      const ev3 = claimWith(t3, [-3, -1, 1, 3], []);
+      const ev3 = claimWith(t3, wall(t3), []);
       if (named(ev3, 'power_granted').length || S(t3).slots.join() !== 'glue,slowmo') problems.push('an S grade with full slots changed the slots');
     }
     for (const mode of ['earn', 'ready', 'used', 'off'] as const) {
@@ -676,9 +680,9 @@ describe.runIf(game?.powers)(`power-ups on ${sut.kind} (${sut.engine})`, () => {
     const log: Ev[] = [];
     const kept = [drop(t, 'O', -2, 0, log), drop(t, 'T', 1, 0, log)];
     // Two shapes off the edge cost two hearts.
-    drop(t, 'O', S(t).foundation.x + 6, 0, log);
+    drop(t, 'O', S(t).foundation.x + S(t).foundation.width / 2 + 2, 0, log);
     t.step(120);
-    drop(t, 'O', S(t).foundation.x - 6, 0, log);
+    drop(t, 'O', S(t).foundation.x - S(t).foundation.width / 2 - 2, 0, log);
     t.step(200);
     drain(t, log);
     const heartsBefore = S(t).hearts;

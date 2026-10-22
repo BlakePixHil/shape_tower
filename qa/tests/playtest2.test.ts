@@ -2,7 +2,8 @@
 // slabs early (§7.3), and the shapes-left warnings (§7.2). Game only, on builds whose tuning has
 // startWait and slabBoost. A new shape waits 1.5 s, 1.0 s, 0.5 s at the top in the first three
 // stretches and steers while it waits; a drop ends the wait for good. A claim's slab is never narrower
-// than 6, 6, 5, 5, 4, 4, then 3, and the grade doesn't change. budget_low fires at 5, 3 and 1 left after
+// than 10, 10, 9, 9, 8, 8, 7, 7, then 6, never wider than its stretch's widest (12 to 8), Zen always
+// gets the widest, and the grade doesn't change (bigger platforms, 2026-10-22). budget_low fires at 5, 3 and 1 left after
 // a landing or a miss; bricks_out fires once when the last shape is used, and the run ends on bricks.
 import { afterEach, describe, expect, it } from 'vitest';
 import { FULL, loadSim } from '../src/adapters/index';
@@ -28,7 +29,10 @@ const S = (t: T) => t.sim as Record<string, any>;
 
 // gameplay.md §8.1, §7.3 and §7.2, written out from the doc rather than read from the game's tuning.
 const waitAt = (n: number) => [1.5, 1.0, 0.5][n - 1] ?? 0;
-const minSlabAt = (n: number) => (n <= 2 ? 6 : n <= 4 ? 5 : n <= 6 ? 4 : 3);
+const minSlabAt = (n: number) => (n <= 2 ? 10 : n <= 4 ? 9 : n <= 6 ? 8 : n <= 8 ? 7 : 6);
+/** The widest slab of stretch n (§7.3); a claim at checkpoint n lays the foundation of stretch n + 1. */
+const maxSlabFor = (n: number) => (n <= 6 ? 12 : n <= 10 ? 11 : n <= 16 ? 10 : n <= 22 ? 9 : 8);
+const PLINTH = 12;
 const WARN_AT = new Set([5, 3, 1]);
 const GRACE = 3;
 
@@ -146,25 +150,32 @@ describe.runIf(waity)(`start wait on ${sut.kind} (${sut.engine})`, () => {
 });
 
 describe.runIf(wide)(`slab minimums on ${sut.kind} (${sut.engine})`, () => {
-  it('§16.16 a claim\'s new slab is never narrower than 6 at CP 1-2, 5 at CP 3-4, 4 at CP 5-6 and 3 after, and the grade is unchanged', () => {
+  it('§16.16 a claim\'s new slab is never narrower than 10 at CP 1-2, 9 at CP 3-4, 8 at CP 5-6, 7 at CP 7-8 and 6 after, never wider than its stretch allows, the widest in Zen, and the grade is unchanged; the plinth is 12', () => {
     const problems: string[] = [];
     const lines: string[] = [];
     /** A one-O-wide stone column up to the line, held until the claim. */
-    const claimWith = (n: number, boost: number) => {
-      const t = make(n, { firstGap: defaults.firstGap, slabBoost: boost });
+    const claimWith = (n: number, boost: number, zen = false) => {
+      // Disposed here rather than in afterEach: three dozen worlds at once run Box2D out of memory.
+      const t = game!.api.createSim({ engine: sut.engine, seed: 600 + n, startCheckpoint: n, tuning: { firstGap: defaults.firstGap, infiniteHearts: true, infiniteBudget: true, powerUps: false, gusts: false, lateHazards: false, slabBoost: boost, ...(zen ? { zen: true } : {}) } }) as T;
       const s = S(t);
+      if (s.foundation.width !== PLINTH) problems.push(`CP ${n}: the plinth is ${s.foundation.width} wide, the doc says ${PLINTH}`);
       const top = s.foundation.top;
       for (let k = 0; top + 2 * k < s.lineY; k++) t.placePiece({ shape: 'O', x: s.foundation.x, y: top + 1 + 2 * k, as: 'stone' });
       const ev: Ev[] = [];
       for (let i = 0; i < 600 && !named(ev, 'checkpoint_claimed').length; i++) run(t, 1, ev);
       const c = named(ev, 'checkpoint_claimed')[0];
-      return c ? { width: Number(c.payload.width), grade: String(c.payload.grade), coverage: Number(c.payload.coverage), slab: s.foundation.width as number } : null;
+      const out = c ? { width: Number(c.payload.width), grade: String(c.payload.grade), coverage: Number(c.payload.coverage), slab: s.foundation.width as number } : null;
+      t.dispose();
+      return out;
     };
-    for (const n of FULL ? [1, 2, 3, 4, 5, 6, 7, 8, 11] : [1, 2, 3, 4, 5, 6, 7]) {
+    for (const n of FULL ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 22, 23] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 22]) {
       const boosted = claimWith(n, defaults.slabBoost);
       const plain = claimWith(n, 0);
-      if (!boosted || !plain) { problems.push(`setup: the column at CP ${n} never claimed`); continue; }
-      lines.push(`CP ${n}: a 2-wide column claims grade ${boosted.grade} (coverage ${boosted.coverage}) and gets a ${boosted.width}-wide slab (doc minimum ${minSlabAt(n)}); without the boost ${plain.width} wide, grade ${plain.grade}`);
+      const zen = claimWith(n, defaults.slabBoost, true);
+      if (!boosted || !plain || !zen) { problems.push(`setup: the column at CP ${n} never claimed`); continue; }
+      lines.push(`CP ${n}: a 2-wide column claims grade ${boosted.grade} (coverage ${boosted.coverage}) and gets a ${boosted.width}-wide slab (doc minimum ${minSlabAt(n)}); without the boost ${plain.width} wide, grade ${plain.grade}; in Zen ${zen.width} wide (doc widest ${maxSlabFor(n + 1)}), grade ${zen.grade}`);
+      if (zen.width !== maxSlabFor(n + 1)) problems.push(`CP ${n}: Zen's slab is ${zen.width} wide, the doc says always the widest, ${maxSlabFor(n + 1)}`);
+      if (zen.grade !== boosted.grade) problems.push(`CP ${n}: Zen's widest slab changed the grade (${boosted.grade} -> ${zen.grade})`);
       if (boosted.width !== minSlabAt(n)) problems.push(`CP ${n}: the narrowest slab is ${boosted.width}, the doc says ${minSlabAt(n)}`);
       if (boosted.slab !== boosted.width) problems.push(`CP ${n}: checkpoint_claimed says width ${boosted.width}, the new foundation is ${boosted.slab}`);
       if (boosted.grade !== plain.grade || boosted.coverage !== plain.coverage) problems.push(`CP ${n}: the wider minimum changed the grade (${plain.grade} -> ${boosted.grade}) or coverage (${plain.coverage} -> ${boosted.coverage})`);
@@ -182,10 +193,11 @@ describe.runIf(wide)(`slab minimums on ${sut.kind} (${sut.engine})`, () => {
           claims++;
           const n = Number(e.payload.n);
           if (Number(e.payload.width) < minSlabAt(n)) problems.push(`from CP ${from} seed ${seed}: the CP ${n} claim gave a ${e.payload.width}-wide slab, under the doc's ${minSlabAt(n)}`);
+          if (Number(e.payload.width) > maxSlabFor(n + 1)) problems.push(`from CP ${from} seed ${seed}: the CP ${n} claim gave a ${e.payload.width}-wide slab, over the doc's ${maxSlabFor(n + 1)}`);
         }
       }
     }
-    lines.push(`bot runs: ${claims} claims, none under the minimum`);
+    lines.push(`bot runs: ${claims} claims, none under the minimum or over the widest`);
     if (!claims) problems.push('setup: the bot runs never claimed');
     writeReport({ suite: 'slab-minimum', sim: sut, full: FULL }, problems.length ? 'fail' : 'pass', [...lines, ...problems.map((p) => `FAIL ${p}`)], {});
     expect(problems).toEqual([]);
