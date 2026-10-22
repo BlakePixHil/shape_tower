@@ -4,6 +4,7 @@
 
 import { dailyDay, dayOf, dailyNumber } from './daily.ts';
 import { nameShowable, placeholderName } from './names/names.ts';
+import { portraitDef } from './portraits.ts';
 
 /** The player's Blockling as the ladder carries it (art's AvatarSpec, kept loose so the server needs no art). */
 export interface LadderAvatar { shape?: string; face?: string; hat?: string | null }
@@ -112,6 +113,20 @@ export function mergeEntry(prev: LadderEntry | undefined, s: Submission, who: Pi
     finished: s.finished,
     at: Math.min(prev?.at ?? Infinity, s.startedAt),
     ...(prev?.hidden ? { hidden: true } : {}),
+  };
+}
+
+/**
+ * A look as sent, made safe: a known portrait (else `fallback`'s) and an avatar of plain words. Which
+ * portraits a player owns is the game's business; a wrong one is only a picture.
+ */
+export function cleanLook(l: unknown, fallback: { portrait: string; avatar: LadderAvatar }): { portrait: string; avatar: LadderAvatar } {
+  const look = (l && typeof l === 'object' ? l : {}) as { portrait?: unknown; avatar?: unknown };
+  const word = (x: unknown): string | undefined => (typeof x === 'string' && /^[A-Za-z_]{1,16}$/.test(x) ? x : undefined);
+  const a = (look.avatar && typeof look.avatar === 'object' ? look.avatar : {}) as LadderAvatar;
+  return {
+    portrait: typeof look.portrait === 'string' && portraitDef(look.portrait) ? look.portrait : fallback.portrait,
+    avatar: { shape: word(a.shape) ?? fallback.avatar.shape, face: word(a.face) ?? fallback.avatar.face, hat: a.hat === null ? null : word(a.hat) ?? fallback.avatar.hat ?? null },
   };
 }
 

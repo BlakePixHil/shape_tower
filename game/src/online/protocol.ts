@@ -1,5 +1,5 @@
 // What the game and the ladder server say to each other (gameplay.md §12.3). One POST per call, JSON in
-// and out; a reply is either the answer or { error }. Shared by game/src/online/api.ts and online/.
+// and out; a reply is either the answer or { error }. Shared by game/src/online/online.ts and online/.
 
 import type { LadderAvatar, LadderView, SubmitProblem, Submission } from '../meta/ladder.ts';
 import type { NameProblem } from '../meta/names/names.ts';

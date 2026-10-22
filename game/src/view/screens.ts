@@ -4,8 +4,9 @@
 // the XP tally's timing and QA's one-tap questions.
 
 import {
-  MENU_MODES, armDailyScored, avatarPanel, dailyCard, dailyChip, dailyMenuDot, injectUiCss, levelUp, mainMenu, onAction, pauseCard, prewarmUi, profilePanel, readAvatar,
-  readSettings, rewardAt, setDailyCountdown, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type SettingGroup, type SettingValue,
+  MENU_MODES, armDailyScored, armForget, armReport, avatarPanel, dailyCard, dailyChip, dailyMenuDot, injectLadderCss, injectUiCss, levelUp, mainMenu, nameCard, onAction, pauseCard, prewarmUi,
+  profilePanel, readAvatar, readNameCard, readSettings, rewardAt, setDailyCountdown, setDailyLadder, setDailyTab, setNameBusy, setNameHint, setXpBar, settingsPanel,
+  showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type DailyTab, type LadderPanelData, type NameCardData, type SettingGroup, type SettingValue,
 } from '@art/index.ts';
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
@@ -26,10 +27,30 @@ export interface ScreenSounds {
 const ACTION_SOUND: Record<string, UiSound> = {
   play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap', scored: 'tap2', practice: 'start',
+  tab: 'tab', join: 'open', edit: 'open', save: 'tap2', report: 'tap', reportYes: 'tap2', reportNo: 'back', forget: 'tap2', retry: 'tap',
 };
 
-/** How long the Daily's scored button stays armed after its first tap. */
+/** How long the Daily's scored button (and the ladder's delete) stays armed after its first tap. */
 const ARM_MS = 2500;
+
+/** The Daily card's ladder: how to load it, and what its buttons do (gameplay.md §12.3). */
+export interface DailyLadderHooks {
+  /** Today's ladder for the card (also on Try again, and after a report). */
+  load(): Promise<LadderPanelData>;
+  /** Join or Edit: the name card. */
+  onName(): void;
+  /** A confirmed report; resolves when the row can redraw. */
+  onReport(id: string): Promise<void>;
+}
+
+/** The ladder name card: its data, the live hint, and saving or deleting (each resolves an error line, or null when done). */
+export interface NameCardHooks {
+  data: NameCardData;
+  hint(name: string): { text: string; ok: boolean };
+  onSave(name: string, portrait: string): Promise<string | null>;
+  onForget(): Promise<string | null>;
+  onClose(): void;
+}
 
 // Only what the kit doesn't style: the container, the testing note, the build tag and QA's questions.
 const CSS = `
@@ -43,6 +64,8 @@ const CSS = `
 .sc-ask .ui-btn { min-height: 40px; padding: 4px 18px; font-size: 16px; }
 .sc-ask .sc-face { font-size: 24px; padding: 2px 6px; min-width: 46px; }
 .sc-ask .sc-thanks { font: 600 14px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 0; }
+.sc-ladder { margin-top: 10px; text-align: left; }
+.sc-ladder-msg { font: 700 13px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 2px 0; min-height: 1em; }
 `;
 
 /** The settings the game has today, in the kit's layout format (gameplay.md §2, audio section). */
@@ -105,8 +128,10 @@ export class Screens {
   readonly root: HTMLDivElement;
   private name = '';
   private unbind: (() => void) | null = null;
-  /** The player's name on the menu and profile (no naming screen yet). */
+  /** The player's name on the menu and profile: their ladder name once they have one. */
   playerName = 'Builder';
+  /** The Daily card's tab, kept between visits. */
+  private dailyTab: DailyTab = 'ladder';
 
   constructor(parent: HTMLElement, private sounds: ScreenSounds) {
     injectUiCss();
@@ -199,10 +224,12 @@ export class Screens {
    * redraws for the new tower. The scored button needs two taps, so a stray one can't spend the day's
    * only try (QA Q32: it's spent once its first shape spawns).
    */
-  daily(o: { data(): DailyCardData; countdown(): { ms: number; text: string }; onScored(): void; onPractice(): void; onClose(): void }): void {
-    const el = dailyCard(o.data());
+  daily(o: { data(): DailyCardData; countdown(): { ms: number; text: string }; onScored(): void; onPractice(): void; onClose(): void; ladder: DailyLadderHooks }): void {
+    const el = dailyCard({ ...o.data(), tab: this.dailyTab });
     let armedAt = 0;
     let disarm = 0;
+    let asking: string | null = null; // the row whose report question is showing
+    const load = () => o.ladder.load().then(d => { if (el.isConnected) setDailyLadder(el, d); }, () => {});
     this.open('daily', el, {
       close: o.onClose,
       practice: o.onPractice,
@@ -213,7 +240,23 @@ export class Screens {
         clearTimeout(disarm);
         disarm = window.setTimeout(() => { armedAt = 0; armDailyScored(el, false); }, ARM_MS);
       },
+      join: o.ladder.onName,
+      edit: o.ladder.onName,
+      retry: () => { void load(); },
+      reportNo: () => { asking = null; armReport(el, null); },
+      // These need their button (the click listener below); listed here for their sounds.
+      tab: () => {}, report: () => {}, reportYes: () => {},
     });
+    // The buttons that need to know which tab or row they belong to.
+    const pick = (e: Event): void => {
+      const t = (e.target as HTMLElement | null)?.closest<HTMLElement>('[data-action]');
+      if (!t || !el.contains(t)) return;
+      if (t.dataset.action === 'tab') { this.dailyTab = t.dataset.tab as DailyTab; setDailyTab(el, this.dailyTab); }
+      else if (t.dataset.action === 'report') { asking = t.dataset.id ?? null; armReport(el, asking); }
+      else if (t.dataset.action === 'reportYes' && asking) { const id = asking; asking = null; void o.ladder.onReport(id).then(load); }
+    };
+    el.addEventListener('click', pick);
+    void load();
     const tick = window.setInterval(() => {
       if (this.name !== 'daily' || !el.isConnected) { clearInterval(tick); return; }
       const c = o.countdown();
@@ -221,13 +264,63 @@ export class Screens {
       if (c.ms < 1000) { clearInterval(tick); clearTimeout(disarm); window.setTimeout(() => { if (this.name === 'daily' && el.isConnected) this.daily(o); }, 1200); }
     }, 1000);
     const unbind = this.unbind;
-    this.unbind = () => { clearInterval(tick); clearTimeout(disarm); unbind?.(); };
+    this.unbind = () => { clearInterval(tick); clearTimeout(disarm); el.removeEventListener('click', pick); unbind?.(); };
+  }
+
+  /**
+   * The ladder name card: a name with a live hint, a portrait, and (once on the ladder) deleting their
+   * name and scores, which takes two taps.
+   */
+  ladderName(o: NameCardHooks): void {
+    const el = nameCard(o.data);
+    const input = el.querySelector<HTMLInputElement>('input[type="text"]')!;
+    const hint = () => { const h = o.hint(input.value); setNameHint(el, h.text, h.ok); return h.ok; };
+    hint();
+    input.addEventListener('input', hint);
+    let armedAt = 0;
+    let disarm = 0;
+    const busy = async (job: () => Promise<string | null>) => {
+      setNameBusy(el, true);
+      const error = await job();
+      if (!el.isConnected) return;
+      setNameBusy(el, false);
+      if (error) { this.sounds.ui('error'); setNameHint(el, error, false); }
+    };
+    const save = () => {
+      if (!hint()) { this.sounds.ui('error'); input.focus(); return; }
+      const c = readNameCard(el);
+      void busy(() => o.onSave(c.name, c.portrait || o.data.portrait));
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); save(); } });
+    this.open('name', el, {
+      close: o.onClose,
+      save,
+      forget: () => {
+        if (performance.now() - armedAt < ARM_MS) { clearTimeout(disarm); void busy(o.onForget); return; }
+        armedAt = performance.now();
+        armForget(el, true);
+        clearTimeout(disarm);
+        disarm = window.setTimeout(() => { armedAt = 0; armForget(el, false); }, ARM_MS);
+      },
+    });
+    const unbind = this.unbind;
+    this.unbind = () => { clearTimeout(disarm); unbind?.(); };
+    // Typing straight away on a first join; an edit opens on the portraits.
+    if (!o.data.joined) window.setTimeout(() => { if (el.isConnected) input.focus(); }, 350);
   }
 
   // ---------------------------------------------------------------- settings
 
-  settings(s: PlayerSettings, onChange: (s: PlayerSettings) => void, onBack: () => void): void {
+  /** Settings. `forgetLadder`: the player has a ladder name, so a last row deletes it and their scores (two taps). */
+  settings(s: PlayerSettings, onChange: (s: PlayerSettings) => void, onBack: () => void, forgetLadder?: () => Promise<string | null>): void {
     const el = settingsPanel(s as unknown as Record<string, SettingValue>, LAYOUT);
+    let armedAt = 0;
+    let disarm = 0;
+    if (forgetLadder) {
+      injectLadderCss();
+      el.querySelector('.ui-panel')?.insertAdjacentHTML('beforeend',
+        '<div class="sc-ladder"><h2 class="ui-h2">Daily ladder</h2><button type="button" class="ui-nc-forget" data-action="forget">Delete my ladder name and scores</button><p class="sc-ladder-msg"></p></div>');
+    }
     const apply = () => { Object.assign(s, readSettings(el)); onChange(s); };
     el.addEventListener('input', e => { if ((e.target as HTMLInputElement).type === 'range') apply(); });
     el.addEventListener('change', e => {
@@ -235,7 +328,27 @@ export class Screens {
       this.sounds.ui(i.type === 'checkbox' ? (i.checked ? 'toggleOn' : 'toggleOff') : i.type === 'radio' ? 'tab' : 'slider');
       apply();
     });
-    this.open('settings', el, { close: onBack });
+    this.open('settings', el, {
+      close: onBack,
+      forget: () => {
+        if (!forgetLadder) return;
+        if (performance.now() - armedAt < ARM_MS) {
+          clearTimeout(disarm);
+          void forgetLadder().then(error => {
+            const msg = el.querySelector<HTMLElement>('.sc-ladder-msg');
+            if (msg) msg.textContent = error ?? 'Done: your ladder name and scores are gone.';
+            if (!error) el.querySelector('.sc-ladder [data-action="forget"]')?.remove();
+          });
+          return;
+        }
+        armedAt = performance.now();
+        armForget(el, true);
+        clearTimeout(disarm);
+        disarm = window.setTimeout(() => { armedAt = 0; armForget(el, false); }, ARM_MS);
+      },
+    });
+    const unbind = this.unbind;
+    this.unbind = () => { clearTimeout(disarm); unbind?.(); };
   }
 
   // ---------------------------------------------------------------- profile

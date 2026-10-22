@@ -10,6 +10,8 @@
     "gesture:check": "node --experimental-transform-types --no-warnings tests/gesture-check.ts",
     "achievements:check": "node --experimental-strip-types --no-warnings tests/achievements-check.ts",
     "daily:check": "node --experimental-strip-types --no-warnings tests/daily-logic.ts",
+    "names:check": "node --experimental-strip-types --no-warnings tests/names-check.ts",
+    "ladder:check": "ST_APP=game vite build && node tests/ladder-check.mjs",
     "postinstall": "node scripts/patch-phaser-box2d.mjs",
     "build:app": "ST_APP=game vite build && node scripts/app-web.mjs"
   },

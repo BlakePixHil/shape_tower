@@ -44,7 +44,12 @@ export {
 export { SHAPES_ALERT, SHAPES_LOW, alertEdge, setAlertEdge, setShapeCounter, shapeAlert, shapeCounter } from './ui/budget.ts';
 export { warmUrls } from './urls.ts';
 export { HATS, drawHat, hatUrl, type Hat, type HatInfo } from './ui/hats.ts';
-export { armDailyScored, dailyCard, dailyChip, dailyMenuDot, setDailyCountdown, type DailyCardData, type DailyResultData } from './ui/daily.ts';
+export {
+  armDailyScored, dailyCard, dailyChip, dailyMenuDot, setDailyCountdown, setDailyLadder, setDailyTab, type DailyCardData, type DailyResultData, type DailyTab,
+} from './ui/daily.ts';
+export {
+  armForget, armReport, injectLadderCss, ladderHtml, nameCard, readNameCard, setNameBusy, setNameHint, type LadderPanelData, type LadderRowData, type NameCardData, type PortraitChoice,
+} from './ui/ladder.ts';
 export {
   ACH_TIERS, achievementBadgeUrl, achievementStrip, achievementToast, achievementsPanel, achievementsRow, bakeAchievementBadge, bakeAchievementForStore, drawAchievementBadge,
   type AchTier, type AchTierInfo, type AchievementBadge, type AchievementGroup, type AchievementItem, type AchievementStripItem, type AchievementToastData, type AchievementToastOptions,

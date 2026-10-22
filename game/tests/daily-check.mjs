@@ -80,7 +80,7 @@ const card = page => page.evaluate(() => {
     result: c.querySelector('.ui-dl-result .ui-score b')?.textContent ?? null, practice: c.querySelector('.ui-dl-line')?.textContent?.replace(/\s+/g, ' ').trim(),
     best: [...c.querySelectorAll('.ui-dl-best li')].map(l => l.textContent.replace(/\s+/g, ' ').trim()),
     overflowX: document.documentElement.scrollWidth > window.innerWidth,
-    buttonsFit: [...c.querySelectorAll('button')].every(b => { const r = b.getBoundingClientRect(); return r.width >= 44 && r.height >= 44; }),
+    buttonsFit: [...c.querySelectorAll('button')].filter(b => b.offsetParent).every(b => { const r = b.getBoundingClientRect(); return r.width >= 44 && r.height >= 44; }),
   };
 });
 const run = page => page.evaluate(() => {
@@ -115,7 +115,7 @@ await page.waitForSelector('.ui-daily');
 await page.waitForTimeout(400);
 await shot('02-card');
 let c = await card(page);
-step('card: Daily #2, a countdown to 00:00 UTC (9h 0m), five first shapes', c.title === '#2' && /^(9h 0m|8h 59m)$/.test(c.count) && c.opening.length === 5 && c.openingOk, JSON.stringify(c));
+step('card: Daily #2, a countdown to 00:00 UTC (9h 0m), today\'s 3 or 5 shapes (§12.3)', c.title === '#2' && /^(9h 0m|8h 59m)$/.test(c.count) && [3, 5].includes(c.opening.length) && c.openingOk, JSON.stringify(c));
 step('card: scored and practice buttons, all tappable (44 px), no sideways scroll', c.scoredBtn && c.buttonsFit && !c.overflowX);
 const opening = c.opening;
 
@@ -126,7 +126,7 @@ let r = await run(page);
 const seed2 = r.seed;
 step('practice: HUD says DAILY #2 · PRACTICE, Second Wind to earn, head start kept', r.tag === 'DAILY #2 · PRACTICE' && !r.gold && r.secondWind === 'earn' && r.slots === 1, JSON.stringify(r));
 const dealt = await page.evaluate(() => { const sim = window.__wobble.scene.sim; return [sim.ctrl?.shape ?? '?', ...sim.queue.slice(0, 4)]; });
-step('the card\'s first shapes are the ones the run deals', dealt.join(' ') === opening.join(' '), `card ${opening.join(' ')} · run ${dealt.join(' ')}`);
+step('the run deals only the card\'s shapes', dealt.length > 0 && dealt.every(k => opening.includes(k)), `card ${opening.join(' ')} · run ${dealt.join(' ')}`);
 await toSummary(page);
 await shot('03-practice-summary');
 let s = await summary(page);

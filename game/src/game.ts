@@ -6,9 +6,9 @@
 import type { AudioDirector } from '@audio';
 import { BY_ID, RunTracker, grantDaily, grantHistory, grantStreaks, payAchievements, type Achievement } from './meta/achievements.ts';
 import {
-  addPractice, beginScored, bestDays, countdown, dailyDay, dailyNumber, dailySeed, dailyStreak, msToNextDaily, scoredUsed, updateScored, type DailyResult,
+  addPractice, beginScored, bestDays, countdown, dailyDay, dailyNumber, dailySeed, dailyShapes, dailyStreak, msToNextDaily, scoredUsed, updateScored, type DailyResult,
 } from './meta/daily.ts';
-import { Sim } from './sim/sim.ts';
+import type { Sim } from './sim/sim.ts';
 import { biomeFor, type Tuning } from './sim/tuning.ts';
 import type { LabState } from './view/panel.ts';
 import type { RunOpts } from './view/scene.ts';
@@ -18,6 +18,7 @@ import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor } from './vi
 import { ENDLESS, type RunMode } from './view/modes.ts';
 import { BUILD, startShell } from './view/shell.ts';
 import { TrophyToasts } from './view/trophies.ts';
+import { DailyLadder } from './view/ladder.ts';
 import { setupNative } from './native.ts';
 import { splashDone, splashFailed } from './view/splash.ts';
 
@@ -58,8 +59,9 @@ async function boot(): Promise<void> {
     if (profile.level <= 1) { t.mortarStrength = 1.2; t.rookieBricks = 4; } // gentle first runs
     switch (m.id) {
       case 'endless': break;
-      // Scored Daily tries start with empty power-up slots for everyone (§10.3); Second Wind is off (runOpts).
-      case 'daily': if (m.scored) t.startPower = false; break;
+      // Only the day's shapes fall (§12.3). Scored tries start with empty power-up slots for everyone
+      // (§10.3); Second Wind is off (runOpts).
+      case 'daily': t.shapeSet = dailyShapes(m.day!); if (m.scored) t.startPower = false; break;
       case 'zen': t.zen = true; break; // no budget, no hearts to lose, no Second Wind, half XP (gameplay.md §12)
     }
     return t;
@@ -128,6 +130,9 @@ async function boot(): Promise<void> {
     xpTick: () => audio()?.handle('xp_tick', {}),
     levelUp: level => audio()?.handle('level_up', { level }),
   });
+  // The Daily ladder (§12.3): the menu and profile show the player's ladder name once they have one.
+  const ladder = new DailyLadder(profile, () => settings.reduceMotion, name => { sc.playerName = name ?? 'Builder'; });
+  const saveLook = () => { saveProfile(profile); ladder.restyle(); };
 
   // ------------------------------------------------------------------ flow
 
@@ -148,7 +153,7 @@ async function boot(): Promise<void> {
       dailyDot: !done,
       onPlay: () => play(),
       onMode: id => { if (id === 'zen') play({ id: 'zen' }); else openDaily(); },
-      onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
+      onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, saveLook); },
       onSettings: () => { audio()?.screen?.('profile'); openSettings(home); },
       note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
     });
@@ -157,31 +162,20 @@ async function boot(): Promise<void> {
 
   // ------------------------------------------------------------------ Daily Tower (§12, QA F17)
 
-  /** Today's first shapes for the card, from a sim that never steps (the bag has its own stream). */
-  const openings = new Map<string, string[]>();
-  function dailyOpening(day: string): string[] {
-    let o = openings.get(day);
-    if (!o) {
-      const sim = new Sim({ seed: dailySeed(day), tuning: runTuning({ id: 'daily', scored: true, day }), autoSpawn: false, rookieOpening: false, secondWind: 'off' });
-      o = sim.queue.slice(0, 5);
-      sim.dispose();
-      openings.set(day, o);
-    }
-    return o;
-  }
-
   function openDaily(): void {
     audio()?.screen?.('profile');
     sc.daily({
       data: () => {
         const day = dailyDay();
-        const d = profile.daily, s = d.scored[day] ?? null, pr = d.practice[day];
+        const d = profile.daily, s = scoredUsed(d, day) ? d.scored[day] : null, pr = d.practice[day];
         return {
-          number: dailyNumber(day), day, countdown: countdown(msToNextDaily()), opening: dailyOpening(day),
+          number: dailyNumber(day), day, countdown: countdown(msToNextDaily()), shapes: dailyShapes(day),
           scored: s, practice: { runs: pr?.runs ?? 0, best: pr?.best ?? null }, streak: dailyStreak(d, day),
           bestDays: bestDays(d, 3).map(b => ({ number: b.number, height: b.result.height, score: b.result.score, today: b.day === day })),
+          ladder: ladder.loadingPanel(),
         };
       },
+      ladder: ladder.hooks(() => sc.ladderName(ladder.nameHooks(openDaily))),
       countdown: () => { const ms = msToNextDaily(); return { ms, text: countdown(ms) }; },
       // The seed is the one showing when the button is tapped; a try that starts just before 00:00 UTC
       // plays out under it (F17.2).
@@ -201,10 +195,13 @@ async function boot(): Promise<void> {
     play({ id: 'daily', seed: dailySeed(day), scored: false, day });
   }
 
-  /** A scored try is spent when its first shape spawns (QA Q32), and its result is kept as it climbs. */
+  /**
+   * A scored try is spent when its first shape spawns (QA Q32), and its result is kept as it climbs.
+   * A named player's ladder row follows it: at the start, each checkpoint, a pause and the end (§12.3).
+   */
   function dailyEvent(name: string, sim: Sim): void {
     const day = mode.day!;
-    if (name === 'piece_spawned' && !(day in profile.daily.scored)) { beginScored(profile.daily, day); saveProfile(profile); }
+    if (name === 'piece_spawned' && !scoredUsed(profile.daily, day)) { beginScored(profile.daily, day); saveProfile(profile); ladder.submit(day); }
     if (name === 'checkpoint_claimed') saveScored(sim);
   }
 
@@ -212,6 +209,7 @@ async function boot(): Promise<void> {
     if (mode.id !== 'daily' || !mode.scored || sim !== runSim) return;
     updateScored(profile.daily, mode.day!, dailyResult(sim), finished);
     saveProfile(profile);
+    ladder.submit(mode.day!);
   }
 
   const dailyResult = (sim: Sim): Omit<DailyResult, 'at' | 'finished'> => ({
@@ -259,7 +257,7 @@ async function boot(): Promise<void> {
       scene.applyView(state.view);
       scene.retune(tuningFor(s));
       applyAudio(s, audio());
-    }, back);
+    }, back, ladder.ladder?.named ? () => ladder.forget() : undefined);
   }
 
   function pause(): void {
@@ -361,7 +359,7 @@ async function boot(): Promise<void> {
         onAnswer: (id, answer) => rec?.answer(id, answer),
         onAgain: () => { rec?.exit('again'); if (mode.id === 'daily') practiceDaily(); else play(mode); },
         daily: mode.id === 'daily' ? { number: dailyNumber(mode.day!), scored: !!mode.scored, again: mode.scored ? 'Practice' : 'Practice again' } : undefined,
-        onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, () => saveProfile(profile)); },
+        onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, saveLook); },
         onHome: () => { rec?.exit('menu'); home(); },
         reducedMotion: settings.reduceMotion,
       });

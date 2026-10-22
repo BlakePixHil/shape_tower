@@ -2,11 +2,11 @@
 // Documents: players/<id> (name, look, reports, days played), names/<name key> (who holds a name),
 // ladder/<day> (that day's entries). The rules themselves are the game's own (game/src/meta).
 
-import { DEFAULT_PORTRAIT, portraitDef } from '../../game/src/meta/portraits.ts';
-import { KEY_RE, REPORTS_TO_HIDE, mergeEntry, playerId, rankLadder, submitProblem, type LadderAvatar, type LadderEntry } from '../../game/src/meta/ladder.ts';
+import { DEFAULT_PORTRAIT } from '../../game/src/meta/portraits.ts';
+import { KEY_RE, REPORTS_TO_HIDE, cleanLook, mergeEntry, playerId, rankLadder, submitProblem, type LadderAvatar, type LadderEntry } from '../../game/src/meta/ladder.ts';
 import { nameKey, nameProblem, nameShowable, tidyName } from '../../game/src/meta/names/names.ts';
 import { dailyDay } from '../../game/src/meta/daily.ts';
-import { RENAME_MS, type LadderError, type LadderReply, type LadderRequest, type Look, type Me } from '../../game/src/online/protocol.ts';
+import { RENAME_MS, type LadderError, type LadderReply, type LadderRequest, type Me } from '../../game/src/online/protocol.ts';
 import type { Store } from './store.ts';
 
 interface PlayerDoc {
@@ -28,27 +28,20 @@ interface LadderDoc { entries: Record<string, LadderEntry> }
 const fail = (error: LadderError): LadderReply => ({ error });
 const isDay = (d: unknown): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
 
-/** Read, change and write back a document, retrying when someone else wrote it in between. */
+/**
+ * Read, change and write back a document, retrying when someone else wrote it in between. Everyone's
+ * tries for a day share one document, so busy moments mean a few rounds; a write takes about 0.1 s.
+ */
 async function edit<T>(store: Store, path: string, change: (cur: T | null) => T | null | 'skip'): Promise<T | null | 'skip'> {
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 12; i++) {
     const cur = await store.get<T>(path);
     const next = change(cur ? cur.data : null);
     if (next === 'skip') return next;
     if (next === null) { if (cur) await store.del(path); return null; }
     if (await store.put(path, next, cur ? { ifMatch: cur.etag } : { create: true })) return next;
-    await new Promise(r => setTimeout(r, 20 + Math.random() * 80 * (i + 1)));
+    await new Promise(r => setTimeout(r, 10 + Math.random() * 60 * Math.min(i + 1, 6)));
   }
   throw new Error('busy');
-}
-
-function cleanLook(l: unknown, fallback: Look): Look {
-  const look = (l && typeof l === 'object' ? l : {}) as Partial<Look>;
-  const word = (x: unknown): string | undefined => (typeof x === 'string' && /^[A-Za-z_]{1,16}$/.test(x) ? x : undefined);
-  const a = (look.avatar && typeof look.avatar === 'object' ? look.avatar : {}) as LadderAvatar;
-  return {
-    portrait: typeof look.portrait === 'string' && portraitDef(look.portrait) ? look.portrait : fallback.portrait,
-    avatar: { shape: word(a.shape) ?? fallback.avatar.shape, face: word(a.face) ?? fallback.avatar.face, hat: a.hat === null ? null : word(a.hat) ?? fallback.avatar.hat ?? null },
-  };
 }
 
 const meOf = (id: string, p: PlayerDoc | null): Me => ({
@@ -67,8 +60,10 @@ async function restyle(store: Store, p: PlayerDoc, now: number): Promise<void> {
     await edit<LadderDoc>(store, `ladder/${day}`, cur => {
       const e = cur?.entries[p.id];
       if (!cur || !e) return 'skip';
-      cur.entries[p.id] = { ...e, name: p.name ?? '', portrait: p.portrait, avatar: p.avatar, ...(p.hidden ? { hidden: true } : {}) };
-      if (!p.hidden) delete cur.entries[p.id].hidden;
+      const next: LadderEntry = { ...e, name: p.name ?? '', portrait: p.portrait, avatar: p.avatar };
+      if (p.hidden) next.hidden = true; else delete next.hidden;
+      if (JSON.stringify(next) === JSON.stringify(e)) return 'skip'; // nothing shown changed: no write
+      cur.entries[p.id] = next;
       return cur;
     });
   }

@@ -21,7 +21,14 @@ export interface DailyResult {
   finished: boolean;
   /** When it started (ISO time). */
   at: string;
+  /** The rules it was played under: 2 from Daily v2 (the day's shape set, the ladder). Absent: 1. */
+  v?: number;
 }
+
+/** The Daily's rules version (§12.3). A scored try under older rules never goes on the ladder. */
+export const RULES_V = 2;
+/** The day Daily v2 shipped: a try spent under the old rules on or after it doesn't use up that day's v2 try. */
+export const V2_DAY = '2026-10-22';
 
 export interface DailyState {
   /** Scored attempts by seed day (YYYY-MM-DD, UTC). One per seed, ever (QA Q31). */
@@ -95,8 +102,17 @@ export function countdown(ms: number): string {
   return `${s}s`;
 }
 
-/** Whether the scored attempt for this seed is gone. A clock moved back never reopens it (D14). */
-export const scoredUsed = (s: DailyState, day: string): boolean => day in s.scored;
+/**
+ * Whether the scored attempt for this seed is gone. A clock moved back never reopens it (D14). Daily v2
+ * changed the tower, so a try under the old rules from its first day on leaves the new try open.
+ */
+export function scoredUsed(s: DailyState, day: string): boolean {
+  const r = s.scored[day];
+  return !!r && ((r.v ?? 1) >= RULES_V || day < V2_DAY);
+}
+
+/** Whether a scored result can go on the ladder: played under the current rules. */
+export const ladderReady = (r: DailyResult | null | undefined): r is DailyResult => !!r && (r.v ?? 1) >= RULES_V;
 
 /**
  * Uses up the day's scored attempt (call it when its first shape spawns, QA Q32). Returns false,
@@ -104,7 +120,7 @@ export const scoredUsed = (s: DailyState, day: string): boolean => day in s.scor
  */
 export function beginScored(s: DailyState, day: string, now = new Date()): boolean {
   if (scoredUsed(s, day)) return false;
-  s.scored[day] = { height: 0, score: 0, checkpoints: 0, biome: 1, finished: false, at: now.toISOString() };
+  s.scored[day] = { height: 0, score: 0, checkpoints: 0, biome: 1, finished: false, at: now.toISOString(), v: RULES_V };
   return true;
 }
 
@@ -176,7 +192,9 @@ export function loadDaily(raw: unknown): DailyState {
   if (!raw || typeof raw !== 'object') return s;
   const r = raw as Partial<DailyState>;
   const ok = (x: unknown): x is DailyResult => !!x && typeof x === 'object' && typeof (x as DailyResult).score === 'number' && typeof (x as DailyResult).height === 'number';
-  const fix = (x: DailyResult): DailyResult => ({ height: x.height, score: x.score, checkpoints: x.checkpoints ?? 0, biome: x.biome ?? 1, finished: !!x.finished, at: String(x.at ?? '') });
+  const fix = (x: DailyResult): DailyResult => ({
+    height: x.height, score: x.score, checkpoints: x.checkpoints ?? 0, biome: x.biome ?? 1, finished: !!x.finished, at: String(x.at ?? ''), ...(x.v === RULES_V ? { v: RULES_V } : {}),
+  });
   const isDay = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
   if (r.scored && typeof r.scored === 'object') for (const [d, x] of Object.entries(r.scored)) if (isDay(d) && ok(x)) s.scored[d] = fix(x);
   if (r.practice && typeof r.practice === 'object') {

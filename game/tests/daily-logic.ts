@@ -1,13 +1,14 @@
 // The Daily Tower's rules without a browser (gameplay.md §12, QA F1.7, F17.1, F17.2, D14, Q31, Q32):
 // the UTC seed day and its number, one seed for everyone that changes at 00:00 UTC, one scored try per
-// seed ever, practice, the streak and the best days, a damaged save, the Daily achievements, and that
-// two players who play the same seed differently are dealt the same shapes.
+// seed ever, practice, the streak and the best days, a damaged save, the Daily achievements, each day's
+// shape set (§12.3), the rules change on 22 October (v2), and that two players who play the same seed
+// differently are dealt the same shapes.
 // Run: npm run daily:check
 
 import { BY_ID, freshCounts, grantDaily, progress } from '../src/meta/achievements.ts';
 import {
-  addPractice, beginScored, bestDays, countdown, dailyDay, dailyNumber, dailySeed, dailyStreak, dayOf, freshDaily, loadDaily, msToNextDaily, scoredFinished, scoredUsed,
-  updateScored,
+  RULES_V, V2_DAY, addPractice, beginScored, bestDays, countdown, dailyDay, dailyNumber, dailySeed, dailyShapes, dailyStreak, dayOf, freshDaily, ladderReady, loadDaily,
+  msToNextDaily, scoredFinished, scoredUsed, updateScored,
 } from '../src/meta/daily.ts';
 import { createSim } from '../src/sim/testApi.ts';
 import type { Profile } from '../src/view/profile.ts';
@@ -98,14 +99,43 @@ const res = (score: number, height = score / 100) => ({ height, score, checkpoin
   check('the 12th finished scored try earns Daily Dozen', grantDaily(p).join() === 'daily_12');
 }
 
+// ---------------------------------------------------------------- the day's shape set (§12.3)
+
+{
+  const RESCUE = ['O', 'I', 'Domino', 'Plank'];
+  const sets = Array.from({ length: 3650 }, (_, i) => dailyShapes(dayOf(i + 1)));
+  const sizes = sets.map(x => x.length);
+  const threes = sizes.filter(n => n === 3).length;
+  check('every day deals 3 or 5 shapes, no repeats, each with a flat rescue shape', sets.every(x => (x.length === 3 || x.length === 5) && new Set(x).size === x.length && x.some(k => RESCUE.includes(k))));
+  check('about two days in five are 3-shape days', threes > 3650 * 0.35 && threes < 3650 * 0.45, `${threes} of 3650`);
+  check('the same set on every device, and it changes day to day', dailyShapes('2026-10-22').join() === dailyShapes('2026-10-22').join() && new Set(sets.slice(0, 30).map(x => x.join())).size >= 25,
+    `#2: ${dailyShapes('2026-10-22').join(' ')}`);
+  const all = new Set(sets.flat());
+  check('over a year every shape has its days', all.size === 14, [...all].join(' '));
+}
+
+// ---------------------------------------------------------------- the rules change (v2, 22 October)
+
+{
+  const s = freshDaily();
+  // A scored try under the old rules on the day the new ones arrived (an app that updated mid-day).
+  s.scored[V2_DAY] = { ...res(900), at: '2026-10-22T01:00:00Z', finished: true };
+  s.scored['2026-10-21'] = { ...res(700), at: '2026-10-21T09:00:00Z', finished: true };
+  check('an old-rules try from before the change still spends its day', scoredUsed(s, '2026-10-21'));
+  check("an old-rules try on the change day leaves today's new try open, and isn't on the ladder", !scoredUsed(s, V2_DAY) && !ladderReady(s.scored[V2_DAY]));
+  check('the new try replaces it and is ladder-ready', beginScored(s, V2_DAY) && scoredUsed(s, V2_DAY) && s.scored[V2_DAY].v === RULES_V && ladderReady(s.scored[V2_DAY]) && s.scored[V2_DAY].score === 0);
+  const back = loadDaily(JSON.parse(JSON.stringify(s)));
+  check('a reload keeps the rules version', back.scored[V2_DAY]?.v === RULES_V && scoredUsed(back, V2_DAY));
+}
+
 // ---------------------------------------------------------------- the same shapes for everyone (F1.7)
 
 {
   // Two players on Daily #2's seed: one hard-drops each shape across the slab, the other steers left and
   // right, turns and waits (no budget or hearts, so neither run ends first). The bag has its own stream, so both are dealt the same shapes in the same order.
-  const seed = dailySeed('2026-10-22');
+  const seed = dailySeed('2026-10-22'), set = dailyShapes('2026-10-22');
   const dealt = (style: 'drop' | 'steer'): string[] => {
-    const t = createSim({ seed, autoSpawn: true, rookieOpening: false, secondWind: 'off', tuning: { holdUnlocked: true, startPower: false, infiniteBudget: true, infiniteHearts: true } });
+    const t = createSim({ seed, autoSpawn: true, rookieOpening: false, secondWind: 'off', tuning: { holdUnlocked: true, startPower: false, infiniteBudget: true, infiniteHearts: true, shapeSet: set } });
     const out: string[] = [];
     for (let i = 0; i < 60 * 300 && out.length < 20 && t.sim.state === 'playing'; i++) {
       for (const e of t.drainEvents()) if (e.name === 'piece_spawned') out.push(String(e.payload.shape));
@@ -124,11 +154,13 @@ const res = (score: number, height = score / 100) => ({ height, score, checkpoin
   const a = dealt('drop'), b = dealt('steer');
   const n = Math.min(a.length, b.length);
   check('two players playing the same seed differently get the same shapes', n >= 12 && a.slice(0, n).join() === b.slice(0, n).join(), `${a.length} and ${b.length} dealt: ${a.slice(0, n).join(' ')}`);
-  const q = createSim({ seed, autoSpawn: false, rookieOpening: false });
-  check("the Daily card's first shapes are the bag's first five", q.sim.queue.slice(0, 5).join(' ') === a.slice(0, 5).join(' '), q.sim.queue.slice(0, 5).join(' '));
+  check("only the day's set falls, and every shape in it turns up", a.every(k => set.includes(k)) && set.every(k => a.includes(k)), `${set.join(' ')}`);
+  const q = createSim({ seed, autoSpawn: false, rookieOpening: false, tuning: { shapeSet: set } });
+  check('the run deals from the first shape the same way', q.sim.queue.slice(0, 5).join(' ') === a.slice(0, 5).join(' '), q.sim.queue.slice(0, 5).join(' '));
+  const day3 = dailyShapes('2026-10-23');
+  const other = createSim({ seed: dailySeed('2026-10-23'), autoSpawn: false, rookieOpening: false, tuning: { shapeSet: day3 } });
+  check('the next day deals its own set', other.sim.queue.slice(0, 10).every(k => day3.includes(k)) && other.sim.queue.slice(0, 10).join() !== q.sim.queue.slice(0, 10).join(), `${day3.join(' ')}: ${other.sim.queue.slice(0, 10).join(' ')}`);
   q.dispose();
-  const other = createSim({ seed: dailySeed('2026-10-23'), autoSpawn: false, rookieOpening: false });
-  check('the next day deals a different opening', other.sim.queue.slice(0, 10).join() !== q.sim.queue.slice(0, 10).join());
   other.dispose();
 }
 

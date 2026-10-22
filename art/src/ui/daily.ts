@@ -1,11 +1,12 @@
-// The Daily Tower's screens (gameplay.md §12): the Daily card the menu's Daily button opens, its menu
-// badge, and the chip the run summary wears. Same "sticker toy" kit as screens.ts: plain data in, an
+// The Daily Tower's screens (gameplay.md §12, §12.3): the Daily card the menu's Daily button opens, its
+// menu badge, and the chip the run summary wears. Same "sticker toy" kit as screens.ts: plain data in, an
 // element out, buttons with data-action (bind them with onAction). Needs uiCss(); adds its own rules once.
 
 import { ART_SHAPES } from '../shapes.ts';
 import { bakePiece } from '../piece.ts';
 import { canvasUrl } from '../urls.ts';
 import { type UiIcon, uiIconUrl } from './icons.ts';
+import { ladderHtml, type LadderPanelData } from './ladder.ts';
 
 const esc = (s: string): string => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const num = (n: number): string => Math.round(n).toLocaleString('en-US');
@@ -30,8 +31,8 @@ export interface DailyCardData {
   day: string;
   /** Time until the next tower, e.g. "5h 12m" (update it with setDailyCountdown). */
   countdown: string;
-  /** Today's first shapes (ART_SHAPES keys), the same for everyone. */
-  opening: string[];
+  /** Today's shapes (ART_SHAPES keys): the only ones that fall today, 3 or 5, the same for everyone. */
+  shapes: string[];
   /** Today's scored try, or null while it's still open. */
   scored: DailyResultData | null;
   /** Today's practice: how many runs and the best one. */
@@ -40,12 +41,19 @@ export interface DailyCardData {
   streak: number;
   /** The player's best scored days, best first (today's marked). */
   bestDays: { number: number; height: number; score: number; today?: boolean }[];
+  /** Today's ladder (update it with setDailyLadder when it arrives). */
+  ladder: LadderPanelData;
+  /** Which tab shows: the ladder (default) or the player's best days. */
+  tab?: DailyTab;
 }
+
+export type DailyTab = 'ladder' | 'best';
 
 /**
  * The Daily card: a calendar sticker with today's number, the countdown to the next tower, today's
- * first shapes, the scored try (its rules, or its result) and practice, the streak and the player's
- * best days. Actions: close, scored (only while it's open), practice.
+ * shapes, the scored try (its rules, or its result) and practice, the streak, then two tabs: today's
+ * ladder (ladder.ts) and the player's best days. Actions: close, scored (only while it's open), practice,
+ * tab (data-tab), and the ladder's own (join, edit, retry, report).
  */
 export function dailyCard(d: DailyCardData): HTMLElement {
   injectDailyCss();
@@ -57,14 +65,14 @@ export function dailyCard(d: DailyCardData): HTMLElement {
       <div class="ui-dl-facts"><span>${icon('tower', 18)}<b class="ui-num">${r.height.toFixed(1)}</b> m</span><span>${icon('flag', 18)}<b class="ui-num">${r.checkpoints}</b> CP</span></div>
       ${r.finished ? '' : '<span class="ui-dl-unfinished">The app closed mid-run: it counts as it stood</span>'}
     </div>`;
-  const shapes = d.opening.map(k => `<img alt="${esc(ART_SHAPES[k]?.name ?? k)}" data-shape="${esc(k)}" src="${shapeUrl(k)}">`).join('');
+  const shapes = d.shapes.map(k => `<img alt="${esc(ART_SHAPES[k]?.name ?? k)}" data-shape="${esc(k)}" src="${shapeUrl(k)}">`).join('');
   const scored = open
     ? `<div class="ui-dl-box gold">
         <div class="ui-dl-boxhead"><span class="ui-kicker">Scored try</span><span class="ui-chip gold">1 a day</span></div>
         <ul class="ui-dl-rules">
           <li>${icon('daily', 18)}One try. It counts once the first shape drops.</li>
           <li>${icon('wind', 18)}No Second Wind, and power-up slots start empty.</li>
-          <li>${icon('shapes', 18)}Same shapes for everyone today.</li>
+          <li>${icon('crown', 18)}Highest tower wins today's ladder.</li>
         </ul>
       </div>`
     : `<div class="ui-dl-box">
@@ -76,10 +84,13 @@ export function dailyCard(d: DailyCardData): HTMLElement {
     ? `<p class="ui-dl-line">${icon('restart', 18)}<span>Practice: ${p.runs} ${p.runs === 1 ? 'run' : 'runs'}, best <b class="ui-num">${p.best.height.toFixed(1)} m</b></span></p>`
     : `<p class="ui-dl-line">${icon('restart', 18)}<span>Practice as often as you like. It never counts.</span></p>`;
   const best = d.bestDays.length
-    ? `<h2 class="ui-h2">Your best days</h2><ol class="ui-dl-best">${d.bestDays.map((b, i) => `
-        <li${b.today ? ' class="today"' : ''}><span class="ui-dl-rank">${i + 1}</span><span class="ui-dl-no">#${b.number}${b.today ? ' <em>today</em>' : ''}</span><span class="ui-num">${b.height.toFixed(1)} m</span><b class="ui-num">${num(b.score)}</b></li>`).join('')}
+    ? `<ol class="ui-dl-best">${d.bestDays.map((b, i) => `
+        <li${b.today ? ' class="today"' : ''}><span class="ui-dl-rank">${i + 1}</span><span class="ui-dl-no">#${b.number}${b.today ? ' <em>today</em>' : ''}</span><b class="ui-num">${b.height.toFixed(1)} m</b><span class="ui-num">${num(b.score)}</span></li>`).join('')}
       </ol>`
-    : '';
+    : `<p class="ui-dl-line">${icon('daily', 18)}<span>Your best scored days show here.</span></p>`;
+  const tab = d.tab ?? 'ladder';
+  const tabBtn = (t: DailyTab, label: string, ic: UiIcon) =>
+    `<button type="button" class="ui-dl-tab${tab === t ? ' on' : ''}" data-action="tab" data-tab="${t}" aria-pressed="${tab === t}">${icon(ic, 18)}<span>${label}</span></button>`;
   const streak = d.streak > 0 ? `<span class="ui-chip amber">${icon('streak', 18)}${d.streak}-day streak</span>` : '';
   const root = el(`<div class="ui ui-overlay" role="dialog" aria-label="Daily Tower"><div class="ui-panel ui-daily">
     <button type="button" class="ui-btn icon sm ui-close" data-action="close" aria-label="Close">${icon('close', 20)}</button>
@@ -91,16 +102,30 @@ export function dailyCard(d: DailyCardData): HTMLElement {
         <div class="ui-row ui-dl-chips"><span class="ui-chip ui-dl-count">${icon('daily', 18)}<span>New in <b class="ui-num">${esc(d.countdown)}</b></span></span>${streak}</div>
       </div>
     </div>
-    <div class="ui-dl-opening"><span class="ui-kicker">Today's first shapes</span><div>${shapes}</div></div>
+    <div class="ui-dl-opening"><div class="ui-dl-sethead"><span class="ui-kicker">Today's shapes</span><span class="ui-chip violet">Only these ${d.shapes.length}</span></div><div class="ui-dl-set n${d.shapes.length}">${shapes}</div></div>
     ${scored}
     ${practice}
-    ${best}
     <div class="ui-stack ui-dl-actions">
       ${open ? btn('scored', 'Scored try', 'play', 'primary big wide') : ''}
       ${btn('practice', 'Practice', 'restart', open ? 'wide' : 'primary big wide')}
     </div>
+    <div class="ui-dl-tabs" role="group" aria-label="Show">${tabBtn('ladder', 'Ladder', 'trophy')}${tabBtn('best', 'Your best days', 'star')}</div>
+    <div class="ui-dl-pane" data-pane="ladder"${tab === 'ladder' ? '' : ' hidden'}>${ladderHtml(d.ladder)}</div>
+    <div class="ui-dl-pane" data-pane="best"${tab === 'best' ? '' : ' hidden'}>${best}</div>
   </div></div>`);
   return root;
+}
+
+/** Shows a tab of the Daily card: the ladder or the player's best days. */
+export function setDailyTab(card: HTMLElement, tab: DailyTab): void {
+  card.querySelectorAll<HTMLElement>('.ui-dl-tab').forEach(b => { const on = b.dataset.tab === tab; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  card.querySelectorAll<HTMLElement>('.ui-dl-pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
+}
+
+/** Redraws the Daily card's ladder (it arrives after the card opens, and changes after a report or a new name). */
+export function setDailyLadder(card: HTMLElement, d: LadderPanelData): void {
+  const pane = card.querySelector<HTMLElement>('.ui-dl-pane[data-pane="ladder"]');
+  if (pane) pane.innerHTML = ladderHtml(d);
 }
 
 /** Updates the card's countdown text (call it every second or so while the card is open). */
@@ -152,8 +177,17 @@ const CSS = `
 .ui-cal span { display: block; background: var(--danger); color: #fff; font: 700 14px/22px var(--display); letter-spacing: 0.12em; border-bottom: 3px solid var(--ink); }
 .ui-cal b { display: block; font: 700 38px/48px var(--display); font-variant-numeric: tabular-nums; }
 .ui-dl-opening { margin: 12px 0 0; text-align: left; }
-.ui-dl-opening > div { display: flex; gap: 6px; align-items: center; justify-content: space-between; margin-top: 6px; background: rgba(255,255,255,0.7); border: 3px dashed rgba(34,24,58,0.3); border-radius: 12px; padding: 6px 8px; min-height: 52px; }
-.ui-dl-opening img { max-height: 40px; max-width: 54px; min-width: 0; flex: 0 1 auto; }
+.ui-dl-sethead { display: flex; justify-content: space-between; align-items: center; }
+.ui-dl-sethead .ui-chip { font-size: 12px; padding: 2px 7px; border-width: 2px; }
+.ui-dl-set { display: flex; gap: 6px; align-items: center; justify-content: space-evenly; margin-top: 6px; background: rgba(255,255,255,0.7); border: 3px solid var(--ink); border-radius: 12px; padding: 6px 8px; min-height: 56px; }
+.ui-dl-set img { max-height: 42px; max-width: 56px; min-width: 0; flex: 0 1 auto; }
+.ui-dl-set.n3 img { max-height: 46px; max-width: 70px; }
+.ui-dl-tabs { display: flex; margin: 14px 0 8px; border: 3px solid var(--ink); border-radius: 12px; overflow: hidden; box-shadow: 0 3px 0 var(--ink); }
+.ui-dl-tab { flex: 1; display: flex; gap: 5px; align-items: center; justify-content: center; min-height: 44px; border: 0; background: #fff; font: 600 14px/1 var(--display); color: var(--ink); padding: 6px; cursor: pointer; }
+.ui-dl-tab + .ui-dl-tab { border-left: 3px solid var(--ink); }
+.ui-dl-tab.on { background: var(--gold); }
+.ui-dl-tab img { width: 18px; height: 18px; }
+.ui-dl-pane[hidden] { display: none; }
 .ui-dl-box { margin-top: 12px; background: #fff; border: 3px solid var(--ink); border-radius: 14px; padding: 8px 10px 10px; text-align: left; }
 .ui-dl-box.gold { background: #FFF3CF; }
 .ui-dl-boxhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
@@ -174,6 +208,7 @@ const CSS = `
 .ui-dl-best li { display: grid; grid-template-columns: 26px 1fr auto auto; gap: 8px; align-items: center; background: #fff; border: 2px solid var(--ink); border-radius: 10px; padding: 3px 8px 3px 4px; font: 700 13px/1.2 var(--body); text-align: left; }
 .ui-dl-best li.today { background: #FFF3CF; }
 .ui-dl-best b { font: 700 16px/1 var(--display); min-width: 64px; text-align: right; }
+.ui-dl-best li > span:last-child { min-width: 56px; text-align: right; color: var(--ink-soft); }
 .ui-dl-best em { font-style: normal; color: var(--xp); }
 .ui-dl-rank { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--gold); border: 2px solid var(--ink); font: 700 12px/1 var(--display); }
 .ui-dl-actions { margin-top: 14px; }
@@ -190,8 +225,9 @@ const CSS = `
   .ui-cal span { font-size: 12px; line-height: 18px; }
   .ui-cal b { font-size: 28px; line-height: 36px; }
   .ui-dl-opening { margin-top: 8px; }
-  .ui-dl-opening > div { min-height: 44px; padding: 4px 8px; }
-  .ui-dl-opening img { max-height: 30px; }
+  .ui-dl-set { min-height: 44px; padding: 4px 8px; }
+  .ui-dl-set img, .ui-dl-set.n3 img { max-height: 32px; }
+  .ui-dl-tabs { margin: 10px 0 6px; }
   .ui-dl-box { margin-top: 8px; padding: 6px 10px 8px; }
   .ui-dl-line { margin-top: 8px; }
   .ui-dl-best li { padding: 1px 8px 1px 4px; }
