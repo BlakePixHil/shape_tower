@@ -234,6 +234,7 @@ const CSS = `
 .ui-ld-you.join { background: #EFEAFF; }
 .ui-ld-you > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .ui-ld-you b { font: 700 17px/1.1 var(--display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-ld-you.join b { white-space: normal; overflow-wrap: anywhere; } /* "Join the ladder" wraps on small phones rather than cutting off */
 .ui-ld-you span span { font: 700 12px/1.25 var(--body); color: var(--ink-soft); }
 .ui-ld-you .ui-kicker { color: var(--ink-soft); }
 .ui-ld-you .ui-btn, .ui-ld-msg .ui-btn { min-height: 44px; padding: 4px 12px; font-size: 15px; }
