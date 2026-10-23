@@ -179,7 +179,7 @@ export function levelTrack(d: LevelTrackData): HTMLElement {
     const free = `<div class="ui-trk-free" title="${esc(fr?.name ?? '')}">${lv > 1 ? freeIcon(lv, 30) : ''}</div>`;
     const pass = !pr ? '<div class="ui-trk-pass"></div>' : d.pass
       ? `<div class="ui-trk-pass${lv <= L ? ' got' : ''}" title="${esc(pr.name)}"><img alt="${esc(pr.name)}" src="${cosmeticUrl(pr.id, 34)}">${lv <= L ? `<i>${icon('check', 12)}</i>` : ''}</div>`
-      : `<button type="button" class="ui-trk-pass locked" data-action="workshop" data-id="builders_pass" data-item="${esc(pr.id)}" aria-label="${esc(pr.name)}, Builder's Pass"><img alt="" src="${cosmeticUrl(pr.id, 34)}"><i>${icon('lock', 11)}</i></button>`;
+      : `<button type="button" class="ui-trk-pass shop" data-action="workshop" data-id="builders_pass" data-item="${esc(pr.id)}" aria-label="${esc(pr.name)}, Builder's Pass"><img alt="" src="${cosmeticUrl(pr.id, 34)}"><i>${icon('lock', 11)}</i></button>`;
     cols.push(`<div class="ui-trk-col ${st}" data-level="${lv}">${free}<div class="ui-trk-lv"><span>${lv}</span></div>${pass}</div>`);
   }
   const root = el(`<div class="ui ui-trk${d.pass ? ' has-pass' : ''}">
@@ -195,7 +195,8 @@ export function levelTrack(d: LevelTrackData): HTMLElement {
 export function scrollTrackTo(track: HTMLElement, level: number, smooth = true): void {
   const sc = track.querySelector<HTMLElement>('.ui-trk-scroll'), col = track.querySelector<HTMLElement>(`.ui-trk-col[data-level="${level}"]`);
   if (!sc || !col) return;
-  sc.scrollTo({ left: col.offsetLeft - sc.clientWidth / 2 + col.offsetWidth / 2, behavior: smooth ? 'smooth' : 'auto' });
+  const at = sc.scrollLeft + col.getBoundingClientRect().left - sc.getBoundingClientRect().left;
+  sc.scrollTo({ left: at - sc.clientWidth / 2 + col.offsetWidth / 2, behavior: smooth ? 'smooth' : 'auto' });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -214,7 +215,7 @@ export function levelRewards(level: number, o: { pass: boolean }): HTMLElement |
   const free = fr ? `<div class="ui-lvr-item">${freeIcon(level, 40)}<div><span class="ui-kicker">Level ${level}</span><b>${esc(fr.name)}</b></div></div>` : '';
   const pass = !pr ? '' : o.pass
     ? `<div class="ui-lvr-item pass"><img alt="" src="${cosmeticUrl(pr.id, 40)}"><div><span class="ui-kicker">${icon('pass', 12)}Builder's Pass</span><b>${esc(pr.name)}</b></div></div>`
-    : `<div class="ui-lvr-item pass locked" data-action="workshop" data-id="builders_pass" data-item="${esc(pr.id)}"><img alt="" src="${cosmeticUrl(pr.id, 40)}"><div><span class="ui-kicker">${icon('lock', 12)}Builder's Pass</span><b>${esc(pr.name)}</b></div></div>`;
+    : `<div class="ui-lvr-item pass shop" data-action="workshop" data-id="builders_pass" data-item="${esc(pr.id)}"><img alt="" src="${cosmeticUrl(pr.id, 40)}"><div><span class="ui-kicker">${icon('lock', 12)}Builder's Pass</span><b>${esc(pr.name)}</b></div></div>`;
   return el(`<div class="ui ui-lvr">${free}${pass}</div>`);
 }
 
@@ -253,7 +254,7 @@ const CSS = `
 .ui-trk-names { flex: none; display: grid; grid-template-rows: 44px 26px 50px; align-items: center; font: 700 10px/1.1 var(--display); color: var(--ink-soft); text-align: left; width: 58px; }
 .ui-trk-names .pass { display: flex; align-items: center; gap: 2px; color: #6F35D1; }
 .ui-trk-names .pass img { width: 16px; height: 16px; flex: none; }
-.ui-trk-scroll { flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent); mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent); }
+.ui-trk-scroll { position: relative; flex: 1; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent); mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 14px), transparent); }
 .ui-trk-scroll::-webkit-scrollbar { display: none; }
 .ui-trk-row { display: flex; padding: 0 12px 0 6px; }
 .ui-trk-col { flex: none; width: 48px; display: grid; grid-template-rows: 44px 26px 50px; justify-items: center; align-items: center; position: relative; }
@@ -270,9 +271,9 @@ const CSS = `
 .ui-trk-pass img { width: 34px; height: 34px; }
 .ui-trk-pass i { position: absolute; right: -5px; bottom: -5px; width: 18px; height: 18px; display: grid; place-items: center; background: var(--mint); border: 2px solid var(--ink); border-radius: 50%; }
 .ui-trk-pass i img { width: 12px; height: 12px; }
-.ui-trk-pass.locked { background: var(--paper-2); border-color: var(--ink-soft); cursor: pointer; }
-.ui-trk-pass.locked img { filter: grayscale(1); opacity: 0.45; }
-.ui-trk-pass.locked i { background: var(--paper); border-color: var(--ink-soft); }
+.ui-trk-pass.shop { background: var(--paper-2); border-color: var(--ink-soft); cursor: pointer; }
+.ui-trk-pass.shop img { filter: grayscale(1); opacity: 0.45; }
+.ui-trk-pass.shop i { background: var(--paper); border-color: var(--ink-soft); }
 .ui-trk-col.next .ui-trk-free img { opacity: 0.6; }
 
 .ui-lvr { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
@@ -282,9 +283,9 @@ const CSS = `
 .ui-lvr-item .ui-kicker img { width: 12px; height: 12px; }
 .ui-lvr-item b { display: block; font: 700 14px/1.15 var(--display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-lvr-item.pass { background: #F3ECFF; }
-.ui-lvr-item.locked { background: var(--paper-2); border-color: var(--ink-soft); box-shadow: 0 3px 0 var(--ink-soft); cursor: pointer; }
-.ui-lvr-item.locked > img { filter: grayscale(1); opacity: 0.5; }
-.ui-lvr-item.locked b { color: var(--ink-soft); }
+.ui-lvr-item.shop { background: var(--paper-2); border-color: var(--ink-soft); box-shadow: 0 3px 0 var(--ink-soft); cursor: pointer; }
+.ui-lvr-item.shop > img { filter: grayscale(1); opacity: 0.5; }
+.ui-lvr-item.shop b { color: var(--ink-soft); }
 
 `;
 
