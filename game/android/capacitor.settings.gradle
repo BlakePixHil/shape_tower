@@ -16,3 +16,6 @@ project(':capacitor-status-bar').projectDir = new File('../node_modules/@capacit
 
 include ':capgo-native-purchases'
 project(':capgo-native-purchases').projectDir = new File('../node_modules/@capgo/native-purchases/android')
+
+include ':shape-tower-game-services'
+project(':shape-tower-game-services').projectDir = new File('../plugins/game-services/android')

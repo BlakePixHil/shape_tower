@@ -5,6 +5,7 @@
 
 import type { AudioDirector } from '@audio';
 import { BY_ID, RunTracker, grantDaily, grantHistory, grantStreaks, payAchievements, type Achievement } from './meta/achievements.ts';
+import { StoreSync } from './meta/stores.ts';
 import {
   addPractice, beginScored, bestDays, countdown, dailyDay, dailyNumber, dailySeed, dailyShapes, dailyStreak, msToNextDaily, scoredUsed, updateScored, type DailyResult,
 } from './meta/daily.ts';
@@ -19,7 +20,7 @@ import { ENDLESS, type RunMode } from './view/modes.ts';
 import { BUILD, startShell } from './view/shell.ts';
 import { TrophyToasts } from './view/trophies.ts';
 import { DailyLadder } from './view/ladder.ts';
-import { setupNative } from './native.ts';
+import { gameServices, setupNative } from './native.ts';
 import { ADS, addRunTime, adCheck, adShown, freshAds, loadAds, type AdState } from './meta/ads.ts';
 import { Store } from './store/store.ts';
 import { adNetwork } from './store/admob.ts';
@@ -67,6 +68,9 @@ async function boot(): Promise<void> {
   let trackNext = false; // the next run_start begins a tracked run (the menu's demo tower isn't one)
   let unlockSound: (a: Achievement, inRun: boolean) => void = () => {};
   const toasts = new TrophyToasts({ reducedMotion: () => settings.reduceMotion, juice: () => juice, sound: a => unlockSound(a, true) });
+  // The phone's game service (Play Games or Game Center, §18.5): nothing on the game page.
+  const stores = new StoreSync(gameServices());
+  void stores.start(profile);
 
   /** The tuning a new run starts with. */
   const runTuning = (m: RunMode): Partial<Tuning> => {
@@ -115,7 +119,7 @@ async function boot(): Promise<void> {
       if (e.name === 'run_start' && trackNext) {
         trackNext = false;
         // One earned as the run ends (So Close!, a last best) shows only in the summary strip.
-        tracker = new RunTracker(sim, profile, { bestBefore: shell.bestBefore, onUnlock: a => { if (sim.state === 'playing') toasts.push(a); }, save: () => saveProfile(profile) });
+        tracker = new RunTracker(sim, profile, { bestBefore: shell.bestBefore, onUnlock: a => { if (sim.state === 'playing') toasts.push(a); void stores.report(a.id); }, save: () => saveProfile(profile) });
       }
       if (tracker?.sim === sim) tracker.handle(e);
       if (sim === runSim && mode.id === 'daily' && mode.scored) dailyEvent(e.name, sim);
@@ -139,8 +143,7 @@ async function boot(): Promise<void> {
   unlockSound = (a, inRun) => audio()?.handle('achievement', { id: a.id, tier: a.tier, inRun });
   (window as unknown as { __wobble: Record<string, unknown> }).__wobble.profile = profile;
   // For QA's browser checks: the toasts and this run's achievement tracker.
-  (window as unknown as { __wobble: Record<string, unknown> }).__wobble.trophies = { toasts, get tracker() { return tracker; } };
-  // For QA's: the store, the ad meter and the network.
+  (window as unknown as { __wobble: Record<string, unknown> }).__wobble.trophies = { toasts, stores, get tracker() { return tracker; } };
   // QA's browser checks can swap in a pretend ad network to walk the ad step on the web.
   (window as unknown as { __wobble: Record<string, unknown> }).__wobble.shop = {
     store, adState, ADS, get ads() { return ads; }, useAds(n: typeof ads) { ads = n; },
@@ -154,6 +157,7 @@ async function boot(): Promise<void> {
     xpTick: () => audio()?.handle('xp_tick', {}),
     levelUp: level => audio()?.handle('level_up', { level }),
   });
+  sc.stores = { label: () => stores.label(), open: () => void stores.open(profile) };
   // The ad meter counts active run time only: a run playing, not paused, nothing over it, the app in front.
   let meterAt = performance.now();
   setInterval(() => {
@@ -413,6 +417,7 @@ async function boot(): Promise<void> {
     updateStreak(profile);
     grantStreaks(profile);
     const paid = payAchievements(profile);
+    void stores.sync(profile);
     const earned = paid.ids.map(id => BY_ID.get(id)!);
     const a = award(profile, Number(p.xp ?? 0), { newBest: newBest && !zen, quit, mode: mode.id, extra: paid });
     const rec = shell.record;

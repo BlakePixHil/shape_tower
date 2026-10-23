@@ -70,6 +70,35 @@ await shot('03-panel-secret');
 await page.click('.ui-achs [data-action="close"]');
 await page.waitForSelector('.ui-achrow');
 step('closing the panel goes back to the profile', await page.evaluate(() => !!document.querySelector('.ui-profile')));
+
+// Play Games / Game Center (§18.5): nothing on the game page; in the app, a button under the list.
+const web = await page.evaluate(() => ({ available: window.__wobble.trophies.stores.available, button: !!document.querySelector('.ui-ach-store') }));
+step('the game page has no store button and no game service', !web.available && !web.button, JSON.stringify(web));
+await page.evaluate(() => {
+  // What the phone app's plugin would be, signed out of Play Games.
+  const calls = window.__storeCalls = [];
+  const s = window.__wobble.trophies.stores;
+  s.api = {
+    signIn: async () => { calls.push('signIn'); return { signedIn: true }; },
+    unlock: async ({ id }) => { calls.push('unlock ' + id); return { sent: true }; },
+    progress: async ({ id, steps }) => { calls.push(`progress ${id} ${steps}`); return { sent: true }; },
+    show: async () => { calls.push('show'); },
+  };
+  s.ids = { play: { projectId: '1', achievements: { cp_first: 'CgkIcp', bricks_1k: 'CgkIbr' } }, gameCenter: { enabled: false, prefix: 'shapetower.' } };
+  Object.assign(s, { available: true, service: 'play', signedIn: false });
+});
+await page.click('.ui-achrow');
+await page.waitForSelector('.ui-ach-store');
+await page.waitForTimeout(300);
+await shot('03b-panel-store');
+const label = await page.evaluate(() => document.querySelector('.ui-ach-store').textContent);
+await page.click('.ui-ach-store');
+await page.waitForFunction(() => window.__storeCalls.includes('show'), null, { timeout: 3000 }).catch(() => {});
+const calls = await page.evaluate(() => window.__storeCalls);
+step('in the app: "Open in Google Play Games" signs in, sends the unlocks and progress, opens Play Games', label === 'Open in Google Play Games' && calls.join() === 'signIn,unlock CgkIcp,progress CgkIbr 310,show', `${label}: ${calls.join(', ')}`);
+await page.evaluate(() => Object.assign(window.__wobble.trophies.stores, { available: false, api: null }));
+await page.click('.ui-achs [data-action="close"]');
+await page.waitForSelector('.ui-achrow');
 await page.click('.ui-profile [data-action="close"]');
 await page.waitForTimeout(300);
 

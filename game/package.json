@@ -9,6 +9,9 @@
     "sim:smoke": "node --experimental-strip-types --no-warnings tests/sim-smoke.ts",
     "gesture:check": "node --experimental-transform-types --no-warnings tests/gesture-check.ts",
     "achievements:check": "node --experimental-strip-types --no-warnings tests/achievements-check.ts",
+    "stores:check": "node --experimental-strip-types --no-warnings tests/stores-check.ts",
+    "stores:ids": "node --experimental-strip-types --no-warnings scripts/stores-ids.ts",
+    "store-kit": "node --experimental-strip-types --no-warnings scripts/store-kit.ts",
     "daily:check": "node --experimental-strip-types --no-warnings tests/daily-logic.ts",
     "names:check": "node --experimental-strip-types --no-warnings tests/names-check.ts",
     "shop:check": "node --experimental-strip-types --no-warnings tests/shop-check.ts",
@@ -25,6 +28,7 @@
     "@capacitor/status-bar": "8.0.4",
     "@capgo/native-purchases": "8.9.6",
     "@dimforge/rapier2d-deterministic-compat": "^0.21.0",
+    "@shape-tower/game-services": "file:plugins/game-services",
     "phaser": "^4.2.1",
     "phaser-box2d": "1.1.0"
   },
