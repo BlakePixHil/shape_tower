@@ -7,6 +7,7 @@ import {
   MENU_MODES, armDailyScored, armForget, armReport, avatarPanel, dailyCard, dailyChip, dailyMenuDot, injectLadderCss, injectUiCss, levelUp, mainMenu, nameCard, onAction, pauseCard, prewarmUi,
   profilePanel, readAvatar, readNameCard, readSettings, rewardAt, setDailyCountdown, setDailyLadder, setDailyTab, setNameBusy, setNameHint, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type DailyTab, type LadderPanelData, type NameCardData, type SettingGroup, type SettingValue,
+  setWorkshopItem, setWorkshopNote, testPurchaseSheet, workshopPanel, type WorkshopData, type WorkshopItem,
 } from '@art/index.ts';
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
@@ -28,6 +29,7 @@ const ACTION_SOUND: Record<string, UiSound> = {
   play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap', scored: 'tap2', practice: 'start',
   tab: 'tab', join: 'open', edit: 'open', save: 'tap2', report: 'tap', reportYes: 'tap2', reportNo: 'back', forget: 'tap2', retry: 'tap',
+  workshop: 'open', buy: 'tap2', confirm: 'tap2', cancel: 'back', restore: 'tap', clearTest: 'tap2',
 };
 
 /** How long the Daily's scored button (and the ladder's delete) stays armed after its first tap. */
@@ -41,6 +43,29 @@ export interface DailyLadderHooks {
   onName(): void;
   /** A confirmed report; resolves when the row can redraw. */
   onReport(id: string): Promise<void>;
+}
+
+/**
+ * Settings' purchases rows, from the main menu only (never from pause): whether ads are on, a line that
+ * opens the Workshop (no buy button here), and Restore purchases. Each action resolves the line to show.
+ */
+export interface SettingsShop {
+  /** 'on' (the phone app, before Remove Ads), 'off' (Remove Ads is owned), 'none' (a web build: never any). */
+  ads: 'on' | 'off' | 'none';
+  onWorkshop(): void;
+  onRestore(): Promise<string>;
+  /** The test store only: forget its test purchases. */
+  onClearTest?(): Promise<string>;
+}
+
+/** An open Workshop: redraw a card, say how a buy went, and ask the test store's question. */
+export interface WorkshopHandle {
+  update(item: WorkshopItem): void;
+  note(text: string, tone?: 'good' | 'bad'): void;
+  /** The test store's sheet: resolves whether they tapped Buy (test). */
+  confirm(item: WorkshopItem): Promise<boolean>;
+  /** Still showing. */
+  readonly open: boolean;
 }
 
 /** The ladder name card: its data, the live hint, and saving or deleting (each resolves an error line, or null when done). */
@@ -66,6 +91,11 @@ const CSS = `
 .sc-ask .sc-thanks { font: 600 14px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 0; }
 .sc-ladder { margin-top: 10px; text-align: left; }
 .sc-ladder-msg { font: 700 13px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 2px 0; min-height: 1em; }
+.sc-shop { margin-top: 10px; }
+.sc-shop .ui-set b { font: 800 14px 'Nunito', sans-serif; color: ${INK}; text-align: right; }
+.sc-shop .ui-btn { margin: 8px 0 2px; }
+.sc-shop .sc-shop-row { display: flex; flex-direction: column; padding: 2px 0 8px; }
+.sc-shop .ui-nc-forget { align-self: center; }
 `;
 
 /** The settings the game has today, in the kit's layout format (gameplay.md §2, audio section). */
@@ -185,19 +215,54 @@ export class Screens {
     /** Today's scored Daily try is still open: a "!" on the Daily button. */
     dailyDot?: boolean;
     onPlay(): void; onMode(id: 'daily' | 'zen'): void; onProfile(): void; onSettings(): void;
+    /** The Workshop button next to the profile (monetisation plan v2). */
+    onWorkshop?(): void;
   }): void {
     const p = o.profile;
     const modes = MENU_MODES.map(m => {
       const sub = o.subs?.[m.id as 'daily' | 'zen'];
       return sub && p.level >= (m.unlockAt ?? 0) ? { ...m, sub } : m;
     });
-    const el = mainMenu({ name: this.playerName, ...xpOf(p), avatar: p.avatar, modes, still: o.still });
+    const el = mainMenu({ name: this.playerName, ...xpOf(p), avatar: p.avatar, modes, still: o.still, workshop: !!o.onWorkshop });
     const bottom = el.querySelector('.ui-menu-bottom')!;
     if (o.note) bottom.insertAdjacentHTML('afterbegin', `<div class="sc-testing">${esc(o.note)}</div>`);
     bottom.insertAdjacentHTML('beforeend', `<div class="sc-build">build ${esc(o.build)}</div>`);
     const dailyBtn = el.querySelector('.ui-mode[data-action="daily"]:not(.locked)');
     if (o.dailyDot && dailyBtn) dailyBtn.appendChild(dailyMenuDot());
-    this.open('menu', el, { play: o.onPlay, daily: () => o.onMode('daily'), zen: () => o.onMode('zen'), profile: o.onProfile, settings: o.onSettings });
+    this.open('menu', el, { play: o.onPlay, daily: () => o.onMode('daily'), zen: () => o.onMode('zen'), profile: o.onProfile, settings: o.onSettings, workshop: () => o.onWorkshop?.() });
+  }
+
+  // ---------------------------------------------------------------- Workshop
+
+  /**
+   * The Workshop (monetisation plan v2): the only screen with buy buttons. Each card's button is
+   * data-action="buy" with its product id; `focus` scrolls one card into view.
+   */
+  workshop(o: { data: WorkshopData; focus?: string; onBuy(id: string): void; onRestore(): void; onClose(): void }): WorkshopHandle {
+    const el = workshopPanel(o.data);
+    const buy = (e: Event): void => {
+      const t = (e.target as HTMLElement | null)?.closest<HTMLElement>('[data-action="buy"]');
+      if (t && el.contains(t) && !t.classList.contains('locked') && t.dataset.id) o.onBuy(t.dataset.id);
+    };
+    this.open('workshop', el, { close: o.onClose, restore: o.onRestore, buy: () => {} }); // buy: its sound; the listener below knows which
+    el.addEventListener('click', buy);
+    const unbind = this.unbind;
+    let sheet: { el: HTMLElement; done(ok: boolean): void } | null = null;
+    this.unbind = () => { el.removeEventListener('click', buy); sheet?.done(false); unbind?.(); };
+    if (o.focus) requestAnimationFrame(() => el.querySelector(`[data-id="${o.focus}"]`)?.scrollIntoView({ block: 'center' }));
+    return {
+      update: item => setWorkshopItem(el, item),
+      note: (text, tone) => setWorkshopNote(el, text, tone),
+      confirm: item => new Promise<boolean>(resolve => {
+        sheet?.done(false);
+        const s = testPurchaseSheet(item);
+        this.root.appendChild(s);
+        const off = this.bind(s, { confirm: () => me.done(true), cancel: () => me.done(false) });
+        const me = { el: s, done: (ok: boolean) => { off(); s.remove(); if (sheet === me) sheet = null; resolve(ok); } };
+        sheet = me;
+      }),
+      get open() { return el.isConnected; },
+    };
   }
 
   // ---------------------------------------------------------------- pause
@@ -311,11 +376,25 @@ export class Screens {
 
   // ---------------------------------------------------------------- settings
 
-  /** Settings. `forgetLadder`: the player has a ladder name, so a last row deletes it and their scores (two taps). */
-  settings(s: PlayerSettings, onChange: (s: PlayerSettings) => void, onBack: () => void, forgetLadder?: () => Promise<string | null>): void {
+  /**
+   * Settings. `forgetLadder`: the player has a ladder name, so a last row deletes it and their scores (two taps).
+   * `shop`: the purchases rows (from the main menu only).
+   */
+  settings(s: PlayerSettings, onChange: (s: PlayerSettings) => void, onBack: () => void, forgetLadder?: () => Promise<string | null>, shop?: SettingsShop): void {
     const el = settingsPanel(s as unknown as Record<string, SettingValue>, LAYOUT);
     let armedAt = 0;
     let disarm = 0;
+    if (shop) {
+      const ads = { on: 'On, now and then between runs', off: 'Off for good', none: 'None in this version' }[shop.ads];
+      el.querySelector('.ui-panel')?.insertAdjacentHTML('beforeend', `<div class="sc-shop"><h2 class="ui-h2">Purchases</h2><div class="ui-group">
+        <div class="ui-set"><span><img alt="" src="${uiIconUrl('info', 22)}">Ads</span><b>${esc(ads)}</b></div>
+        <div class="sc-shop-row">
+          ${shop.ads === 'on' ? `<button type="button" class="ui-btn wide" data-action="workshop">Remove ads in the Workshop</button>` : ''}
+          <button type="button" class="ui-btn wide" data-action="restore"><img alt="" src="${uiIconUrl('restart', 22)}">Restore purchases</button>
+          ${shop.onClearTest ? `<button type="button" class="ui-nc-forget" data-action="clearTest">Clear test purchases</button>` : ''}
+        </div></div><p class="sc-ladder-msg sc-shop-msg" aria-live="polite"></p></div>`);
+    }
+    const shopMsg = (text: string) => { const m = el.querySelector<HTMLElement>('.sc-shop-msg'); if (m) m.textContent = text; };
     if (forgetLadder) {
       injectLadderCss();
       el.querySelector('.ui-panel')?.insertAdjacentHTML('beforeend',
@@ -330,6 +409,9 @@ export class Screens {
     });
     this.open('settings', el, {
       close: onBack,
+      workshop: () => shop?.onWorkshop(),
+      restore: () => { shopMsg('Asking the store…'); void shop?.onRestore().then(shopMsg); },
+      clearTest: () => { void shop?.onClearTest?.().then(shopMsg); },
       forget: () => {
         if (!forgetLadder) return;
         if (performance.now() - armedAt < ARM_MS) {

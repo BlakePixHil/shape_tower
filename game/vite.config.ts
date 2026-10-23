@@ -12,7 +12,14 @@ try { rev = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', '
 export default defineConfig({
   base: './',
   plugins: [viteSingleFile()],
-  define: { __BUILD__: JSON.stringify(`${rev} ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`) },
+  define: {
+    __BUILD__: JSON.stringify(`${rev} ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`),
+    // The store (src/store/store.ts): 'play' for store releases, 'auto' for test builds (Play when it
+    // lists our products, else the test store). Web builds always use the test store.
+    __STORE__: JSON.stringify(process.env.ST_STORE ?? 'auto'),
+    // The real AdMob interstitial unit once there is one; without it the apps load Google's test ads.
+    __ADMOB__: JSON.stringify(process.env.ST_ADMOB_INTERSTITIAL ?? ''),
+  },
   resolve: {
     alias: [
       { find: '@art', replacement: at('../art/src') },

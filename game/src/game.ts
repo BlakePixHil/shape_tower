@@ -13,13 +13,17 @@ import { biomeFor, type Tuning } from './sim/tuning.ts';
 import type { LabState } from './view/panel.ts';
 import type { RunOpts } from './view/scene.ts';
 import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, saveProfile, spendDailyWind, updateStreak } from './view/profile.ts';
-import { Screens, type UiSound } from './view/screens.ts';
+import { Screens, type SettingsShop, type UiSound } from './view/screens.ts';
 import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor } from './view/settings.ts';
 import { ENDLESS, type RunMode } from './view/modes.ts';
 import { BUILD, startShell } from './view/shell.ts';
 import { TrophyToasts } from './view/trophies.ts';
 import { DailyLadder } from './view/ladder.ts';
 import { setupNative } from './native.ts';
+import { ADS, addRunTime, adCheck, adShown, freshAds, loadAds, type AdState } from './meta/ads.ts';
+import { Store } from './store/store.ts';
+import { adNetwork } from './store/admob.ts';
+import { Workshop } from './view/workshop.ts';
 import { splashDone, splashFailed } from './view/splash.ts';
 
 /** Calls Sound adds in its next module version, made safe until then. */
@@ -31,6 +35,8 @@ const TIER_RANK = { bronze: 0, silver: 1, gold: 2, platinum: 3 };
 const ZEN_BEST = 'shape-tower-best-zen';
 /** When the Zen card shows (ms into the run): once the biome title card has gone. */
 const ZEN_CARD_AFTER = 2600;
+/** The ad meter (meta/ads.ts), kept between visits. */
+const ADS_KEY = 'shape-tower-ads-v1';
 
 async function boot(): Promise<void> {
   const settings = loadSettings();
@@ -45,6 +51,14 @@ async function boot(): Promise<void> {
   let runSim: Sim | null = null; // that run's sim (the menu's demo tower makes others)
   let screens: Screens | null = null; // made once the shell is up; the audio can arrive first
   let skipTap: ((e: PointerEvent) => void) | null = null;
+
+  // The Workshop's store and the ads between runs (monetisation plan v2). Ads only exist in the store
+  // apps: on the web the network is a no-op.
+  const store = new Store();
+  let ads = adNetwork();
+  const adState: AdState = (() => { try { return loadAds(JSON.parse(localStorage.getItem(ADS_KEY) ?? 'null')); } catch { return freshAds(); } })();
+  const saveAds = () => { try { localStorage.setItem(ADS_KEY, JSON.stringify(adState)); } catch { /* fine without it */ } };
+  let adAsked = true; // this run end's one ad check is spent (true until a run ends)
 
   // Achievements (gameplay.md §18): what the player's history already proves, then one tracker per run.
   if (grantHistory(profile).length) saveProfile(profile);
@@ -86,7 +100,10 @@ async function boot(): Promise<void> {
   const shell = await startShell({
     app: 'game',
     lab: state,
+    // Endless asks here (Daily and Zen fix their own in runOpts). Second Wind, always ready (the $1.99
+    // upgrade) has it waiting every run, so the day's free one isn't spent; still once per run.
     secondWind() {
+      if (store.ent.windAlways) { dailyWind = false; return 'ready'; }
       dailyWind = dailyWindReady(profile);
       return dailyWind ? 'ready' : 'earn';
     },
@@ -122,6 +139,12 @@ async function boot(): Promise<void> {
   (window as unknown as { __wobble: Record<string, unknown> }).__wobble.profile = profile;
   // For QA's browser checks: the toasts and this run's achievement tracker.
   (window as unknown as { __wobble: Record<string, unknown> }).__wobble.trophies = { toasts, get tracker() { return tracker; } };
+  // For QA's: the store, the ad meter and the network.
+  // QA's browser checks can swap in a pretend ad network to walk the ad step on the web.
+  (window as unknown as { __wobble: Record<string, unknown> }).__wobble.shop = {
+    store, adState, ADS, get ads() { return ads; }, useAds(n: typeof ads) { ads = n; },
+    adCheck: () => adCheck(adState, { level: profile.level, noAds: store.ent.noAds }),
+  };
 
   hud.labBtn.style.display = 'none';
   const showHud = (on: boolean) => { hud.root.style.display = on ? '' : 'none'; };
@@ -130,9 +153,26 @@ async function boot(): Promise<void> {
     xpTick: () => audio()?.handle('xp_tick', {}),
     levelUp: level => audio()?.handle('level_up', { level }),
   });
+  // The ad meter counts active run time only: a run playing, not paused, nothing over it, the app in front.
+  let meterAt = performance.now();
+  setInterval(() => {
+    const now = performance.now(), dt = Math.min(2000, now - meterAt);
+    meterAt = now;
+    if (runSim && scene.sim === runSim && runSim.state === 'playing' && scene.started && !scene.paused && !sc.current && !document.hidden) addRunTime(adState, dt, profile.level);
+  }, 1000);
+
   // The Daily ladder (§12.3): the menu and profile show the player's ladder name once they have one.
   const ladder = new DailyLadder(profile, () => settings.reduceMotion, name => { sc.playerName = name ?? 'Builder'; });
   const saveLook = () => { saveProfile(profile); ladder.restyle(); };
+  const workshop = new Workshop(sc, store, {
+    avatar: () => profile.avatar, still: () => settings.reduceMotion, adsLive: () => ads.live,
+    bought: () => audio()?.ui('unlock'),
+  });
+  /** The Workshop, from the menu, Settings or a locked shop portrait; `back` is where its close goes. */
+  function openWorkshop(back: () => void = home, focus?: string): void {
+    audio()?.screen?.('profile');
+    workshop.open(back, focus);
+  }
 
   // ------------------------------------------------------------------ flow
 
@@ -144,6 +184,8 @@ async function boot(): Promise<void> {
     scene.paused = false;
     scene.demo();
     audio()?.screen?.('menu');
+    // Google's consent form, where the law asks for it, shows over the menu once ads could start.
+    if (ads.live && profile.level >= ADS.minLevel && !store.ent.noAds) void ads.consent();
     const today = dailyDay();
     const done = scoredUsed(profile.daily, today);
     sc.menu({
@@ -154,7 +196,8 @@ async function boot(): Promise<void> {
       onPlay: () => play(),
       onMode: id => { if (id === 'zen') play({ id: 'zen' }); else openDaily(); },
       onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, saveLook); },
-      onSettings: () => { audio()?.screen?.('profile'); openSettings(home); },
+      onSettings: () => { audio()?.screen?.('profile'); openSettings(home, true); },
+      onWorkshop: () => openWorkshop(home),
       note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
     });
     menuShown = true;
@@ -250,14 +293,45 @@ async function boot(): Promise<void> {
     }
   }
 
-  function openSettings(back: () => void): void {
+  /** Settings; from the main menu (`menu`) it has the purchases rows, never from pause. */
+  function openSettings(back: () => void, menu = false): void {
     sc.settings(settings, s => {
       saveSettings(s);
       state.view = viewFor(s, juice);
       scene.applyView(state.view);
       scene.retune(tuningFor(s));
       applyAudio(s, audio());
-    }, back, ladder.ladder?.named ? () => ladder.forget() : undefined);
+    }, back, ladder.ladder?.named ? () => ladder.forget() : undefined, menu ? shopRows(back) : undefined);
+  }
+
+  function shopRows(back: () => void): SettingsShop {
+    return {
+      ads: !ads.live ? 'none' : store.ent.noAds ? 'off' : 'on',
+      onWorkshop: () => openWorkshop(() => openSettings(back, true)),
+      async onRestore() {
+        const r = await store.restore();
+        if (!r.ok) return 'Can\'t reach the store right now. What you own still works.';
+        return r.added ? `Restored ${r.added} purchase${r.added === 1 ? '' : 's'}.` : 'Everything you own is already here.';
+      },
+      onClearTest: store.kind === 'test' ? async () => { store.clearTest(); return 'Test purchases cleared.'; } : undefined,
+    };
+  }
+
+  /**
+   * The one ad check at a run's end, when the player taps on from its summary (after the XP tally and
+   * any level-up). Resolves once any ad has closed. An ad that didn't load shows nothing and stays due.
+   */
+  async function adBreak(): Promise<void> {
+    if (adAsked) return;
+    adAsked = true;
+    if (!ads.live || adCheck(adState, { level: profile.level, noAds: store.ent.noAds }) !== 'due') return;
+    // Game audio steps aside while the ad plays.
+    const ctx = (shell.game.sound as unknown as { context?: AudioContext }).context;
+    const wasRunning = ctx?.state === 'running';
+    if (wasRunning) await ctx!.suspend().catch(() => {});
+    const shown = await ads.show();
+    if (wasRunning) void ctx!.resume().catch(() => {});
+    if (shown) { adShown(adState); saveAds(); }
   }
 
   function pause(): void {
@@ -265,6 +339,7 @@ async function boot(): Promise<void> {
     scene.paused = true;
     audio()?.handle('pause', {});
     saveScored(scene.sim); // the app may not come back
+    saveAds();
     const resume = () => { sc.close(); scene.paused = false; audio()?.handle('resume', {}); };
     sc.pause({
       zen: mode.id === 'zen',
@@ -292,7 +367,9 @@ async function boot(): Promise<void> {
     onBack() {
       if (sc.current === 'menu') return false;
       if (sc.current) {
-        document.querySelector<HTMLElement>(['close', 'resume', 'continue', 'home'].map(a => `.sc-root [data-action="${a}"]`).join(', '))?.click();
+        // The test store's sheet sits over the Workshop: its Cancel first.
+        (document.querySelector<HTMLElement>('.sc-root [data-action="cancel"]')
+          ?? document.querySelector<HTMLElement>(['close', 'resume', 'continue', 'home'].map(a => `.sc-root [data-action="${a}"]`).join(', ')))?.click();
         return true;
       }
       pause();
@@ -331,6 +408,10 @@ async function boot(): Promise<void> {
     const a = award(profile, Number(p.xp ?? 0), { newBest: newBest && !zen, quit, mode: mode.id, extra: paid });
     const rec = shell.record;
     rec?.finish(sim, { xp: a.gained, xpBase: Number(p.xp ?? 0), level: profile.level, runNumber: profile.runs, newBest: a.lines.some(l => l[0] === 'New best'), view: { ...state.view }, juiceRun, player: profile.player, achievements: paid.ids });
+    // This run end gets one ad check, when the player taps on from the summary; a due ad loads meanwhile.
+    adAsked = false;
+    saveAds();
+    if (ads.live && adCheck(adState, { level: profile.level, noAds: store.ent.noAds }) === 'due') ads.prepare();
     const questions: { id: string; text: string; kind?: 'yesno' | 'faces' }[] = [
       { id: 'feel', text: 'How did that run feel?', kind: 'faces' },
       { id: 'see', text: 'Could you see what happened?' },
@@ -348,6 +429,9 @@ async function boot(): Promise<void> {
     scene.panorama(() => {
       stopSkip();
       hud.clearAlerts(); // the "OUT OF SHAPES!" stamp, if a tap skipped the glide
+      // Leaving the summary goes through the run end's ad check first; one tap leaves.
+      let leaving = false;
+      const leave = (fn: () => void) => () => { if (leaving) return; leaving = true; void adBreak().then(fn); };
       sc.summary({
         stats: {
           cause: zen ? 'zen' : sim.cause ?? '', height, newBest: zen ? newBest : a.lines.some(l => l[0] === 'New best'), bestLabel: zen ? 'New Zen best!' : undefined, biome: biome - 1,
@@ -357,10 +441,10 @@ async function boot(): Promise<void> {
         achievements: earned,
         questions,
         onAnswer: (id, answer) => rec?.answer(id, answer),
-        onAgain: () => { rec?.exit('again'); if (mode.id === 'daily') practiceDaily(); else play(mode); },
+        onAgain: leave(() => { rec?.exit('again'); if (mode.id === 'daily') practiceDaily(); else play(mode); }),
         daily: mode.id === 'daily' ? { number: dailyNumber(mode.day!), scored: !!mode.scored, again: mode.scored ? 'Practice' : 'Practice again' } : undefined,
-        onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, saveLook); },
-        onHome: () => { rec?.exit('menu'); home(); },
+        onProfile: leave(() => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, saveLook); }),
+        onHome: leave(() => { rec?.exit('menu'); home(); }),
         reducedMotion: settings.reduceMotion,
       });
       // One sting for the strip: the highest tier earned.
