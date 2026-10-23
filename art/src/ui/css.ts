@@ -140,6 +140,11 @@ export function uiCss(): string {
 .ui-unlock span { display: block; font: 600 13px/1.3 var(--body); color: var(--ink-soft); }
 .ui-unlock .ui-kicker { color: var(--xp); margin-bottom: 2px; }
 .ui-levelup .ui-btn { position: relative; animation: ui-rise 420ms cubic-bezier(.2,1.3,.4,1) 1700ms both; min-width: 160px; }
+.ui-lu-pass { animation-delay: 1550ms; background: #F3ECFF; }
+.ui-lu-pass .ui-kicker { display: flex; align-items: center; gap: 3px; color: #6F35D1; }
+.ui-lu-pass .ui-kicker img { width: 13px; height: 13px; }
+.ui-lu-btns { position: relative; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.ui-levelup .ui-lu-btns .ui-btn { min-width: 130px; }
 .ui-confetti { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .ui-confetti i { position: absolute; top: -24px; left: var(--x); width: var(--w); height: calc(var(--w) * 0.55); background: var(--c); border: 2px solid var(--ink); border-radius: 3px;
   animation: ui-fall var(--d) cubic-bezier(.3,.1,.6,1) var(--t) both; }

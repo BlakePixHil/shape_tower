@@ -4,6 +4,7 @@
 
 import { FONT_DISPLAY, INK, SIGNAL } from './config.ts';
 import type { Baked } from './piece.ts';
+import { type FlagLook, drawStyledFlag } from './flags.ts';
 import { ART_SHAPES } from './shapes.ts';
 import { type Ctx, TAU, circ, ctx2d, makeCanvas, rr, star4 } from './util.ts';
 
@@ -127,13 +128,17 @@ function drawFlag(c: Ctx, s: number, pt: number, pole: number, cloth: [number, n
   c.beginPath(); circ(c, 0, top, 0.1 * s); c.fillStyle = SIGNAL.gold; c.fill(); c.lineWidth = 1.8 * pt; c.strokeStyle = INK; c.stroke();
 }
 
-/** The flag planted on a claimed line, wave frame `f` of CHECKPOINT.flagFrames. Origin: foot of the pole. */
-export function bakeFlag(f: number, s: number): Baked {
+/**
+ * The flag planted on a claimed line, wave frame `f` of CHECKPOINT.flagFrames, or in flag style `style`
+ * (flags.ts). Origin: foot of the pole.
+ */
+export function bakeFlag(f: number, s: number, style?: FlagLook | null): Baked {
   const pt = s / 32, pole = CHECKPOINT.flagPole, cw = 0.85, pad = Math.ceil(0.2 * s);
   const canvas = makeCanvas((cw + 0.2) * s + pad * 2, (pole + 0.2) * s + pad * 2), c = ctx2d(canvas);
-  const ox = pad + 0.1 * s, oy = canvas.height - pad;
+  const ox = pad + 0.1 * s, oy = canvas.height - pad, phase = (f / CHECKPOINT.flagFrames) * TAU;
   c.translate(ox, oy);
-  drawFlag(c, s, pt, pole, [cw, 0.55], SIGNAL.gold, (f / CHECKPOINT.flagFrames) * TAU, true);
+  if (style) drawStyledFlag(c, s, pt, pole, [cw, 0.55], style, phase);
+  else drawFlag(c, s, pt, pole, [cw, 0.55], SIGNAL.gold, phase, true);
   return { canvas, originX: ox / canvas.width, originY: oy / canvas.height, s };
 }
 

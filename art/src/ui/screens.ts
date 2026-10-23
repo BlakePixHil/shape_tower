@@ -15,8 +15,10 @@ import { achievementsRow } from './achievements.ts';
 import { badgeTier, badgeUrl, newTitleAt, titleFor } from './badge.ts';
 import { type UiIcon, uiIconUrl } from './icons.ts';
 import { logoElement } from './logo.ts';
-import { HATS, type Hat, drawHat, hatUrl } from './hats.ts';
+import { HATS, type Hat, drawHat, hatInfo, hatUrl } from './hats.ts';
 import { postcardElement } from './postcard.ts';
+import { SLOT_NAMES, passRewardAt } from '../cosmetics.ts';
+import { cosmeticUrl } from './cosmeticArt.ts';
 import { portraitHtml } from './portraits.ts';
 import { part, rrPath } from '../sticker.ts';
 
@@ -220,11 +222,30 @@ export interface LevelUpOptions {
   from?: number;
   /** The unlock card; default rewardAt(level). Pass null for none. */
   unlock?: Unlock | null;
+  /**
+   * The level's Builder's Pass reward (cosmetics.ts passRewardAt): 'owned' shows it unlocked under the free
+   * one. 'intro' is the pass's one mention, on the level-10 card for players without it: the reward
+   * greyed, a line about the pass, and "Take a look" (action workshop, data-id builders_pass) beside a
+   * plain "Not now" (action continue). Leave it out for neither.
+   */
+  pass?: 'owned' | 'intro' | null;
+  /** With 'intro': how many pass rewards they'd get at once (passRewardsBetween(2, level).length). */
+  passWaiting?: number;
+}
+
+/** The level-up's Builder's Pass card. */
+function passCard(level: number, mode: 'owned' | 'intro', waiting: number): string {
+  const pr = passRewardAt(level);
+  if (!pr) return '';
+  const kicker = `<span class="ui-kicker">${icon('pass', 13)}Builder's Pass</span>`;
+  const text = mode === 'owned' ? `A new ${SLOT_NAMES[pr.slot].toLowerCase()} for your look.`
+    : `The pass adds a second reward like this at every level.${waiting > 1 ? ` ${waiting} are waiting for you already.` : ''}`;
+  return `<div class="ui-unlock ui-lu-pass${mode === 'intro' ? ' intro' : ''}"><img alt="" src="${cosmeticUrl(pr.id, 52)}"><div>${kicker}<b>${esc(pr.name)}</b><span>${esc(text)}</span></div></div>`;
 }
 
 const CONFETTI = ['I', 'O', 'T', 'L', 'J', 'S', 'Z', 'Domino'].map(k => ART_SHAPES[k].base);
 
-/** The level-up takeover: rays, the badge flips to the new number, confetti, title and unlock card. Action: continue. */
+/** The level-up takeover: rays, the badge flips to the new number, confetti, title and unlock card (and the pass's, see `pass`). Action: continue (and workshop for the pass intro). */
 export function levelUp(o: LevelUpOptions): HTMLElement {
   const L = o.level, from = o.from ?? Math.max(1, L - 1), u = o.unlock === undefined ? rewardAt(L) : o.unlock;
   let confetti = '';
@@ -242,7 +263,10 @@ export function levelUp(o: LevelUpOptions): HTMLElement {
     <div class="ui-flip"><div class="ui-flip-in"><img alt="" src="${badgeUrl(from, 132)}"><img alt="Level ${L}" src="${badgeUrl(L, 132)}"></div></div>
     <div class="ui-lu-name">${title}</div>
     ${card}
-    ${btn('continue', 'Nice!', undefined, 'primary')}
+    ${o.pass ? passCard(L, o.pass, o.passWaiting ?? 0) : ''}
+    ${o.pass === 'intro' && passRewardAt(L)
+    ? `<div class="ui-lu-btns">${btn('workshop', 'Take a look', 'pass', 'primary').replace('data-action="workshop"', 'data-action="workshop" data-id="builders_pass"')}${btn('continue', 'Not now')}</div>`
+    : btn('continue', 'Nice!', undefined, 'primary')}
   </div>`);
 }
 
@@ -261,7 +285,7 @@ const avatars = new Map<string, string>();
 
 /** The player's Blockling on a round sky disc, wearing its hat, as a cached PNG data URL `cssPx` square. */
 export function avatarUrl(a: AvatarSpec = {}, cssPx = 56, dpr = DPR()): string {
-  const key = a.shape ?? 'O', face = a.face ?? 'idle', hat = a.hat ? HATS.find(h => h.key === a.hat) : undefined;
+  const key = a.shape ?? 'O', face = a.face ?? 'idle', hat = hatInfo(a.hat);
   const px = Math.round(cssPx * dpr), id = `${key}:${face}:${hat?.key ?? ''}:${px}`;
   let u = avatars.get(id);
   if (u) return u;
@@ -284,7 +308,7 @@ export function avatarUrl(a: AvatarSpec = {}, cssPx = 56, dpr = DPR()): string {
  * the avatar's grass starts), with nothing behind it. Portraits put it on their own backgrounds.
  */
 export function drawAvatarFigure(c: Ctx, a: AvatarSpec, px: number): void {
-  const key = a.shape ?? 'O', face = a.face ?? 'idle', hat = a.hat ? HATS.find(h => h.key === a.hat) : undefined, R = px / 2;
+  const key = a.shape ?? 'O', face = a.face ?? 'idle', hat = hatInfo(a.hat), R = px / 2;
   // A hat (about a block across) sits over the face; shrink the Blockling so both fit the disc. The flat
   // I would be a sliver at that size, so it spans most of the disc's width instead.
   const p = pose(key, 0), hw = 1.35, fit = p.w >= p.h * 3 ? (px * 0.8) / p.w : (px * 0.56) / Math.max(p.w, p.h, 1.6);
@@ -459,6 +483,8 @@ export interface AvatarPanelData {
   avatar?: AvatarSpec;
   /** The player's level: hats it hasn't reached are locked, with the level they need. */
   level: number;
+  /** Hats they own beyond the level hats (Builder's Pass, Workshop sets, Supporter Pack), listed after them. */
+  hats?: string[];
 }
 
 /**
@@ -471,7 +497,8 @@ export function avatarPanel(d: AvatarPanelData): HTMLElement {
     `<label class="ui-pick${lock ? ' locked' : ''}"><input type="radio" name="ui-av-${kind}" data-kind="${kind}" value="${value}"${on ? ' checked' : ''}${lock ? ' disabled' : ''} aria-label="${esc(label)}${lock ? `, unlocks at level ${lock}` : ''}">`
     + `<span><img alt="" src="${img}">${lock ? `<i>${icon('lock', 14)}${lock}</i>` : ''}</span></label>`;
   const hats = [opt('hat', '', uiIconUrl('close', 20), 'No hat', !a.hat)]
-    .concat(HATS.map(h => opt('hat', h.key, hatUrl(h.key, 34), h.name, a.hat === h.key, h.level > d.level ? h.level : 0)));
+    .concat(HATS.map(h => opt('hat', h.key, hatUrl(h.key, 34), h.name, a.hat === h.key, h.level > d.level ? h.level : 0)))
+    .concat((d.hats ?? []).map(hatInfo).filter(h => h && !HATS.includes(h)).map(h => opt('hat', h!.key, hatUrl(h!.key, 34), h!.name, a.hat === h!.key)));
   const root = el(`<div class="ui ui-overlay" role="dialog" aria-label="Your Blockling"><div class="ui-panel ui-avpick">
     ${iconBtn('close', 'close', 'Close', 'sm ui-close')}
     <h1 class="ui-h1" style="text-align:center">Your Blockling</h1>

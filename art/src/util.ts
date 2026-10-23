@@ -39,6 +39,50 @@ export function labToHex([L, a, b]: Lab): string {
 }
 export const mixLab = (a: Lab, b: Lab, t: number): Lab => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 
+/** The angle a cosmetic's variant `v` turns its hues by: the golden angle, so neighbouring variants differ most. */
+export const variantTurn = (v: number): number => v * 2.39996;
+
+/** `hex` with its hue turned `rad` radians in OKLab (lightness and chroma kept). */
+export function turnHex(hex: string, rad: number): string {
+  if (!rad) return hex;
+  const [L, a, b] = oklab(hex), co = Math.cos(rad), si = Math.sin(rad);
+  return labToHex([L, a * co - b * si, a * si + b * co]);
+}
+
+const LIN = Array.from({ length: 256 }, (_, i) => toLin(i));
+/**
+ * Turn the hues of everything drawn on a canvas by `rad` radians (OKLab), for a cosmetic's later variants.
+ * Ink, greys and whites stay put (too dark or too grey to have a hue worth turning). Read back from the
+ * CPU: call it on canvases made inside cpuBaked.
+ */
+export function turnCanvas(cv: HTMLCanvasElement, rad: number): void {
+  if (!rad) return;
+  const c = ctx2d(cv), img = c.getImageData(0, 0, cv.width, cv.height), d = img.data, co = Math.cos(rad), si = Math.sin(rad);
+  for (let i = 0; i < d.length; i += 4) {
+    if (!d[i + 3]) continue;
+    const r = LIN[d[i]], g = LIN[d[i + 1]], b = LIN[d[i + 2]];
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s, B = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+    if (L < 0.36 || A * A + B * B < 0.0022) continue;
+    const a2 = A * co - B * si, b2 = A * si + B * co;
+    const l3 = Math.pow(L + 0.3963377774 * a2 + 0.2158037573 * b2, 3), m3 = Math.pow(L - 0.1055613458 * a2 - 0.0638541728 * b2, 3), s3 = Math.pow(L - 0.0894841775 * a2 - 1.2914855480 * b2, 3);
+    d[i] = toSrgb(4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3);
+    d[i + 1] = toSrgb(-1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3);
+    d[i + 2] = toSrgb(-0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3);
+  }
+  c.putImageData(img, 0, 0);
+}
+
+/** 1 -> 'I', 14 -> 'XIV'. */
+export function roman(n: number): string {
+  const r: [number, string][] = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+  let s = '';
+  for (const [v, t] of r) while (n >= v) { s += t; n -= v; }
+  return s;
+}
+
 // ---- canvas ----
 
 /** A fresh canvas of at least 1x1 px. Phaser's addCanvas needs a real HTMLCanvasElement. */

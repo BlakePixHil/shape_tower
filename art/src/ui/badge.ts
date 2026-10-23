@@ -4,8 +4,8 @@
 // every 5 levels. Load Fredoka before baking: the number is drawn text.
 
 import { FONT_DISPLAY, INK } from '../config.ts';
-import { O, ink, part, rrPath, twinkle } from '../sticker.ts';
-import { type Ctx, TAU, ctx2d, hash, makeCanvas } from '../util.ts';
+import { O, heart, ink, part, rrPath, twinkle } from '../sticker.ts';
+import { type Ctx, TAU, ctx2d, hash, makeCanvas, roman } from '../util.ts';
 import { canvasUrl } from '../urls.ts';
 
 export interface BadgeTier { name: string; from: number; base: string; light: string; shade: string }
@@ -33,13 +33,6 @@ export const TITLES: [number, string][] = [
   [50, 'Ring Rider'], [55, 'Star Builder'], [60, 'Cosmic Mason'],
 ];
 
-function roman(n: number): string {
-  const r: [number, string][] = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
-  let s = '';
-  for (const [v, t] of r) while (n >= v) { s += t; n -= v; }
-  return s;
-}
-
 export function titleFor(level: number): string {
   if (level >= 65) return `Cosmic Mason ${roman(Math.floor((level - 60) / 5) + 1)}`;
   let t = TITLES[0][1];
@@ -50,10 +43,36 @@ export function titleFor(level: number): string {
 /** True when reaching `level` earns a new title (show the title plate on the level-up). */
 export const newTitleAt = (level: number): boolean => level === 1 || level % 5 === 0;
 
-/** Draw the badge for `level` centred at (x, y), `size` px square (ornaments included). */
-export function drawBadge(c: Ctx, level: number, x: number, y: number, size: number): void {
+/** A frame around the level badge: the Supporter Pack's rose-gold rosette, or none. */
+export type BadgeFrame = 'supporter' | null;
+let frameNow: BadgeFrame = null;
+
+/**
+ * The frame every badge of the player's gets from now on (menu, profile, XP bar, level-up, level track,
+ * share card). Set it once ownership is known; badgeUrl caches each frame separately.
+ */
+export function setBadgeFrame(f: BadgeFrame): void { frameNow = f; }
+export const badgeFrame = (): BadgeFrame => frameNow;
+
+/** The Supporter rosette behind the tile: scallops in rose gold with an Ink edge. Unit box. */
+function supporterFrame(c: Ctx): void {
+  const p = new Path2D(), n = 14;
+  for (let i = 0; i <= n * 8; i++) { const a = (i / (n * 8)) * TAU - Math.PI / 2, r = 0.405 + 0.04 * Math.abs(Math.cos((a + Math.PI / 2) * n / 2)); if (i) p.lineTo(Math.cos(a) * r, Math.sin(a) * r); else p.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+  p.closePath();
+  part(c, p, '#F7A6B8', '#FFD3DC', '#D9708A', 0.04);
+  c.save(); c.clip(p); c.strokeStyle = 'rgba(255,255,255,0.6)'; c.lineWidth = 0.02; c.beginPath(); c.arc(0, 0, 0.38, 0, TAU); c.stroke(); c.restore();
+}
+
+/** Draw the badge for `level` centred at (x, y), `size` px square (ornaments included), in `frame` (default: setBadgeFrame's). */
+export function drawBadge(c: Ctx, level: number, x: number, y: number, size: number, frame: BadgeFrame = frameNow): void {
   const t = badgeTier(level), n = t.name;
   c.save(); c.translate(x, y); c.scale(size, size);
+  if (frame === 'supporter') {
+    supporterFrame(c);
+    // Hearts on the frame's shoulders, then the badge a little smaller inside it.
+    for (const sx of [-1, 1]) { const h = heart(sx * 0.35, 0.33, 0.2); part(c, h, '#FF4F64', '#FF9DAA', '#CC2E48', 0.015); ink(c, h, O * 0.7); }
+    c.scale(0.86, 0.86); c.translate(0, -0.02);
+  }
   // RING drops the Cosmic orbit below the number's middle so three digits stay readable.
   const tile = rrPath(-0.37, -0.33, 0.74, 0.74, 0.17), cy = 0.04, RING = 0.15;
 
@@ -114,14 +133,14 @@ export function drawBadge(c: Ctx, level: number, x: number, y: number, size: num
   c.restore();
 }
 
-export function bakeBadge(level: number, px: number): HTMLCanvasElement {
+export function bakeBadge(level: number, px: number, frame: BadgeFrame = frameNow): HTMLCanvasElement {
   const cv = makeCanvas(px, px);
-  drawBadge(ctx2d(cv), level, cv.width / 2, cv.height / 2, cv.width);
+  drawBadge(ctx2d(cv), level, cv.width / 2, cv.height / 2, cv.width, frame);
   return cv;
 }
 
-/** A PNG URL of the badge for `level`, `cssPx` CSS px square at the device's resolution. Cached. */
-export function badgeUrl(level: number, cssPx: number, dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1): string {
+/** A PNG URL of the badge for `level`, `cssPx` CSS px square at the device's resolution, in `frame` (default: setBadgeFrame's). Cached. */
+export function badgeUrl(level: number, cssPx: number, dpr = typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1, frame: BadgeFrame = frameNow): string {
   const px = Math.round(cssPx * dpr);
-  return canvasUrl(`badge:${level}:${px}`, () => bakeBadge(level, px));
+  return canvasUrl(`badge:${level}:${px}${frame ? `:${frame}` : ''}`, () => bakeBadge(level, px, frame));
 }

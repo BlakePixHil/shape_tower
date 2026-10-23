@@ -2,6 +2,8 @@
 // &ui=menu|pause|summary|levelup|profile|settings|avatar opens that screen (buttons work: Settings, Profile,
 // Close and so on). &ui=achievements opens the Achievements panel (&all=1: everything earned), &ui=achtoast plays three toasts (&plain=1: juice off).
 // &ui=workshop opens the Workshop with the test store (see workshop.ts for its options); &ui=settings&shop=1 adds the Purchases group.
+// &ui=look opens "Your look", &ui=track shows the level track and the XP tally's pass reward (&lu=intro|owned: the
+// level-up's pass card), &ui=cosmetics every cosmetic's icon (see cosmetics.ts for their options).
 // &ui=shapes shows the bag and the shapes-left counter, banners and red edge counting down (see budget.ts).
 // &ui=daily opens the Daily Tower card with today's try still open (&done=1: today's score, the streak and best days;
 // &ladder=loading|offline|none|empty|join for the ladder's other states). &ui=namecard opens the name card (name and portrait),
@@ -15,12 +17,13 @@ import { achievementsDemoPanel, achievementsDemoToasts, achievementsSheet } from
 import { shapesDemo } from './budget.ts';
 import { portraitsSheet } from './portraits.ts';
 import { workshopDemo } from './workshop.ts';
+import { cosmeticsSheet, lookDemo, passLevelUp, trackDemo } from './cosmetics.ts';
 import { PURCHASE_SETTINGS, SETTINGS_LAYOUT } from '../src/index.ts';
 import { demoTower } from './tower.ts';
 import {
   bakeAppIcon, bakePanorama, bakeShareCard, bakeSplash, panoramaBiome,
   altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail,
-  BADGE_TIERS, BIOMES, HATS, INK, UI_ICONS, avatarPanel, avatarUrl, hatUrl, readAvatar, biomeCard, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
+  ALL_HATS, BADGE_TIERS, BIOMES, HATS, INK, UI_ICONS, avatarPanel, avatarUrl, hatUrl, readAvatar, biomeCard, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
   postcardElement, profilePanel, readSettings, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, titleFor, uiIconUrl, xpBar,
   armDailyScored, armReport, dailyCard, dailyMenuDot, nameCard, PORTRAIT_ART, setDailyTab, setNameHint,
   type LadderPanelData,
@@ -132,6 +135,10 @@ export function openScreen(name: string): void {
     if (freeze) for (const a of el.getAnimations({ subtree: true })) { a.pause(); a.currentTime = Number(qs.get('bt')); }
   } else if (name === 'workshop') {
     workshopDemo(avatar, still, qs);
+  } else if (name === 'look') {
+    lookDemo(avatar, still, qs);
+  } else if (name === 'track' && qs.has('lu')) {
+    passLevelUp(qs);
   } else sheet(name);
 }
 
@@ -202,7 +209,10 @@ function sheet(name: string): void {
     root.innerHTML = `<h3>Hats (unlock level)</h3><div class="pv-wrap">${HATS.map(h => `<div class="pv-cell"><img alt="" style="width:72px;height:72px" src="${hatUrl(h.key, 72)}">${h.name}<br>Lv ${h.level}</div>`).join('')}</div>
       <h3>Worn</h3><div class="pv-wrap">${HATS.map((h, i) => `<img alt="" style="width:72px;height:72px" src="${avatarUrl({ shape: shapes[i % shapes.length], face: i % 2 ? 'proud' : 'idle', hat: h.key }, 72)}">`).join('')}</div>
       <h3>Every Blockling in a party hat</h3><div class="pv-wrap">${shapes.map(k => `<img alt="" style="width:56px;height:56px" src="${avatarUrl({ shape: k, hat: 'party' }, 56)}">`).join('')}</div>
-      <h3>Small (40 px)</h3><div class="pv-wrap">${HATS.map((h, i) => `<img alt="" style="width:40px;height:40px" src="${avatarUrl({ shape: shapes[(i + 3) % shapes.length], hat: h.key }, 40)}">`).join('')}</div>`;
+      <h3>Small (40 px)</h3><div class="pv-wrap">${HATS.map((h, i) => `<img alt="" style="width:40px;height:40px" src="${avatarUrl({ shape: shapes[(i + 3) % shapes.length], hat: h.key }, 40)}">`).join('')}</div>
+      <h3>Builder's Pass, Workshop set and Supporter hats</h3><div class="pv-wrap">${ALL_HATS.filter(h => !h.level).map(h => `<div class="pv-cell"><img alt="" style="width:72px;height:72px" src="${hatUrl(h.key, 72)}">${h.name}</div>`).join('')}</div>
+      <h3>Worn</h3><div class="pv-wrap">${ALL_HATS.filter(h => !h.level).map((h, i) => `<img alt="" style="width:72px;height:72px" src="${avatarUrl({ shape: shapes[i % shapes.length], face: i % 2 ? 'proud' : 'idle', hat: h.key }, 72)}">`).join('')}</div>
+      <h3>Later variants (hues turned)</h3><div class="pv-wrap">${['hardhat_ii', 'hardhat_iii', 'wizard_ii', 'beanie_iv', 'crown_ii', 'cowboy_ii'].map(k => `<div class="pv-cell"><img alt="" style="width:72px;height:72px" src="${hatUrl(k, 72)}">${k}</div>`).join('')}<div class="pv-cell"><img alt="" style="width:72px;height:72px;background:#eee" src="${hatUrl('mystery_hat', 72)}">unknown</div></div>`;
   } else if (name === 'logo') {
     root.innerHTML = `<h3>Logo (DOM, drops in)</h3><div class="pv-logo" style="display:flex;justify-content:center;padding:8px 0 14px"></div>
       <h3>Logo baked still (splash, share card)</h3><div class="pv-bake" style="display:flex;justify-content:center"></div>
@@ -241,6 +251,10 @@ function sheet(name: string): void {
     achievementsSheet(root);
   } else if (name === 'portraits') {
     portraitsSheet(root, still, qs);
+  } else if (name === 'cosmetics') {
+    cosmeticsSheet(root);
+  } else if (name === 'track') {
+    trackDemo(root, qs);
   } else if (name === 'titles') {
     root.innerHTML = `<h3>Biome title cards (the first visit adds the New postcard chip)</h3><div class="pv-titles"></div>`;
     const list = root.querySelector('.pv-titles')!;
@@ -254,7 +268,7 @@ function sheet(name: string): void {
 export function screensBar(): void {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 62px);display:flex;justify-content:center;gap:4px;flex-wrap:wrap;padding:0 8px;z-index:3;font:600 11px Fredoka,Nunito,system-ui,sans-serif';
-  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama'], ['avatar', 'Avatar'], ['hats', 'Hats'], ['ach', 'Badges 2'], ['achievements', 'Achievements'], ['achtoast', 'Toast'], ['shapes', 'Bag + shapes'], ['daily', 'Daily'], ['namecard', 'Ladder name'], ['portraits', 'Portraits'], ['workshop', 'Workshop']]) {
+  for (const [k, label] of [['menu', 'Menu'], ['pause', 'Pause'], ['summary', 'Summary'], ['profile', 'Profile'], ['settings', 'Settings'], ['icons', 'Icons'], ['badges', 'Badges'], ['logo', 'Logo'], ['brand', 'Icon'], ['titles', 'Titles'], ['pano', 'Panorama'], ['avatar', 'Avatar'], ['hats', 'Hats'], ['ach', 'Badges 2'], ['achievements', 'Achievements'], ['achtoast', 'Toast'], ['shapes', 'Bag + shapes'], ['daily', 'Daily'], ['namecard', 'Ladder name'], ['portraits', 'Portraits'], ['workshop', 'Workshop'], ['look', 'Your look'], ['track', 'Level track'], ['cosmetics', 'Cosmetics']]) {
     const b = document.createElement('button');
     b.textContent = label;
     b.style.cssText = `background:#FFC23D;color:${INK};border:2px solid ${INK};border-radius:10px;box-shadow:0 2px 0 ${INK};padding:2px 8px;font:inherit;cursor:pointer`;

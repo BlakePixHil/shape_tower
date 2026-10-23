@@ -10,7 +10,10 @@ import { HAZARD_TEX, type HazardTex, bakeHazard } from '../hazards.ts';
 import { type GlyphState, bakeBeamFill, bakeChevron, bakeContactDot, bakeContactRing, bakeGhostEdge, bakeGlyph } from '../guide.ts';
 import { type Baked, type Finish, bakePiece, bakeRim, bakeSilhouette } from '../piece.ts';
 import { POWER, POWER_ICON_NAMES, POWER_KINDS, type PowerIcon, type PowerKind, bakeBubble, bakeBubbleGloss, bakePowerIcon } from '../powers.ts';
-import { type Grade, bakeGradeStamp, bakePedestal, bakeSlab } from '../slab.ts';
+import { type FoundationLook, type Grade, bakeGradeStamp, bakePedestal, bakeSlab } from '../slab.ts';
+import type { FlagLook } from '../flags.ts';
+import { LANDING_TEX, type LandingAt, type LandingStyle, type LandingTex, bakeLandingTex, landingParticles } from '../landing.ts';
+import type { SkinLook } from '../skins.ts';
 import { ctx2d, makeCanvas } from '../util.ts';
 import { VFX_NAMES, type VfxName, bakeVfx } from '../vfx.ts';
 import { WIND, WIND_VARIANTS, type WindKind, type WindTex, bakeWind } from '../wind.ts';
@@ -31,6 +34,12 @@ export interface ArtTexturesOptions {
   highContrastGuide?: boolean;
   /** Atlas page size in px (default 2048, safe on every phone). */
   pageSize?: number;
+}
+
+/** One particle of a landing burst, in the shape of the game's Particles.spawn arguments (blend: ADD when `add`). */
+export interface LandingSpawn {
+  x: number; y: number; vx: number; vy: number; add: boolean;
+  opts: { tex: string; frame: string; tint: number; scale: number; endScale: number; life: number; gravity: number; drag: number; spin: number; angle?: number; alpha: number };
 }
 
 export type FacePart = `eyes_${Expression}` | `mouth_${Expression}` | 'pupil' | 'spiral' | 'sweat';
@@ -77,9 +86,11 @@ export class ArtTextures {
   }
 
   /** Bake ahead of time (e.g. on a loading screen) so nothing bakes mid-run. */
-  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; stone?: boolean; rim?: boolean; vfx?: boolean; powers?: boolean; wind?: boolean; hazards?: boolean; celebrations?: boolean } = {}): void {
+  prewarm(keys: string[], o: { finishes?: (Finish | null)[]; skin?: SkinLook | null; landing?: LandingStyle | null; stone?: boolean; rim?: boolean; vfx?: boolean; powers?: boolean; wind?: boolean; hazards?: boolean; celebrations?: boolean } = {}): void {
     for (const key of keys) for (let q = 0; q < 4; q++) {
-      for (const f of o.finishes ?? [null]) this.piece(key, q, { finish: f });
+      // A skin is drawn instead of the finish, so with one there's one body per rotation.
+      if (o.skin) this.piece(key, q, { skin: o.skin });
+      else for (const f of o.finishes ?? [null]) this.piece(key, q, { finish: f });
       if (o.stone ?? true) this.piece(key, q, { stone: true });
       if (o.rim) this.rim(key, q);
       this.silhouette(key, q);
@@ -88,6 +99,7 @@ export class ArtTextures {
     for (const ex of ['idle', 'falling', 'impact', 'proud', 'worried', 'panic', 'blink', 'squint'] as Expression[]) { this.face(`eyes_${ex}`); this.face(`mouth_${ex}`); }
     for (const p of ['pupil', 'spiral', 'sweat'] as FacePart[]) this.face(p);
     if (o.vfx ?? true) for (const v of VFX_NAMES) this.vfx(v);
+    if (o.landing) for (const t of new Set(o.landing.tex)) this.landing(t);
     if (o.wind ?? true) for (const k of Object.keys(WIND) as WindKind[]) for (let i = 0; i < WIND_VARIANTS[k]; i++) this.wind(`${k}${i}` as WindTex);
     if (o.hazards) { for (const h of HAZARD_TEX) this.hazard(h); this.hazardDash(); }
     if (o.celebrations) for (const c of CELEB_TEX) this.celebration(c);
@@ -101,9 +113,11 @@ export class ArtTextures {
 
   // ---- pieces ----
 
-  piece(key: string, q: number, o: { stone?: boolean; finish?: Finish | null; pattern?: boolean } = {}): TexRef {
-    return this.packed(this.name('piece', key, q, o.stone ? 'stone' : 'live', o.stone ? '-' : (o.finish ?? '-'), o.pattern ? 'pat' : ''),
-      () => bakePiece(key, q, this.s, { stone: o.stone, finish: o.finish, pattern: o.pattern, detail: this.cellPx >= 20 }));
+  /** A piece body. `skin` (cosmetics.ts skinFor(id)) is drawn instead of the finish; stone ignores both. */
+  piece(key: string, q: number, o: { stone?: boolean; finish?: Finish | null; pattern?: boolean; skin?: SkinLook | null } = {}): TexRef {
+    const skin = o.stone ? null : o.skin ?? null;
+    return this.packed(this.name('piece', key, q, o.stone ? 'stone' : 'live', o.stone || skin ? '-' : (o.finish ?? '-'), o.pattern ? 'pat' : '', skin ? `${skin.kind}.${skin.ink}.${skin.scale}` : ''),
+      () => bakePiece(key, q, this.s, { stone: o.stone, finish: o.finish, pattern: o.pattern, skin, detail: this.cellPx >= 20 }));
   }
   /** Space rim: layer under the body. */
   rim(key: string, q: number): TexRef { return this.packed(this.name('rim', key, q), () => bakeRim(key, q, this.s)); }
@@ -144,10 +158,14 @@ export class ArtTextures {
 
   // ---- foundations ----
 
-  /** Biome `bi`'s slab, `width` blocks wide. Origin: centre of the top surface. */
-  slab(bi: number, width: number): TexRef { return this.packed(this.name('slab', bi, width), () => bakeSlab(bi, width, this.s)); }
-  /** The Meadow's first wooden pedestal. Origin: centre of the top surface. */
-  pedestal(width: number, legs = 1.6): TexRef { return this.packed(this.name('pedestal', width, legs), () => bakePedestal(width, this.s, legs)); }
+  /** Biome `bi`'s slab, `width` blocks wide, or in foundation style `style` (cosmetics.ts foundationFor(id)). Origin: centre of the top surface. */
+  slab(bi: number, width: number, style?: FoundationLook | null): TexRef {
+    return this.packed(this.name('slab', style ? `${style.kind}.${style.turn.toFixed(3)}` : bi, width), () => bakeSlab(bi, width, this.s, style));
+  }
+  /** The Meadow's first wooden pedestal, or one in foundation style `style`. Origin: centre of the top surface. */
+  pedestal(width: number, legs = 1.6, style?: FoundationLook | null): TexRef {
+    return this.packed(this.name('pedestal', width, legs, style ? `${style.kind}.${style.turn.toFixed(3)}` : ''), () => bakePedestal(width, this.s, legs, style));
+  }
   gradeStamp(g: Grade): TexRef { return this.packed(this.name('grade', g), () => bakeGradeStamp(g, this.s)); }
 
   // ---- checkpoint line ----
@@ -162,8 +180,10 @@ export class ArtTextures {
   holdTick(): TexRef { return this.packed(this.name('holdtick'), () => bakeHoldTick(this.s)); }
   /** A display-face word with an Ink edge, e.g. "HOLD STEADY!". Origin: centre. */
   label(text: string, size = 0.36): TexRef { return this.packed(this.name('label', text, size), () => bakeLabel(text, this.s, size)); }
-  /** Claimed-line flag, wave frame f. Origin: foot of the pole. */
-  flag(f: number): TexRef { return this.packed(this.name('flag', f), () => bakeFlag(f, this.s)); }
+  /** Claimed-line flag, wave frame f, in flag style `style` (cosmetics.ts flagFor(id)) or the gold star flag. Origin: foot of the pole. */
+  flag(f: number, style?: FlagLook | null): TexRef {
+    return this.packed(this.name('flag', f, style ? `${style.kind}.${style.turn.toFixed(3)}` : ''), () => bakeFlag(f, this.s, style));
+  }
   pbFlag(): TexRef { return this.packed(this.name('pbflag'), () => bakePbFlag(this.s)); }
   /** Personal-best dash tile for a TileSprite. Origin: left, middle. */
   pbDash(): TexRef { return this.single(this.name('pbdash'), () => bakePbDash(this.s), 0, 0.5); }
@@ -175,6 +195,21 @@ export class ArtTextures {
 
   /** An effect texture for particles (see VFX for natural sizes in blocks). Origin: centre. */
   vfx(name: VfxName): TexRef { return this.packed(this.name('vfx', name), () => bakeVfx(name, this.s)); }
+
+  /** A landing-burst sprite (see LANDING_TEX for natural sizes in blocks). White with an Ink edge: tint it. Origin: centre. */
+  landing(name: LandingTex): TexRef { return this.packed(this.name('landing', name), () => bakeLandingTex(name, this.s)); }
+
+  /**
+   * One landing burst in `style` (cosmetics.ts landingFor(id)), ready for the game's Particles:
+   * `for (const p of art.landingBurst(style, at)) particles.spawn(p.x, p.y, p.vx, p.vy, { ...p.opts, blend: p.add ? ADD : NORMAL })`.
+   * Spawn them under the ghost and beam. Keep style.dust of the biome dust alongside.
+   */
+  landingBurst(style: LandingStyle, at: LandingAt): LandingSpawn[] {
+    return landingParticles(style, at).map(p => {
+      const r = this.landing(p.tex), k = this.scale / LANDING_TEX[p.tex];
+      return { x: p.x, y: p.y, vx: p.vx, vy: p.vy, add: p.add, opts: { tex: r.key, frame: r.frame, tint: p.tint, scale: p.size * k, endScale: p.endSize * k, life: p.life, gravity: p.gravity, drag: p.drag, spin: p.spin, angle: p.angle, alpha: p.add ? 0.9 : 1 } };
+    });
+  }
 
   /** A gust texture (curl, streak, leaf or wisp plus a variant number; see WIND for sizes). Origin: centre. */
   wind(name: WindTex): TexRef { return this.packed(this.name('wind', name), () => bakeWind(name, this.s)); }
