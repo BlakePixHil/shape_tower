@@ -11,6 +11,7 @@
     "achievements:check": "node --experimental-strip-types --no-warnings tests/achievements-check.ts",
     "stores:check": "node --experimental-strip-types --no-warnings tests/stores-check.ts",
     "stores:ids": "node --experimental-strip-types --no-warnings scripts/stores-ids.ts",
+    "stores:play": "node --experimental-strip-types --no-warnings scripts/play-achievements.ts",
     "store-kit": "node --experimental-strip-types --no-warnings scripts/store-kit.ts",
     "daily:check": "node --experimental-strip-types --no-warnings tests/daily-logic.ts",
     "names:check": "node --experimental-strip-types --no-warnings tests/names-check.ts",

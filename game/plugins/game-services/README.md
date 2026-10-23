@@ -19,8 +19,10 @@ the Achievements panel's "Open in …" button.
 
 ## Turning it on
 
-- **Play Games:** run `npm run stores:ids -- games-ids.xml` with the file Play Console exports
-  (Play Games Services > Achievements > Get resources). That writes the ids into `src/meta/store-ids.ts` and the
+- **Play Games:** with the Play service account key, `npm run stores:play -- <project id> --apply` makes the
+  achievements in Play Console through Google's Publishing API (icons still go in by hand) and writes their ids.
+  Or, for achievements made by hand, `npm run stores:ids -- games-ids.xml` reads the file Play Console exports
+  (Play Games Services > Achievements > Get resources). Both write the ids into `src/meta/store-ids.ts` and the
   project id into `android/app/src/main/res/values/game_services.xml`. Until then the project id is empty, Play
   Games is never started (its auto-start provider is removed from the manifest) and the button doesn't show.
 - **Game Center:** the ids are ours (`shapetower.<id>`), so nothing to import. Create them in App Store Connect
