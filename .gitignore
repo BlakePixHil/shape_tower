@@ -13,3 +13,6 @@ game/dist-apk/
 
 # The ladder server run locally (wrangler dev)
 .wrangler/
+
+# Gradle output of the local Capacitor plugins
+game/plugins/*/android/build/

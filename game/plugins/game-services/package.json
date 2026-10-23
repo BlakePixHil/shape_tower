@@ -1,0 +1,25 @@
+{
+  "name": "@shape-tower/game-services",
+  "version": "1.0.0",
+  "description": "Achievements on Google Play Games (Android) and Game Center (iOS) for Shape Tower.",
+  "private": true,
+  "license": "UNLICENSED",
+  "files": [
+    "android/src/main/",
+    "android/build.gradle",
+    "ios/Sources",
+    "Package.swift",
+    "ShapeTowerGameServices.podspec"
+  ],
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  }
+}

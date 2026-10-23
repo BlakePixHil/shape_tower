@@ -11,7 +11,7 @@ import {
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
 import type { Award, Profile } from './profile.ts';
-import { achievementCount, achievementsPanel, summaryStrip } from './trophies.ts';
+import { achievementCount, achievementsPanel, storeButton, summaryStrip } from './trophies.ts';
 import type { PlayerSettings } from './settings.ts';
 import { INK, INK_SOFT } from './palette.ts';
 
@@ -25,7 +25,7 @@ export interface ScreenSounds {
 
 /** The sound each kit action makes; anything else is a plain tap. */
 const ACTION_SOUND: Record<string, UiSound> = {
-  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
+  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open', stores: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap', scored: 'tap2', practice: 'start',
   tab: 'tab', join: 'open', edit: 'open', save: 'tap2', report: 'tap', reportYes: 'tap2', reportNo: 'back', forget: 'tap2', retry: 'tap',
 };
@@ -130,6 +130,8 @@ export class Screens {
   private unbind: (() => void) | null = null;
   /** The player's name on the menu and profile: their ladder name once they have one. */
   playerName = 'Builder';
+  /** The phone's game service for the Achievements panel's button (game.ts): its name, or null for none. */
+  stores: { label(): string | null; open(): void } | null = null;
   /** The Daily card's tab, kept between visits. */
   private dailyTab: DailyTab = 'ladder';
 
@@ -369,7 +371,10 @@ export class Screens {
 
   /** Every achievement by group: earned ones with their date, counted ones with progress. */
   achievements(p: Profile, onBack: () => void): void {
-    this.open('achievements', achievementsPanel(p), { close: onBack });
+    const panel = achievementsPanel(p), name = this.stores?.label();
+    // In the phone app, once the store's console is set up: open them in Play Games or Game Center.
+    if (name) panel.querySelector('.ui-ach-total')?.after(storeButton(name));
+    this.open('achievements', panel, { close: onBack, stores: () => this.stores?.open() });
   }
 
   /** Art's avatar picker: shape, face and a hat (hats above the player's level stay locked). Done keeps the choice. */

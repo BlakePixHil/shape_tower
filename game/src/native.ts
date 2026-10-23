@@ -7,6 +7,7 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import '@capacitor/haptics';
 import { StatusBar } from '@capacitor/status-bar';
+import type { GameServicesApi } from './meta/stores.ts';
 
 export const isNativeApp = (): boolean => Capacitor.isNativePlatform();
 
@@ -27,4 +28,9 @@ export function hideLaunchSplash(): void {
   if (!launchShown || !isNativeApp()) return;
   launchShown = false;
   void LaunchSplash.hide().catch(() => {});
+}
+
+/** Play Games (Android) or Game Center (iOS): plugins/game-services. Null on the game page. */
+export function gameServices(): GameServicesApi | null {
+  return isNativeApp() && Capacitor.isPluginAvailable('GameServices') ? registerPlugin<GameServicesApi>('GameServices') : null;
 }
