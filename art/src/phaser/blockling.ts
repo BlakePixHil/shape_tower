@@ -7,7 +7,9 @@
 import { ART } from '../config.ts';
 import { type Expression, FACE, PUPILS, pupilTravel } from '../face.ts';
 import { faceAt } from '../geometry.ts';
+import { skinFor } from '../cosmetics.ts';
 import type { Finish } from '../piece.ts';
+import type { SkinLook } from '../skins.ts';
 import { pose } from '../shapes.ts';
 import { clamp, hash } from '../util.ts';
 import type { ArtTextures, TexRef } from './textures.ts';
@@ -24,10 +26,14 @@ export interface BlocklingOptions {
   /** "Block faces" setting. */
   faces?: boolean;
   finish?: Finish | null;
+  /** The player's shape skin: a cosmetic id ('skin_polka') or a look from skinFor. Drawn instead of the finish. */
+  skin?: SkinLook | string | null;
   /** Colorblind patterns setting. */
   pattern?: boolean;
   depth?: number;
 }
+
+const lookOf = (s: SkinLook | string | null | undefined): SkinLook | null => (typeof s === 'string' ? skinFor(s) : s ?? null);
 
 export class BlocklingView {
   readonly key: string;
@@ -52,6 +58,7 @@ export class BlocklingView {
 
   private faces: boolean;
   private finish: Finish | null;
+  private skin: SkinLook | null;
   private pattern: boolean;
   private stone = 0;
   private rim = 0;
@@ -77,12 +84,13 @@ export class BlocklingView {
     this.seed = o.seed ?? 0;
     this.faces = o.faces ?? true;
     this.finish = o.finish ?? null;
+    this.skin = lookOf(o.skin);
     this.pattern = !!o.pattern;
     this.depth = o.depth ?? 0;
     this.nextBlink = this.blinkGap();
     const add = this.tex.scene.add;
     const img = (r: TexRef) => use(add.image(0, 0, r.key, r.frame), r);
-    this.body = img(this.tex.piece(key, 0, { finish: this.finish, pattern: this.pattern }));
+    this.body = img(this.tex.piece(key, 0, { finish: this.finish, pattern: this.pattern, skin: this.skin }));
     this.eyes = img(this.tex.face('eyes_idle'));
     const pk = this.tex.face('pupil');
     this.pupils = [img(pk), img(pk)];
@@ -150,6 +158,8 @@ export class BlocklingView {
   }
 
   setFinish(f: Finish | null): this { this.finish = f; this.applyBodyTextures(); return this; }
+  /** Change the shape skin (a cosmetic id or a look; null for the classic look). Purely visual. */
+  setSkin(s: SkinLook | string | null): this { this.skin = lookOf(s); this.applyBodyTextures(); return this; }
   setFaces(on: boolean): this { this.faces = on; this.refresh(); return this; }
   setAlpha(a: number): this { this.alpha = a; this.refresh(); return this; }
   setVisible(v: boolean): this { this.visible = v; this.refresh(); return this; }
@@ -207,7 +217,7 @@ export class BlocklingView {
   private applyBodyTextures(): void {
     const qq = ((this.q % 4) + 4) % 4;
     const full = this.stone >= 1;
-    use(this.body, this.tex.piece(this.key, qq, { stone: full, finish: this.finish, pattern: this.pattern }));
+    use(this.body, this.tex.piece(this.key, qq, { stone: full, finish: this.finish, pattern: this.pattern, skin: this.skin }));
     if (this.stone > 0 && this.stone < 1) {
       const st = this.tex.piece(this.key, qq, { stone: true });
       if (!this.stoneImg) { this.stoneImg = this.tex.scene.add.image(0, 0, st.key, st.frame); this.applyDepth(); }

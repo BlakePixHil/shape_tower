@@ -18,7 +18,7 @@ export const UI_ICONS = [
   'wind', 'junk', 'meteor', 'swirl', 'plumb',
   'combo', 'avalanche', 'toolbox', 'undo', 'needle', 'purist',
   'bag', 'shapes',
-  'workshop', 'restore', 'noads',
+  'workshop', 'restore', 'noads', 'pass',
 ] as const;
 export type UiIcon = (typeof UI_ICONS)[number];
 
@@ -375,6 +375,19 @@ const DRAW: Record<UiIcon, (c: Ctx) => void> = {
     curlArrow(c, 0.39, Math.PI * 0.72, Math.PI * 2.2);
   },
   noads: drawNoAds,
+  pass: c => {
+    // The Builder's Pass: a violet ticket, notched at both ends, a perforation, a gold star.
+    const t = new Path2D(), x = 0.42, y = 0.27, r = 0.06, n = 0.085;
+    t.moveTo(-x + r, -y); t.lineTo(x - r, -y); t.arcTo(x, -y, x, -y + r, r); t.lineTo(x, -n); t.arc(x, 0, n, -Math.PI / 2, Math.PI / 2, true);
+    t.lineTo(x, y - r); t.arcTo(x, y, x - r, y, r); t.lineTo(-x + r, y); t.arcTo(-x, y, -x, y - r, r); t.lineTo(-x, n); t.arc(-x, 0, n, Math.PI / 2, -Math.PI / 2, true);
+    t.lineTo(-x, -y + r); t.arcTo(-x, -y, -x + r, -y, r); t.closePath();
+    c.save(); c.rotate(-0.2);
+    fill(c, t, ['#A35CFF', '#D0A8FF', '#6F35D1']);
+    c.save(); c.clip(t); c.fillStyle = GOLD[0]; c.fillRect(-0.1, -0.4, 0.08, 0.8); c.restore();
+    c.setLineDash([0.04, 0.05]); line(c, (() => { const p = new Path2D(); p.moveTo(0.2, -0.22); p.lineTo(0.2, 0.22); return p; })(), 0.03, '#FFFFFF'); c.setLineDash([]);
+    const st = starPath(-0.26, 0.01, 0.13, 0.06); fill(c, st, GOLD, 0.02);
+    c.restore();
+  },
   purist: c => {
     const b = circlePath(0, 0, 0.27);
     fill(c, b, ['#7FD8FF', '#CFF3FF', '#3AA9C9'], 0.05);

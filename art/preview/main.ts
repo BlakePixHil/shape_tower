@@ -23,17 +23,23 @@
 // &sp=4.3 shows them at night). &ct=<s> starts that far in (1 = fireworks bursting, 2.5 = balloons mid-air).
 // &ui=menu|pause|summary|levelup|profile|settings|icons|badges|logo|titles opens a UI kit screen or sheet (see ui.ts).
 // Picking a biome (or climbing into one on the tour) also plays its title card.
+// &skin=<id> &found=<id> &flagstyle=<id> &landing=<id> dress the tower in cosmetics (cosmetics.ts ids: shape skin,
+// foundation style on the pedestal, the claimed flag, a landing burst on the top piece every 1.4 s); &look=set_candy|
+// set_robot|set_dragon wears a whole Workshop set. E.g. ?skin=skin_galaxy&found=foundation_crystal&cp=claim.
 // Options also work after a # (e.g. #gallery), for hosts that drop the query string.
 
 import * as Phaser from 'phaser';
 import {
   ART_SHAPES, ArtTextures, BIOMES, INK, LANDMARKS, POWER, POWER_COLORS, POWER_KINDS, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
   PowerBubble, SkyClock, bakeLandmark, pedestalHeight, pose, powerBarCss, powerIconUrl, rimAmount, skyColors,
+  WORKSHOP_SETS, foundationFor, landingFor, type LandingSpawn,
   WindView, HazardFx, Celebration, biomeCard, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob, setPlumb, setWindsock, windsock, type HazardType, type JunkKind, loadUiFonts, windDrifters, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
 } from '../src/index.ts';
 import { initUiPreview, screensBar } from './ui.ts';
 
 const qs = new URLSearchParams(location.search || location.hash.slice(1));
+const SET = WORKSHOP_SETS.find(s => s.id === qs.get('look'))?.items ?? [];
+const LOOK = { skin: qs.get('skin') ?? SET[0] ?? null, landing: qs.get('landing') ?? SET[1] ?? null, found: qs.get('found') ?? SET[2] ?? null, flag: qs.get('flagstyle') ?? SET[3] ?? null };
 /** Each hazard's biome, as a sky position for &hz. */
 const HZ_SP: Record<string, number> = { crosswind: 3.3, junk: 5.3, meteor: 6.3, dust: 7.3, sway: 8.3 };
 /** Each celebration's showcase biome, as a sky position for &cel. */
@@ -106,7 +112,7 @@ class Preview extends Phaser.Scene {
     const pedW = 6;
     this.left = W / 2 - pedW / 2 * this.cell;
     this.top = this.groundY - pedestalHeight() * this.cell;
-    const ped = this.tex.pedestal(pedW);
+    const ped = this.tex.pedestal(pedW, 1.6, foundationFor(LOOK.found));
     this.add.image(W / 2, this.top, ped.key, ped.frame).setOrigin(ped.originX, ped.originY).setScale(this.tex.scale).setDepth(5);
 
     const T: Omit<Placed, 'view'>[] = [
@@ -120,10 +126,10 @@ class Preview extends Phaser.Scene {
       { key: 'J', q: 1, c: 4, r: 4, angle: 0.04 },
     ];
     T.forEach((p, i) => {
-      const view = new BlocklingView(this.tex, p.key, { seed: i * 3 + 1, depth: 10 + i * 0.01, finish: 'wood' });
+      const view = new BlocklingView(this.tex, p.key, { seed: i * 3 + 1, depth: 10 + i * 0.01, finish: 'wood', skin: LOOK.skin });
       this.tower.push({ ...p, view });
     });
-    this.active = new BlocklingView(this.tex, 'L', { seed: 99, depth: 20, finish: 'wood' }).setExpression('falling');
+    this.active = new BlocklingView(this.tex, 'L', { seed: 99, depth: 20, finish: 'wood', skin: LOOK.skin }).setExpression('falling');
     this.guide = new GuideView(this.tex, 1000);
     this.pb = new PbMarker(this.tex, 899);
     this.time0 = this.time.now;
@@ -213,6 +219,30 @@ class Preview extends Phaser.Scene {
     if (o.add) img.setBlendMode(Phaser.BlendModes.ADD);
     const nat = VFX[name as keyof typeof VFX] ?? 0.4;
     this.fxs.push({ img, x, y, vx, vy, g: o.g ?? 0, drag: o.drag ?? 0, age: 0, life: o.life ?? 0.6, s0: (o.s0 ?? nat) / nat, s1: (o.s1 ?? nat) / nat, spin: o.spin ?? 0, face: !!o.face, a0: o.alpha ?? 1 });
+  }
+
+  private lands: { img: Phaser.GameObjects.Image; p: LandingSpawn; age: number }[] = [];
+
+  /** &landing: the cosmetic landing burst at the top piece's foot every 1.4 s, moved the way the game's Particles move them. */
+  private landingUpdate(t: number, dt: number): void {
+    const st = landingFor(LOOK.landing), cell = this.cell;
+    if (st && Math.floor(t / 1.4) !== Math.floor((t - dt) / 1.4)) {
+      for (const p of this.tex.landingBurst(st, { x0: this.left + 2 * cell, x1: this.left + 5 * cell, y: this.top - 4 * cell, impact: 0.8, ppb: cell })) {
+        const img = this.add.image(p.x, p.y, p.opts.tex, p.opts.frame).setDepth(19).setTint(p.opts.tint).setRotation(p.opts.angle ?? Math.random() * 6.28);
+        if (p.add) img.setBlendMode(Phaser.BlendModes.ADD);
+        this.lands.push({ img, p: { ...p }, age: 0 });
+      }
+    }
+    for (const l of this.lands) {
+      const p = l.p, o = p.opts, k = Math.exp(-o.drag * dt);
+      l.age += dt;
+      p.vx *= k; p.vy = p.vy * k + o.gravity * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      const f = Math.min(1, l.age / o.life);
+      l.img.setPosition(p.x, p.y).setScale(o.scale + (o.endScale - o.scale) * f).setAlpha(o.alpha * (f < 0.6 ? 1 : 1 - (f - 0.6) / 0.4));
+      l.img.rotation += o.spin * dt;
+      if (f >= 1) l.img.destroy();
+    }
+    this.lands = this.lands.filter(l => l.age < l.p.opts.life);
   }
 
   private powersUpdate(t: number, dt: number, pieceX: number, pieceY: number, contacts: [number, number][]): void {
@@ -533,12 +563,13 @@ class Preview extends Phaser.Scene {
     this.guide.update(dt);
     void aw;
 
+    this.landingUpdate(t, dt);
     if (qs.has('powers')) { this.powersUpdate(t, dt, pieceX, pieceY, contacts); return; }
 
     // Checkpoint line 8 blocks up: the tower closes in (0-2.5 s), holds steady (2.5-4.5 s), claims, and starts over.
     const pedW = 6, cpY = this.top - 8 * cell, view = cam.worldView;
     const cycle = 7.5, phase = qs.get('cp');
-    if (!this.line || (!phase && t - this.lineBorn > cycle)) { this.line?.destroy(); this.line = new CheckpointLine(this.tex, 3, 900); this.lineBorn = t; }
+    if (!this.line || (!phase && t - this.lineBorn > cycle)) { this.line?.destroy(); this.line = new CheckpointLine(this.tex, 3, 900).setFlagStyle(LOOK.flag); this.lineBorn = t; }
     const lt = phase === 'near' ? 2 : phase === 'hold' ? 3.8 : phase === 'claim' ? 99 : t - this.lineBorn;
     this.line.set({ y: cpY, x0: view.x - cell, x1: view.x + view.width + cell, near: Math.min(1, lt / 2.5), hold: lt > 2.5 ? Math.min(1, (lt - 2.5) / 2) : 0 });
     if (lt >= 4.5 && !this.line.claimed) this.line.claim(this.left, this.left + pedW * cell);
