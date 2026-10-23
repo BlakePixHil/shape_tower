@@ -138,7 +138,7 @@ async function toSummary(page) {
   step('the name card: "Join the ladder", Save locked while empty, no prices anywhere', n.title === 'Join the ladder' && n.saveLocked && !n.priced && !n.forget, JSON.stringify({ title: n.title, saveLocked: n.saveLocked, priced: n.priced }));
   const pick = id => n.picks.find(p => p.id === id);
   step('portraits: level ones owned to level 6, the rest locked with what unlocks them', !pick('meadow').locked && !pick('sunset').locked && pick('nightsky').locked && pick('nightsky').label === 'Level 8'
-    && pick('disco').locked && pick('disco').label === 'Workshop · Soon' && pick('supporter').label === 'Supporter Pack · Soon' && pick('moonwalk').locked && !!pick('moonwalk').label,
+    && pick('disco').locked && pick('disco').label === 'Workshop' && pick('supporter').label === 'Supporter Pack · Soon' && pick('moonwalk').locked && !!pick('moonwalk').label,
   JSON.stringify(n.picks.map(p => `${p.id}:${p.locked ? p.label : 'owned'}`)));
   await typeName(page, 'ab');
   n = await nameCardState(page);

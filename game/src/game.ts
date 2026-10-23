@@ -24,6 +24,7 @@ import { ADS, addRunTime, adCheck, adShown, freshAds, loadAds, type AdState } fr
 import { Store } from './store/store.ts';
 import { adNetwork } from './store/admob.ts';
 import { Workshop } from './view/workshop.ts';
+import { PRODUCTS } from './meta/shop.ts';
 import { splashDone, splashFailed } from './view/splash.ts';
 
 /** Calls Sound adds in its next module version, made safe until then. */
@@ -173,6 +174,9 @@ async function boot(): Promise<void> {
     audio()?.screen?.('profile');
     workshop.open(back, focus);
   }
+  // Bought portraits show in the picker, and a locked one opens the Workshop on it, then comes back to the card.
+  ladder.bought = () => store.ent.portraits;
+  ladder.shop = (portrait, back) => openWorkshop(() => sc.ladderName(ladder.nameHooks(back)), PRODUCTS.find(p => p.portrait === portrait && !p.soon)?.id);
 
   // ------------------------------------------------------------------ flow
 

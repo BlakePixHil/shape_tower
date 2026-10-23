@@ -7,7 +7,7 @@ import {
   MENU_MODES, armDailyScored, armForget, armReport, avatarPanel, dailyCard, dailyChip, dailyMenuDot, injectLadderCss, injectUiCss, levelUp, mainMenu, nameCard, onAction, pauseCard, prewarmUi,
   profilePanel, readAvatar, readNameCard, readSettings, rewardAt, setDailyCountdown, setDailyLadder, setDailyTab, setNameBusy, setNameHint, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type DailyTab, type LadderPanelData, type NameCardData, type SettingGroup, type SettingValue,
-  setWorkshopItem, setWorkshopNote, testPurchaseSheet, workshopPanel, type WorkshopData, type WorkshopItem,
+  PURCHASE_SETTINGS, setWorkshopItem, setWorkshopNote, setWorkshopRestoring, setWorkshopStore, testPurchaseSheet, workshopPanel, type WorkshopData, type WorkshopItem, type WorkshopStore,
 } from '@art/index.ts';
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
@@ -61,7 +61,12 @@ export interface SettingsShop {
 /** An open Workshop: redraw a card, say how a buy went, and ask the test store's question. */
 export interface WorkshopHandle {
   update(item: WorkshopItem): void;
-  note(text: string, tone?: 'good' | 'bad'): void;
+  /** A toast over the bottom; `stay` keeps it up (a payment still pending). */
+  note(text: string, tone?: 'good' | 'bad', stay?: boolean): void;
+  /** The footer line, when the store answers (or can't be reached). */
+  store(kind: WorkshopStore): void;
+  /** Restore purchases is asking the store. */
+  restoring(on: boolean): void;
   /** The test store's sheet: resolves whether they tapped Buy (test). */
   confirm(item: WorkshopItem): Promise<boolean>;
   /** Still showing. */
@@ -75,6 +80,8 @@ export interface NameCardHooks {
   onSave(name: string, portrait: string): Promise<string | null>;
   onForget(): Promise<string | null>;
   onClose(): void;
+  /** A locked shop portrait was tapped: open the Workshop on it (its portrait id). */
+  onWorkshop?(portrait: string): void;
 }
 
 // Only what the kit doesn't style: the container, the testing note, the build tag and QA's questions.
@@ -91,11 +98,6 @@ const CSS = `
 .sc-ask .sc-thanks { font: 600 14px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 0; }
 .sc-ladder { margin-top: 10px; text-align: left; }
 .sc-ladder-msg { font: 700 13px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 2px 0; min-height: 1em; }
-.sc-shop { margin-top: 10px; }
-.sc-shop .ui-set b { font: 800 14px 'Nunito', sans-serif; color: ${INK}; text-align: right; }
-.sc-shop .ui-btn { margin: 8px 0 2px; }
-.sc-shop .sc-shop-row { display: flex; flex-direction: column; padding: 2px 0 8px; }
-.sc-shop .ui-nc-forget { align-self: center; }
 `;
 
 /** The settings the game has today, in the kit's layout format (gameplay.md §2, audio section). */
@@ -117,6 +119,14 @@ const LAYOUT: SettingGroup[] = [
     { key: 'faces', kind: 'toggle', label: 'Block faces' },
   ] },
 ];
+
+/** Art's Purchases group for this build: what the ads line says, and the test store's reset. */
+function purchases(shop: SettingsShop): SettingGroup {
+  const sub = { on: 'Remove ads in the Workshop', off: 'Removed for good', none: 'Only ever in the phone app' }[shop.ads];
+  const items = PURCHASE_SETTINGS.items.map(it => (it.key === 'ads' && it.kind === 'action' ? { ...it, sub } : it));
+  if (shop.onClearTest) items.push({ key: 'clearTest', kind: 'action', label: 'Clear test purchases', icon: 'restart', action: 'clearTest', sub: 'Test store: nothing was ever charged' });
+  return { ...PURCHASE_SETTINGS, items };
+}
 
 const CAUSES: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit', zen: 'Nicely built!' };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -186,7 +196,7 @@ export class Screens {
   }
 
   /** Shows one kit screen and routes its data-action buttons, each with its sound. */
-  private open(name: string, el: HTMLElement, handlers: Record<string, () => void>): HTMLElement {
+  private open(name: string, el: HTMLElement, handlers: Record<string, (target: HTMLElement) => void>): HTMLElement {
     this.close();
     this.name = name;
     this.root.appendChild(el);
@@ -195,12 +205,12 @@ export class Screens {
     return el;
   }
 
-  private bind(el: HTMLElement, handlers: Record<string, () => void>): () => void {
-    return onAction(el, action => {
+  private bind(el: HTMLElement, handlers: Record<string, (target: HTMLElement) => void>): () => void {
+    return onAction(el, (action, target) => {
       const fn = handlers[action];
       if (!fn) return;
       this.sounds.ui(ACTION_SOUND[action] ?? 'tap');
-      fn();
+      fn(target);
     });
   }
 
@@ -240,22 +250,19 @@ export class Screens {
    */
   workshop(o: { data: WorkshopData; focus?: string; onBuy(id: string): void; onRestore(): void; onClose(): void }): WorkshopHandle {
     const el = workshopPanel(o.data);
-    const buy = (e: Event): void => {
-      const t = (e.target as HTMLElement | null)?.closest<HTMLElement>('[data-action="buy"]');
-      if (t && el.contains(t) && !t.classList.contains('locked') && t.dataset.id) o.onBuy(t.dataset.id);
-    };
-    this.open('workshop', el, { close: o.onClose, restore: o.onRestore, buy: () => {} }); // buy: its sound; the listener below knows which
-    el.addEventListener('click', buy);
+    this.open('workshop', el, { close: o.onClose, restore: o.onRestore, buy: t => { if (t.dataset.id) o.onBuy(t.dataset.id); } });
     const unbind = this.unbind;
     let sheet: { el: HTMLElement; done(ok: boolean): void } | null = null;
-    this.unbind = () => { el.removeEventListener('click', buy); sheet?.done(false); unbind?.(); };
+    this.unbind = () => { sheet?.done(false); unbind?.(); };
     if (o.focus) requestAnimationFrame(() => el.querySelector(`[data-id="${o.focus}"]`)?.scrollIntoView({ block: 'center' }));
     return {
       update: item => setWorkshopItem(el, item),
-      note: (text, tone) => setWorkshopNote(el, text, tone),
+      note: (text, tone, stay) => setWorkshopNote(el, text, tone, { stay }),
+      store: kind => setWorkshopStore(el, kind),
+      restoring: on => setWorkshopRestoring(el, on),
       confirm: item => new Promise<boolean>(resolve => {
         sheet?.done(false);
-        const s = testPurchaseSheet(item);
+        const s = testPurchaseSheet(item, { avatar: o.data.avatar, still: o.data.still });
         this.root.appendChild(s);
         const off = this.bind(s, { confirm: () => me.done(true), cancel: () => me.done(false) });
         const me = { el: s, done: (ok: boolean) => { off(); s.remove(); if (sheet === me) sheet = null; resolve(ok); } };
@@ -360,6 +367,7 @@ export class Screens {
     this.open('name', el, {
       close: o.onClose,
       save,
+      workshop: t => o.onWorkshop?.(t.dataset.id ?? ''),
       forget: () => {
         if (performance.now() - armedAt < ARM_MS) { clearTimeout(disarm); void busy(o.onForget); return; }
         armedAt = performance.now();
@@ -381,19 +389,12 @@ export class Screens {
    * `shop`: the purchases rows (from the main menu only).
    */
   settings(s: PlayerSettings, onChange: (s: PlayerSettings) => void, onBack: () => void, forgetLadder?: () => Promise<string | null>, shop?: SettingsShop): void {
-    const el = settingsPanel(s as unknown as Record<string, SettingValue>, LAYOUT);
+    const values = s as unknown as Record<string, SettingValue>;
+    const el = settingsPanel(shop ? { ...values, ads: { on: 'On', off: 'Off', none: 'None' }[shop.ads] } : values, shop ? [...LAYOUT, purchases(shop)] : LAYOUT);
     let armedAt = 0;
     let disarm = 0;
-    if (shop) {
-      const ads = { on: 'On, now and then between runs', off: 'Off for good', none: 'None in this version' }[shop.ads];
-      el.querySelector('.ui-panel')?.insertAdjacentHTML('beforeend', `<div class="sc-shop"><h2 class="ui-h2">Purchases</h2><div class="ui-group">
-        <div class="ui-set"><span><img alt="" src="${uiIconUrl('info', 22)}">Ads</span><b>${esc(ads)}</b></div>
-        <div class="sc-shop-row">
-          ${shop.ads === 'on' ? `<button type="button" class="ui-btn wide" data-action="workshop">Remove ads in the Workshop</button>` : ''}
-          <button type="button" class="ui-btn wide" data-action="restore"><img alt="" src="${uiIconUrl('restart', 22)}">Restore purchases</button>
-          ${shop.onClearTest ? `<button type="button" class="ui-nc-forget" data-action="clearTest">Clear test purchases</button>` : ''}
-        </div></div><p class="sc-ladder-msg sc-shop-msg" aria-live="polite"></p></div>`);
-    }
+    // How Restore (or clearing the test store) went, under the Purchases rows.
+    if (shop) el.querySelector('[data-action="restore"]')?.closest('.ui-group')?.insertAdjacentHTML('afterend', '<p class="sc-ladder-msg sc-shop-msg" aria-live="polite"></p>');
     const shopMsg = (text: string) => { const m = el.querySelector<HTMLElement>('.sc-shop-msg'); if (m) m.textContent = text; };
     if (forgetLadder) {
       injectLadderCss();

@@ -22,7 +22,19 @@ const errors = [];
 page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
 page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
 await page.addInitScript(() => {
-  window.claude = { use: async () => null };
+  // A stand-in for claude.ai's page database (as in ladder-check), empty, so the Daily card has Join.
+  const docs = new Map();
+  const snap = (path, d) => ({ id: path.split('/').pop(), exists: !!d, data: () => (d ? JSON.parse(JSON.stringify(d)) : undefined) });
+  const query = (col, filters = [], n = 1000) => ({
+    where: (f, op, v) => query(col, [...filters, [f, v]], n),
+    limit: m => query(col, filters, m),
+    get: async () => ({ docs: [...docs.entries()].filter(([p, d]) => p.startsWith(col + '/') && p.split('/').length === 2 && filters.every(([f, v]) => d[f] === v)).slice(0, n).map(([p, d]) => snap(p, d)) }),
+  });
+  const db = {
+    doc: path => ({ get: async () => snap(path, docs.get(path)), set: async d => { docs.set(path, JSON.parse(JSON.stringify(d))); }, delete: async () => { docs.delete(path); } }),
+    collection: col => ({ ...query(col), doc: id => db.doc(`${col}/${id ?? Math.random().toString(36).slice(2)}`) }),
+  };
+  window.claude = { use: async name => (name === 'db' ? db : name === 'user' ? { id: async () => 'u-workshop' } : null) };
   if (!sessionStorage.getItem('seeded')) {
     sessionStorage.setItem('seeded', '1');
     // A level 5 player who has played before: today's Daily Boost and free Second Wind are still unused.
@@ -42,6 +54,11 @@ await page.waitForTimeout(1200);
 const steps = [];
 const step = (name, ok, info = '') => { steps.push({ name, ok, info }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info ? '  — ' + info : ''}`); };
 const shot = name => page.screenshot({ path: `${out}/${name}.png` });
+/** Settings' Purchases group: its rows' text, and the line under it. */
+const purchasesText = () => page.evaluate(() => {
+  const g = document.querySelector('.sc-root [data-action="restore"]')?.closest('.ui-group');
+  return g ? g.textContent.replace(/\s+/g, ' ').trim() : '';
+});
 /** Prices and buy buttons anywhere outside the Workshop. */
 const selling = () => page.evaluate(() => {
   const root = document.querySelector('.sc-root');
@@ -126,7 +143,7 @@ const paused = await selling();
 step('no prices or buy buttons on the pause card', !paused.buy && !paused.price, JSON.stringify(paused));
 await page.click('.sc-root [data-action="settings"]');
 await page.waitForTimeout(300);
-const pauseSettings = await page.evaluate(() => ({ shop: !!document.querySelector('.sc-root .sc-shop'), restore: !!document.querySelector('.sc-root [data-action="restore"]') }));
+const pauseSettings = await page.evaluate(() => ({ shop: /Purchases/.test(document.querySelector('.sc-root')?.textContent ?? ''), restore: !!document.querySelector('.sc-root [data-action="restore"]') }));
 step('Settings opened from pause has no purchases rows', !pauseSettings.shop && !pauseSettings.restore, JSON.stringify(pauseSettings));
 await page.waitForTimeout(2500);
 const pausedMs = (await shop()).ads.runMs;
@@ -151,10 +168,10 @@ await page.waitForTimeout(500);
 
 // A scored Daily try: Second Wind stays off, upgrade or not.
 await page.click('.sc-root.show [data-action="daily"]');
-await page.waitForTimeout(600);
-await page.click('.sc-root [data-action="scored"]');
-await page.waitForTimeout(150);
-await page.click('.sc-root [data-action="scored"]');
+await page.waitForSelector('.ui-daily');
+// The armed button pulses, so the second tap is forced (as in daily-check).
+await page.click('.ui-daily [data-action="scored"]');
+await page.click('.ui-daily [data-action="scored"]', { force: true });
 await page.waitForFunction(() => window.__wobble.scene.sim?.ctrl !== null && window.__wobble.scene.started, null, { timeout: 10000 });
 const daily = await page.evaluate(() => window.__wobble.scene.sim.secondWind);
 step('a scored Daily try has Second Wind off, even with the upgrade', daily === 'off', daily);
@@ -192,12 +209,10 @@ await page.waitForTimeout(400);
 
 await page.click('.sc-root.show [data-action="settings"]');
 await page.waitForTimeout(400);
-const set1 = await page.evaluate(() => {
-  const s = document.querySelector('.sc-root .sc-shop');
-  return { found: !!s, text: s?.textContent.replace(/\s+/g, ' ').trim() ?? '', buy: document.querySelectorAll('.sc-root [data-action="buy"]').length, clear: !!s?.querySelector('[data-action="clearTest"]') };
-});
+const set1 = { text: await purchasesText(), ...(await page.evaluate(() => ({ buy: document.querySelectorAll('.sc-root [data-action="buy"]').length, clear: !!document.querySelector('.sc-root [data-action="clearTest"]') }))) };
+set1.found = !!set1.text;
 await shot('05-settings');
-step('Settings says this version has no ads, with Restore purchases and no buy button', set1.found && /None in this version/.test(set1.text) && /Restore purchases/.test(set1.text) && !set1.buy && !/\$\d/.test(set1.text), set1.text);
+step('Settings says this version has no ads, with Restore purchases and no buy button', set1.found && /Ads between runs.*None/.test(set1.text) && /phone app/.test(set1.text) && /Restore purchases/.test(set1.text) && !set1.buy && !/\$\d/.test(set1.text), set1.text);
 await page.click('.sc-root [data-action="restore"]');
 await page.waitForTimeout(500);
 const restored = await page.evaluate(() => document.querySelector('.sc-root .sc-shop-msg')?.textContent ?? '');
@@ -236,8 +251,8 @@ async function runAndQuit(ms) {
   await page.click('.sc-root [data-action="quit"]');
   await page.waitForSelector('.sc-root.show [data-action="again"]', { timeout: 20000 });
 }
-await page.evaluate(() => { window.__wobble.shop.adState.runMs = 5.9 * 60_000; });
-await runAndQuit(1500);
+await page.evaluate(() => { window.__wobble.shop.adState.runMs = 6 * 60_000 - 500; });
+await runAndQuit(2200);
 let a = await page.evaluate(() => ({ shows: window.__ads.shows.length, prepares: window.__ads.prepares, check: window.__wobble.shop.adCheck() }));
 step('6 minutes of run time crossed in this run: due, loading behind the summary, nothing shown yet', a.check === 'due' && a.prepares >= 1 && a.shows === 0, JSON.stringify(a));
 await page.waitForTimeout(2500);
@@ -278,12 +293,10 @@ await page.click('.sc-root [data-action="home"]');
 await page.waitForTimeout(500);
 a = await page.evaluate(() => ({ shows: window.__ads.shows.length, check: window.__wobble.shop.adCheck() }));
 step('after Remove Ads: no ad, however long the play', a.shows === 1 && a.check === 'noads', JSON.stringify(a));
-const set2 = await page.evaluate(async () => {
-  document.querySelector('.sc-root.show [data-action="settings"]')?.click();
-  await new Promise(r => setTimeout(r, 400));
-  return document.querySelector('.sc-root .sc-shop')?.textContent.replace(/\s+/g, ' ').trim() ?? '';
-});
-step('Settings then says ads are off, with no Remove ads line', /Off for good/.test(set2) && !/Remove ads in the Workshop/.test(set2), set2);
+await page.click('.sc-root.show [data-action="settings"]');
+await page.waitForTimeout(400);
+const set2 = await purchasesText();
+step('Settings then says ads are off, with no Remove ads line', /Ads between runs\s*Removed for good\s*Off/.test(set2) && !/Remove ads in the Workshop/.test(set2), set2);
 await shot('06-settings-noads');
 
 step('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));

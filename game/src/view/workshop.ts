@@ -50,7 +50,9 @@ export class Workshop {
 
   private redraw(): void {
     if (!this.handle?.open) return;
-    for (const s of this.data().sections) for (const it of s.items) this.handle.update(it);
+    const d = this.data();
+    this.handle.store(d.store);
+    for (const s of d.sections) for (const it of s.items) this.handle.update(it);
   }
 
   data(): WorkshopData {
@@ -115,15 +117,16 @@ export class Workshop {
       this.o.bought(p);
       h.note(`Thanks! ${p.name} is yours${entitlements([id]).portraits.length ? '. Pick it for your ladder portrait.' : '.'}`, 'good');
     } else {
-      h.note(...AFTER[r]);
+      h.note(...AFTER[r], r === 'pending');
     }
   }
 
   private async restore(): Promise<void> {
     const h = this.handle;
     if (!h) return;
-    h.note('Asking the store…');
+    h.restoring(true);
     const r = await this.store.restore();
+    h.restoring(false);
     h.note(!r.ok ? 'Can\'t reach the store right now. What you own still works.' : r.added ? `Restored ${r.added} purchase${r.added === 1 ? '' : 's'}.` : 'Everything you own is already here.', r.ok ? 'good' : 'bad');
   }
 }
