@@ -35,8 +35,10 @@ const base = `http://127.0.0.1:${server.address().port}/index.html`;
 
 // 'daily' needs an art build with the Daily Tower card (#60); '&done=1' shows a played day, on the ladder since
 // #68. 'portraits' is the Daily ladder's 19 portrait styles, animated (#67); 'namecard' the ladder's name card, new
-// and joined (#68); '&ladder=empty' a day nobody has played yet, '&ladder=join' the join strip.
-const SCREENS = ['menu', 'pause', 'summary', 'levelup', 'profile', 'settings', 'daily', 'daily&done=1', 'daily&ladder=empty', 'daily&ladder=join', 'portraits', 'namecard', 'namecard&done=1'];
+// and joined (#68); '&ladder=empty' a day nobody has played yet, '&ladder=join' the join strip. 'profile&ladder=join'
+// is the Profile before a name is picked (#83), 'workshop' the Workshop with the test store and 'settings&shop=1'
+// Settings with its Purchases rows (#86).
+const SCREENS = ['menu', 'pause', 'summary', 'levelup', 'profile', 'profile&ladder=join', 'settings', 'settings&shop=1', 'workshop', 'daily', 'daily&done=1', 'daily&ladder=empty', 'daily&ladder=join', 'portraits', 'namecard', 'namecard&done=1'];
 const SIZES = [
   { name: 'small 16:9', width: 360, height: 640 },
   { name: 'tall 19.5:9', width: 390, height: 844 },

@@ -19,9 +19,10 @@ if [ -d "$R/game" ]; then
   run "game: typecheck" bash -c 'cd game && npm run -s typecheck'
   run "game: sim smoke" bash -c 'cd game && npm run -s sim:smoke'
   run "game: gesture check" bash -c 'cd game && npm run -s gesture:check'
-  # Achievement rules, the Daily Tower's days, seeds, attempts and shape sets, the ladder's name filter, and
-  # the achievements' Play Games / Game Center mapping and native bridge, in Node (#37, #60, #68, #84).
-  for c in achievements:check daily:check names:check stores:check; do
+  # Achievement rules, the Daily Tower's days, seeds, attempts and shape sets, the ladder's name filter, the
+  # achievements' Play Games / Game Center mapping and native bridge, and the shop's products, prices, Supporter
+  # offer and ad pacing, in Node (#37, #60, #68, #84, monetisation).
+  for c in achievements:check daily:check names:check stores:check shop:check; do
     grep -q "\"$c\"" "$R/game/package.json" && run "game: ${c/:/ }" bash -c "cd game && npm run -s $c"
   done
   run "game: build" bash -c 'cd game && npm run -s build'
@@ -32,8 +33,9 @@ if [ -d "$R/game" ]; then
     # a Zen run through pause, Finish, the summary and back to Endless (#57), the achievements' toast,
     # strip, tally and panel (#37), the Daily Tower's card, attempts and played day (#60), the loading
     # splash (#61), a checkpoint hold's grey, knock freeze and colour overshoot (#62), and the Daily ladder
-    # against the ladder API run in memory on this machine, never the live one (#68).
-    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check ladder-check; do
+    # against the ladder API run in memory on this machine, never the live one (#68), and the Workshop with the
+    # test store and a pretend ad network: prices only there, Second Wind, Purchases rows, ad pacing (monetisation).
+    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check ladder-check workshop-check; do
       [ -f "$R/game/tests/$t.mjs" ] && run "game: $t" bash -c "cd game && node tests/$t.mjs"
     done
   fi

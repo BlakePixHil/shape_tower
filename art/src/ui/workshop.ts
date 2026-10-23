@@ -417,7 +417,7 @@ const CSS = `
 .ui-shop-item.pt > b { font: 700 13px/1.1 var(--display); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-shop-item.pt .ui-shop-tip { margin: 0; font-size: 10.5px; }
 .ui-shop-item.pt .ui-shop-act { justify-content: center; width: 100%; }
-.ui-shop-item.pt .ui-shop-buy { min-width: 0; width: 100%; min-height: 40px; padding: 4px 6px; font-size: 16px; border-radius: 12px; }
+.ui-shop-item.pt .ui-shop-buy { min-width: 0; width: 100%; min-height: 44px; padding: 4px 6px; font-size: 16px; border-radius: 12px; }
 .ui-shop-item.pt .ui-shop-buy:disabled { font-size: 11.5px; }
 .ui-shop-item.pt .ui-shop-owned { font-size: 13px; padding: 3px 7px; }
 .ui-shop-item.pt .ui-shop-pending { max-width: none; font-size: 10px; padding: 3px 5px; }
