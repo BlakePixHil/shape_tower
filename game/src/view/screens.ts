@@ -4,7 +4,7 @@
 // the XP tally's timing and QA's one-tap questions.
 
 import {
-  MENU_MODES, armDailyScored, armForget, armReport, avatarPanel, dailyCard, dailyChip, dailyMenuDot, injectLadderCss, injectUiCss, levelUp, mainMenu, nameCard, onAction, pauseCard, prewarmUi,
+  FORGET_LABEL, MENU_MODES, armDailyScored, armForget, armReport, avatarPanel, dailyCard, dailyChip, dailyMenuDot, injectLadderCss, injectUiCss, levelUp, mainMenu, nameCard, onAction, pauseCard, prewarmUi,
   profilePanel, readAvatar, readNameCard, readSettings, rewardAt, setDailyCountdown, setDailyLadder, setDailyTab, setNameBusy, setNameHint, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type DailyTab, type LadderPanelData, type NameCardData, type SettingGroup, type SettingValue,
   PURCHASE_SETTINGS, setWorkshopItem, setWorkshopNote, setWorkshopRestoring, setWorkshopStore, testPurchaseSheet, workshopPanel, type WorkshopData, type WorkshopItem, type WorkshopStore,
@@ -26,7 +26,7 @@ export interface ScreenSounds {
 
 /** The sound each kit action makes; anything else is a plain tap. */
 const ACTION_SOUND: Record<string, UiSound> = {
-  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', done: 'tap2', achievements: 'open',
+  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', name: 'open', done: 'tap2', achievements: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap', scored: 'tap2', practice: 'start',
   tab: 'tab', join: 'open', edit: 'open', save: 'tap2', report: 'tap', reportYes: 'tap2', reportNo: 'back', forget: 'tap2', retry: 'tap',
   workshop: 'open', buy: 'tap2', confirm: 'tap2', cancel: 'back', restore: 'tap', clearTest: 'tap2',
@@ -73,7 +73,7 @@ export interface WorkshopHandle {
   readonly open: boolean;
 }
 
-/** The ladder name card: its data, the live hint, and saving or deleting (each resolves an error line, or null when done). */
+/** The name card (the player's name and portrait): its data, the live hint, and saving or deleting (each resolves an error line, or null when done). */
 export interface NameCardHooks {
   data: NameCardData;
   hint(name: string): { text: string; ok: boolean };
@@ -82,6 +82,13 @@ export interface NameCardHooks {
   onClose(): void;
   /** A locked shop portrait was tapped: open the Workshop on it (its portrait id). */
   onWorkshop?(portrait: string): void;
+}
+
+/** The Profile's name and portrait (gameplay.md §10.3), the same ones the Daily ladder shows. */
+export interface ProfileIdentity {
+  get(): { portrait: string; nameAction?: 'edit' | 'pick'; nameNote?: string; still?: boolean };
+  /** Opens the name card; `back` shows the profile again. */
+  onName(back: () => void): void;
 }
 
 // Only what the kit doesn't style: the container, the testing note, the build tag and QA's questions.
@@ -168,7 +175,7 @@ export class Screens {
   readonly root: HTMLDivElement;
   private name = '';
   private unbind: (() => void) | null = null;
-  /** The player's name on the menu and profile: their ladder name once they have one. */
+  /** The player's name on the menu and profile: the one they picked (it's their ladder name too), until then Builder. */
   playerName = 'Builder';
   /** The Daily card's tab, kept between visits. */
   private dailyTab: DailyTab = 'ladder';
@@ -340,8 +347,8 @@ export class Screens {
   }
 
   /**
-   * The ladder name card: a name with a live hint, a portrait, and (once on the ladder) deleting their
-   * name and scores, which takes two taps.
+   * The name card, from the Profile or the Daily card: a name with a live hint, a portrait, and (once they
+   * have a name) deleting it and their Daily scores, which takes two taps.
    */
   ladderName(o: NameCardHooks): void {
     const el = nameCard(o.data);
@@ -385,7 +392,7 @@ export class Screens {
   // ---------------------------------------------------------------- settings
 
   /**
-   * Settings. `forgetLadder`: the player has a ladder name, so a last row deletes it and their scores (two taps).
+   * Settings. `forgetLadder`: the player has a name, so a last row deletes it and their Daily scores (two taps).
    * `shop`: the purchases rows (from the main menu only).
    */
   settings(s: PlayerSettings, onChange: (s: PlayerSettings) => void, onBack: () => void, forgetLadder?: () => Promise<string | null>, shop?: SettingsShop): void {
@@ -399,7 +406,7 @@ export class Screens {
     if (forgetLadder) {
       injectLadderCss();
       el.querySelector('.ui-panel')?.insertAdjacentHTML('beforeend',
-        '<div class="sc-ladder"><h2 class="ui-h2">Daily ladder</h2><button type="button" class="ui-nc-forget" data-action="forget">Delete my ladder name and scores</button><p class="sc-ladder-msg"></p></div>');
+        `<div class="sc-ladder"><h2 class="ui-h2">Your name</h2><button type="button" class="ui-nc-forget" data-action="forget">${FORGET_LABEL}</button><p class="sc-ladder-msg"></p></div>`);
     }
     const apply = () => { Object.assign(s, readSettings(el)); onChange(s); };
     el.addEventListener('input', e => { if ((e.target as HTMLInputElement).type === 'range') apply(); });
@@ -419,7 +426,7 @@ export class Screens {
           clearTimeout(disarm);
           void forgetLadder().then(error => {
             const msg = el.querySelector<HTMLElement>('.sc-ladder-msg');
-            if (msg) msg.textContent = error ?? 'Done: your ladder name and scores are gone.';
+            if (msg) msg.textContent = error ?? 'Done: your name and Daily scores are gone.';
             if (!error) el.querySelector('.sc-ladder [data-action="forget"]')?.remove();
           });
           return;
@@ -436,18 +443,21 @@ export class Screens {
 
   // ---------------------------------------------------------------- profile
 
-  /** The profile; tapping the avatar opens the picker, and `onSave` stores a new choice. */
-  profile(p: Profile, onBack: () => void, onSave: () => void): void {
+  /**
+   * The profile; tapping the avatar opens the picker, and `onSave` stores a new choice. `id` is the name and
+   * portrait (the Daily ladder's too): read fresh each time it's shown, and `onName` opens the name card.
+   */
+  profile(p: Profile, onBack: () => void, onSave: () => void, id?: ProfileIdentity): void {
     const st = p.stats;
     const el = profilePanel({
-      name: this.playerName, ...xpOf(p), avatar: p.avatar,
+      name: this.playerName, ...xpOf(p), avatar: p.avatar, ...id?.get(),
       stats: { bestHeight: st.bestHeight, bestBiome: Math.max(0, st.bestBiome - 1), bricks: st.bricks, perfects: st.perfects, rows: st.rows, checkpoints: st.checkpoints, runs: p.runs, streak: p.streak },
       postcards: p.postcards,
       // Achievements (gameplay.md §18.3): a row under the stats opens the panel.
       achievements: achievementCount(p),
     });
-    const back = () => this.profile(p, onBack, onSave);
-    this.open('profile', el, { close: onBack, avatar: () => this.avatar(p, back, onSave), achievements: () => this.achievements(p, back) });
+    const back = () => this.profile(p, onBack, onSave, id);
+    this.open('profile', el, { close: onBack, avatar: () => this.avatar(p, back, onSave), name: () => id?.onName(back), achievements: () => this.achievements(p, back) });
   }
 
   /** Every achievement by group: earned ones with their date, counted ones with progress. */

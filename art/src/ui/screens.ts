@@ -17,6 +17,7 @@ import { type UiIcon, uiIconUrl } from './icons.ts';
 import { logoElement } from './logo.ts';
 import { HATS, type Hat, drawHat, hatUrl } from './hats.ts';
 import { postcardElement } from './postcard.ts';
+import { portraitHtml } from './portraits.ts';
 import { part, rrPath } from '../sticker.ts';
 
 const DPR = (): number => (typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1);
@@ -386,6 +387,17 @@ export interface ProfileStats {
 export interface ProfileData extends XpState {
   name: string;
   avatar?: AvatarSpec;
+  /** Their portrait (portraits.ts): the avatar sits in it, as on the Daily ladder. Without one, the bare avatar. */
+  portrait?: string;
+  /**
+   * The name's button (action name): 'edit' once they have a name, 'pick' (a strip under the head) while
+   * they don't. Leave it out where names can't be set (no ladder in this copy of the game).
+   */
+  nameAction?: 'edit' | 'pick';
+  /** A line under the head about their name, e.g. that it was reported. */
+  nameNote?: string;
+  /** Hold an animated portrait still (Reduce Motion). */
+  still?: boolean;
   stats: ProfileStats;
   /** One entry per biome: the postmark date when first reached ('' for no date), or null if not reached yet. */
   postcards: (string | null)[];
@@ -394,8 +406,10 @@ export interface ProfileData extends XpState {
 }
 
 /**
- * The profile panel: avatar, name, badge and title, the XP bar, stats, the Achievements row and the biome postcards.
- * Actions: close, avatar (tapping the avatar: open avatarPanel), achievements (the row: open achievementsPanel).
+ * The profile panel: portrait and avatar, name, badge and title, the XP bar, stats, the Achievements row and the
+ * biome postcards. The name and portrait are the player's on the Daily ladder too.
+ * Actions: close, avatar (tapping the avatar: open avatarPanel), name (Edit or Pick a name: open nameCard),
+ * achievements (the row: open achievementsPanel).
  */
 export function profilePanel(d: ProfileData): HTMLElement {
   const s = d.stats;
@@ -403,9 +417,14 @@ export function profilePanel(d: ProfileData): HTMLElement {
   const root = el(`<div class="ui ui-overlay" role="dialog" aria-label="Profile"><div class="ui-panel ui-profile">
     ${iconBtn('close', 'close', 'Close', 'sm ui-close')}
     <div class="ui-prof-head">
-      <button type="button" class="ui-av-edit" data-action="avatar" aria-label="Change your Blockling"><img class="ui-avatar" alt="" src="${avatarUrl(d.avatar, 72)}"><i><img alt="" src="${hatUrl('party', 18)}"></i></button>
-      <div><b>${esc(d.name)}</b><div class="ui-row">${badge(d.level, 34)}<span class="ui-plate">${esc(titleFor(d.level))}</span></div></div>
+      <button type="button" class="ui-av-edit" data-action="avatar" aria-label="Change your Blockling">${d.portrait ? portraitHtml(d.portrait, d.avatar, 76, { still: d.still }) : `<img class="ui-avatar" alt="" src="${avatarUrl(d.avatar, 72)}">`}<i><img alt="" src="${hatUrl('party', 18)}"></i></button>
+      <div class="ui-prof-id">
+        <b${d.name.length > 12 ? ' class="long"' : ''}>${esc(d.name)}</b>
+        <div class="ui-row">${badge(d.level, 34)}<span class="ui-plate">${esc(titleFor(d.level))}</span>${d.nameAction === 'edit' ? `<button type="button" class="ui-btn ui-prof-edit" data-action="name" aria-label="Change your name and portrait">Edit</button>` : ''}</div>
+      </div>
     </div>
+    ${d.nameNote ? `<p class="ui-prof-note">${esc(d.nameNote)}</p>` : ''}
+    ${d.nameAction === 'pick' ? `<div class="ui-prof-pick"><span><b>No name yet</b><span>Your name and portrait show here and on the Daily ladder.</span></span>${btn('name', 'Pick a name', undefined, 'primary')}</div>` : ''}
     <div class="ui-prof-xp"></div>
     <h2 class="ui-h2">Stats</h2>
     <div class="ui-stats">

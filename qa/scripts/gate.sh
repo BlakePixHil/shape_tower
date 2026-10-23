@@ -19,9 +19,9 @@ if [ -d "$R/game" ]; then
   run "game: typecheck" bash -c 'cd game && npm run -s typecheck'
   run "game: sim smoke" bash -c 'cd game && npm run -s sim:smoke'
   run "game: gesture check" bash -c 'cd game && npm run -s gesture:check'
-  # Achievement rules, the Daily Tower's days, seeds, attempts and shape sets, and the ladder's name filter,
-  # in Node (#37, #60, #68).
-  for c in achievements:check daily:check names:check; do
+  # Achievement rules, the Daily Tower's days, seeds, attempts and shape sets, the ladder's name filter, and
+  # the achievements' Play Games / Game Center mapping and native bridge, in Node (#37, #60, #68, #84).
+  for c in achievements:check daily:check names:check stores:check; do
     grep -q "\"$c\"" "$R/game/package.json" && run "game: ${c/:/ }" bash -c "cd game && npm run -s $c"
   done
   run "game: build" bash -c 'cd game && npm run -s build'

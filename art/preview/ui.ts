@@ -4,7 +4,8 @@
 // &ui=workshop opens the Workshop with the test store (see workshop.ts for its options); &ui=settings&shop=1 adds the Purchases group.
 // &ui=shapes shows the bag and the shapes-left counter, banners and red edge counting down (see budget.ts).
 // &ui=daily opens the Daily Tower card with today's try still open (&done=1: today's score, the streak and best days;
-// &ladder=loading|offline|none|empty|join for the ladder's other states). &ui=namecard opens the ladder name card.
+// &ladder=loading|offline|none|empty|join for the ladder's other states). &ui=namecard opens the name card (name and portrait),
+// which the profile's Edit opens too (&ui=profile&ladder=join: no name yet).
 // &ui=icons|badges|logo|brand|hats|ach|portraits shows a sheet (brand: app icon, Android layers, splash, share card; portraits: see portraits.ts). &lv=<level> sets the player's level (default 7).
 // &still=1 skips the animations, as Reduce Motion does. Without &ui, a Screens row sits above the biome picker.
 // &rail=1 shows the altitude rail climbing through a few biomes, with the off-screen checkpoint and lost-piece chips.
@@ -104,9 +105,11 @@ export function openScreen(name: string): void {
     onAction(l, close(l));
   } else if (name === 'profile') {
     const dates = ['20 OCT 2026', '20 OCT 2026', '21 OCT 2026', '21 OCT 2026', '', null, null, null, null, null];
-    const p = mount(profilePanel({ name: 'Blake', ...xpAt(level, 0.62), avatar, postcards: dates,
+    // &ladder=join: no name yet (Builder, with the "Pick a name" strip).
+    const named = qs.get('ladder') !== 'join';
+    const p = mount(profilePanel({ name: named ? 'Blake' : 'Builder', ...xpAt(level, 0.62), avatar, postcards: dates, portrait: 'sunset', nameAction: named ? 'edit' : 'pick', still,
       stats: { bestHeight: 84.6, bestBiome: 4, bricks: 2318, perfects: 412, rows: 57, checkpoints: 31, runs: 46, streak: 3 }, achievements: { got: 17, total: 47 } }));
-    onAction(p, a => { if (a === 'avatar' || a === 'achievements') openScreen(a); else p.remove(); });
+    onAction(p, a => { if (a === 'avatar' || a === 'achievements') openScreen(a); else if (a === 'name') openScreen('namecard'); else p.remove(); });
   } else if (name === 'avatar') {
     // Done keeps the choice and refreshes the avatar wherever it shows.
     const v = mount(avatarPanel({ avatar, level }));
