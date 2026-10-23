@@ -32,4 +32,6 @@ an upload key made when the Play developer account exists.
   page's loading splash (`assets/splash/layout.css`): the Meadow sky, clouds, hills and the menu's logo.
   `MainActivity` keeps it behind a see-through web view until the page's splash has painted over it,
   then `LaunchSplashPlugin.hide()` (called from `src/native.ts`) clears it, so there's never a blank frame.
+- Achievements on Google Play Games come from the local plugin in `plugins/game-services` (see its README).
+  It stays off, and Play Games never starts, until `npm run stores:ids` sets the Play Games project id.
 - Portrait only.

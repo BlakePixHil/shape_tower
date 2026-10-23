@@ -1,0 +1,16 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- Play Games reads the game's project id from here. Empty (res/values/game_services.xml) until the
+             Play Console project exists; the app's own game_services.xml overrides it then. -->
+        <meta-data
+            android:name="com.google.android.gms.games.APP_ID"
+            android:value="@string/game_services_project_id" />
+        <!-- Play Games would start itself at launch; GameServicesPlugin starts it only once the id is set, so a
+             build without one never touches Play Games at all. -->
+        <provider
+            android:name="com.google.android.gms.games.provider.PlayGamesInitProvider"
+            android:authorities="${applicationId}.playgamesinitprovider"
+            tools:node="remove" />
+    </application>
+</manifest>

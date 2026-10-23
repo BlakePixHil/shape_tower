@@ -106,3 +106,14 @@ export function achievementsPanel(p: Profile): HTMLElement {
   }));
   return artPanel({ groups });
 }
+
+/** Under the panel's total in the phone app: the same achievements in Google Play Games or Game Center. Action: stores. */
+export function storeButton(name: string): HTMLElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'ui-btn wide ui-ach-store';
+  b.dataset.action = 'stores';
+  b.style.marginTop = '12px';
+  b.textContent = `Open in ${name}`;
+  return b;
+}

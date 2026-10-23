@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The Play Games project id. Empty here, so the plugin stays off; the app sets the real one in its own
+         res/values/game_services.xml (npm run stores:ids). -->
+    <string name="game_services_project_id" translatable="false"></string>
+</resources>
