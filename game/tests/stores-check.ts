@@ -9,6 +9,7 @@ import { StoreSync, isIncremental, storeRows, type GameServicesApi, type StoreSe
 import type { Profile } from '../src/view/profile.ts';
 import { parseGamesIds, playResName, projectIdResource, storeIdsSource } from '../scripts/stores-ids.ts';
 import { storeKit } from '../scripts/store-kit.ts';
+import { planPlay, playAchievement, type PlayAchievement } from '../scripts/play-achievements.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -178,6 +179,25 @@ ${ACHIEVEMENTS.map((a, i) => i % 2 ? `  <!--achievement ${a.name}-->\n  <string 
   const current = storeIdsSource(STORE_IDS);
   const { readFileSync } = await import('node:fs');
   check('Rewriting the current table changes nothing (the script and the file agree)', readFileSync(new URL('../src/meta/store-ids.ts', import.meta.url).pathname, 'utf8') === current);
+}
+
+// ---------------------------------------------------------------- Play Games through the Publishing API
+
+{
+  const rows = storeRows();
+  const inc = rows.find(r => r.steps)!, secret = rows.find(r => r.hidden)!, plain = rows.find(r => !r.steps && !r.hidden)!;
+  const a = playAchievement(inc), b = playAchievement(secret), c = playAchievement(plain);
+  check('API: a counted one is INCREMENTAL with its steps', a.achievementType === 'INCREMENTAL' && a.stepsToUnlock === inc.steps);
+  check('API: a secret one starts HIDDEN, the rest REVEALED', b.initialState === 'HIDDEN' && c.initialState === 'REVEALED' && c.achievementType === 'STANDARD' && c.stepsToUnlock === undefined);
+  check('API: English name, text and points in the draft', c.draft.name.translations[0].locale === 'en-US' && c.draft.name.translations[0].value === plain.name
+    && c.draft.description.translations[0].value === plain.text && c.draft.pointValue === plain.points);
+  const fresh = planPlay(rows, []);
+  check('First run: makes all of them, in the game\'s order', fresh.create.map(r => r.id).join() === rows.map(r => r.id).join() && !Object.keys(fresh.have).length);
+  const there = (r: typeof rows[number], id: string, over: Partial<PlayAchievement> = {}): PlayAchievement => ({ ...playAchievement(r), id, ...over });
+  const changed = { ...playAchievement(rows[2]), id: 'CgkIc', draft: { ...playAchievement(rows[2]).draft, pointValue: 200 } };
+  const again = planPlay(rows, [there(rows[0], 'CgkIa'), { ...there(rows[1], 'CgkIb'), draft: { ...playAchievement(rows[1]).draft, name: { ...playAchievement(rows[1]).draft.name, translations: [{ kind: 'gamesConfiguration#localizedString', locale: 'en-US', value: rows[1].name.toUpperCase() }] } } }, changed]);
+  check('Run again: ones already there keep their ids (names match whatever the case)', again.have[rows[0].id] === 'CgkIa' && again.have[rows[1].id] === 'CgkIb' && again.have[rows[2].id] === 'CgkIc' && again.create.length === rows.length - 3);
+  check('One changed in the console is reported, not made again', again.differ.join() === rows[2].id, again.differ.join());
 }
 
 // ---------------------------------------------------------------- the kit
