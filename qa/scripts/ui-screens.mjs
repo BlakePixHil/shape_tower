@@ -37,8 +37,9 @@ const base = `http://127.0.0.1:${server.address().port}/index.html`;
 // #68. 'portraits' is the Daily ladder's 19 portrait styles, animated (#67); 'namecard' the ladder's name card, new
 // and joined (#68); '&ladder=empty' a day nobody has played yet, '&ladder=join' the join strip. 'profile&ladder=join'
 // is the Profile before a name is picked (#83), 'workshop' the Workshop with the test store and 'settings&shop=1'
-// Settings with its Purchases rows (#86).
-const SCREENS = ['menu', 'pause', 'summary', 'levelup', 'profile', 'profile&ladder=join', 'settings', 'settings&shop=1', 'workshop', 'daily', 'daily&done=1', 'daily&ladder=empty', 'daily&ladder=join', 'portraits', 'namecard', 'namecard&done=1'];
+// Settings with its Purchases rows (#86). 'look' is "Your look" (a level-23 player; &pass=1 with the Builder's Pass,
+// &sets=... owning sets, &tab=hat another slot), 'track' the level track, '&lu=intro|owned' its level-up card (#89).
+const SCREENS = ['menu', 'pause', 'summary', 'levelup', 'profile', 'profile&ladder=join', 'settings', 'settings&shop=1', 'workshop', 'daily', 'daily&done=1', 'daily&ladder=empty', 'daily&ladder=join', 'portraits', 'namecard', 'namecard&done=1', 'look', 'look&pass=1&sets=set_candy,set_robot&supporter=1', 'look&tab=hat', 'track', 'track&lu=intro', 'track&lu=owned'];
 const SIZES = [
   { name: 'small 16:9', width: 360, height: 640 },
   { name: 'tall 19.5:9', width: 390, height: 844 },
@@ -75,12 +76,22 @@ for (const size of SIZES) {
       const sw = document.scrollingElement.scrollWidth;
       if (sw > vw + 1) problems.push(`the page scrolls sideways (${sw} px wide in a ${vw} px viewport)`);
       const controls = [...document.querySelectorAll('button, a[href], input, select, [role=button], [role=switch], [role=slider]')].filter(visible);
+      // A control inside a sideways scroller (the level track) is reached by scrolling it, so the scroller is what
+      // has to fit the screen, not the control. A scroller here is a box that scrolls sideways and not up and down,
+      // so a tall panel that also spills sideways still counts as a fault.
+      const scroller = (el) => {
+        for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+          if (/auto|scroll/.test(getComputedStyle(p).overflowX) && p.scrollWidth > p.clientWidth + 1 && p.scrollHeight <= p.clientHeight + 1) return p;
+        }
+        return null;
+      };
       for (const el of controls) {
         const r = el.getBoundingClientRect();
         // A range input's hit area is its whole track, so only its height matters.
         const isRange = el.matches('input[type=range]');
         const isToggleInput = el.matches('input[type=checkbox], input[type=radio]') && el.closest('label');
-        if (r.left < -1 || r.right > vw + 1) problems.push(`"${label(el)}" runs off the side (${Math.round(r.left)} to ${Math.round(r.right)} of ${vw})`);
+        const sc = scroller(el), edge = sc ? sc.getBoundingClientRect() : r;
+        if (edge.left < -1 || edge.right > vw + 1) problems.push(`"${label(sc ?? el)}"${sc ? `, the scroller holding "${label(el)}",` : ''} runs off the side (${Math.round(edge.left)} to ${Math.round(edge.right)} of ${vw})`);
         const box = isToggleInput ? el.closest('label').getBoundingClientRect() : r;
         if (!isRange && (box.width < MIN_TAP - 0.5 || box.height < MIN_TAP - 0.5)) problems.push(`"${label(el)}" is ${Math.round(box.width)} × ${Math.round(box.height)} px, under ${MIN_TAP}`);
         if (isRange && box.height < MIN_TAP / 2) problems.push(`slider "${label(el)}" is only ${Math.round(box.height)} px tall`);
