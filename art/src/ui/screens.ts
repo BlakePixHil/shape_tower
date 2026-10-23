@@ -321,6 +321,8 @@ export interface MenuData extends XpState {
   name: string;
   avatar?: AvatarSpec;
   modes?: MenuMode[];
+  /** Show the Workshop button beside the profile chip (action workshop). */
+  workshop?: boolean;
   /** Skip the logo's drop-in (Reduce Motion, or coming back from a run). */
   still?: boolean;
 }
@@ -336,8 +338,9 @@ function ring(f: number): string {
 
 /**
  * The main menu overlay, for over the Meadow scene: profile chip (avatar, XP ring, badge, name, title)
- * top-left, settings top-right, the logo, then Play and the modes. Actions: profile, settings, play,
- * and each mode's id (locked modes get .locked and data-locked="N" and don't fire).
+ * top-left with the Workshop button beside it (when `workshop`), settings top-right, the logo, then Play
+ * and the modes. Actions: profile, workshop, settings, play, and each mode's id (locked modes get
+ * .locked and data-locked="N" and don't fire).
  */
 export function mainMenu(d: MenuData): HTMLElement {
   const modes = (d.modes ?? MENU_MODES).map(m => {
@@ -348,10 +351,13 @@ export function mainMenu(d: MenuData): HTMLElement {
   }).join('');
   const root = el(`<div class="ui ui-menu">
     <div class="ui-menu-top">
-      <button type="button" class="ui-profile-chip" data-action="profile" aria-label="Profile">
-        <span class="ui-ring">${ring(d.need > 0 ? d.into / d.need : 0)}<img class="ui-avatar" alt="" src="${avatarUrl(d.avatar, 38)}">${badge(d.level, 26)}</span>
-        <span><b>${esc(d.name)}</b><span>${esc(titleFor(d.level))}</span></span>
-      </button>
+      <div class="ui-menu-left">
+        <button type="button" class="ui-profile-chip" data-action="profile" aria-label="Profile">
+          <span class="ui-ring">${ring(d.need > 0 ? d.into / d.need : 0)}<img class="ui-avatar" alt="" src="${avatarUrl(d.avatar, 38)}">${badge(d.level, 26)}</span>
+          <span><b>${esc(d.name)}</b><span>${esc(titleFor(d.level))}</span></span>
+        </button>
+        ${d.workshop ? `<button type="button" class="ui-btn icon ui-menu-shop" data-action="workshop" aria-label="Workshop">${icon('workshop', 34)}</button>` : ''}
+      </div>
       ${iconBtn('settings', 'settings', 'Settings')}
     </div>
     <div class="ui-menu-logo"></div>
@@ -518,7 +524,9 @@ export type SettingValue = boolean | number | string;
 export type SettingItem =
   | { key: string; kind: 'toggle'; label: string; icon?: UiIcon }
   | { key: string; kind: 'slider'; label: string; icon?: UiIcon; min?: number; max?: number; step?: number }
-  | { key: string; kind: 'choice'; label: string; icon?: UiIcon; options: [value: string, label: string][] };
+  | { key: string; kind: 'choice'; label: string; icon?: UiIcon; options: [value: string, label: string][] }
+  /** A row that's a button: fires `action` (e.g. "Remove ads" opening the Workshop, Restore purchases), with `value` on the right and `sub` under the label. */
+  | { key: string; kind: 'action'; label: string; icon?: UiIcon; action: string; value?: string; sub?: string };
 export interface SettingGroup { title: string; items: SettingItem[] }
 
 /** The settings from gameplay.md §2 and the audio section. Pass your own layout to settingsPanel to change it. */
@@ -542,16 +550,34 @@ export const SETTINGS_LAYOUT: SettingGroup[] = [
   ] },
 ];
 
+/**
+ * Settings' Purchases group (monetisation plan v2), for the game to add to its layout once the store is in:
+ * whether ads show (its value: put 'On' or 'Off' under the `ads` key; the row opens the Workshop) and
+ * Restore purchases. No buy buttons here.
+ */
+export const PURCHASE_SETTINGS: SettingGroup = { title: 'Purchases', items: [
+  { key: 'ads', kind: 'action', label: 'Ads between runs', icon: 'noads', action: 'workshop', sub: 'Remove ads in the Workshop' },
+  { key: 'restore', kind: 'action', label: 'Restore purchases', icon: 'restore', action: 'restore' },
+] };
+
 function sliderFill(i: HTMLInputElement): void {
   const min = Number(i.min || 0), max = Number(i.max || 1);
   i.style.setProperty('--v', `${(((Number(i.value) - min) / (max - min || 1)) * 100).toFixed(1)}%`);
 }
 
-/** The settings panel, filled from `values`. Read it back with readSettings; it fires input and change events as usual. Action: close. */
+/**
+ * The settings panel, filled from `values` (an action row shows a string value on its right). Read it back
+ * with readSettings; it fires input and change events as usual. Actions: close, and each action row's.
+ */
 export function settingsPanel(values: Record<string, SettingValue>, layout: SettingGroup[] = SETTINGS_LAYOUT): HTMLElement {
   const label = (it: SettingItem): string => `<span>${it.icon ? icon(it.icon, 22) : ''}${esc(it.label)}</span>`;
   const item = (it: SettingItem): string => {
     const v = values[it.key], name = `ui-set-${it.key}`;
+    if (it.kind === 'action') {
+      const val = typeof v === 'string' ? v : it.value;
+      return `<button type="button" class="ui-set act" data-action="${esc(it.action)}" data-key="${esc(it.key)}"><span>${it.icon ? icon(it.icon, 22) : ''}<span>${esc(it.label)}${it.sub ? `<small>${esc(it.sub)}</small>` : ''}</span></span>`
+        + `<em>${val ? esc(val) : ''}<i aria-hidden="true">›</i></em></button>`;
+    }
     if (it.kind === 'toggle') return `<label class="ui-set">${label(it)}<input class="ui-toggle" type="checkbox" name="${name}" data-key="${it.key}"${v ? ' checked' : ''}></label>`;
     if (it.kind === 'slider') {
       const min = it.min ?? 0, max = it.max ?? 1, step = it.step ?? 0.05;

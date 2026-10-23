@@ -149,6 +149,9 @@ export function uiCss(): string {
   padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px calc(env(safe-area-inset-bottom, 0px) + 18px); }
 .ui-menu > * { pointer-events: auto; }
 .ui-menu-top { width: 100%; display: flex; justify-content: space-between; align-items: flex-start; }
+.ui-menu-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ui-menu-shop { width: 52px; height: 52px; border-radius: 16px; }
+.ui-menu-shop img { width: 34px; height: 34px; }
 .ui-profile-chip { appearance: none; margin: 0; display: flex; align-items: center; gap: 8px; background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 4px 0 var(--ink);
   padding: 4px 12px 4px 4px; cursor: pointer; font: inherit; color: inherit; text-align: left; transition: transform 300ms cubic-bezier(.3,2.2,.5,1), box-shadow 300ms cubic-bezier(.3,2.2,.5,1); }
 .ui-profile-chip:active { transform: translateY(4px) scale(0.97); box-shadow: 0 0 0 var(--ink); transition-duration: 50ms; }
@@ -232,6 +235,15 @@ export function uiCss(): string {
 .ui-set > span { font: 700 15px/1.2 var(--body); display: flex; gap: 8px; align-items: center; }
 .ui-set > span img { width: 22px; height: 22px; }
 .ui-set.col { flex-direction: column; align-items: stretch; gap: 6px; padding: 8px 0; }
+/* An action row (Remove ads, Restore purchases): the whole row is the button, with its value and a chevron on the right. */
+.ui-set.act { appearance: none; width: 100%; margin: 0; padding: 6px 0; background: none; border-width: 0 0 2px; border-style: dashed; border-color: rgba(34,24,58,0.15); font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.ui-set.act:last-child { border-bottom: 0; }
+.ui-set.act:active { background: var(--paper-2); }
+.ui-set.act:focus-visible { outline: 3px solid var(--xp); outline-offset: -3px; border-radius: 8px; }
+.ui-set.act > span > span { display: flex; flex-direction: column; gap: 1px; }
+.ui-set.act small { font: 600 12px/1.25 var(--body); color: var(--ink-soft); }
+.ui-set.act em { flex: none; display: flex; align-items: center; gap: 6px; font: 700 14px/1 var(--display); font-style: normal; color: var(--ink-soft); }
+.ui-set.act em i { font: 700 24px/1 var(--display); font-style: normal; color: var(--ink); margin-top: -3px; }
 .ui-toggle { appearance: none; -webkit-appearance: none; margin: 0; flex: none; position: relative; width: 54px; height: 32px; border: 3px solid var(--ink); border-radius: 999px; background: var(--paper-2);
   box-shadow: 0 3px 0 var(--ink); cursor: pointer; transition: background 160ms; }
 .ui-toggle::before { content: ''; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 3px solid var(--ink); transition: transform 260ms cubic-bezier(.3,1.8,.5,1); }
