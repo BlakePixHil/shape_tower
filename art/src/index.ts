@@ -43,6 +43,10 @@ export {
 } from './ui/portraits.ts';
 export { SHAPES_ALERT, SHAPES_LOW, alertEdge, setAlertEdge, setShapeCounter, shapeAlert, shapeCounter } from './ui/budget.ts';
 export { warmUrls } from './urls.ts';
+export {
+  WORKSHOP_COPY, drawWorkshopArt, injectWorkshopCss, setWorkshopItem, setWorkshopNote, setWorkshopRestoring, setWorkshopStore, testPurchaseSheet, workshopArtUrl, workshopPanel,
+  type WorkshopArt, type WorkshopData, type WorkshopItem, type WorkshopSection, type WorkshopState, type WorkshopStore,
+} from './ui/workshop.ts';
 export { HATS, drawHat, hatUrl, type Hat, type HatInfo } from './ui/hats.ts';
 export {
   armDailyScored, dailyCard, dailyChip, dailyMenuDot, setDailyCountdown, setDailyLadder, setDailyTab, type DailyCardData, type DailyResultData, type DailyTab,
@@ -55,7 +59,7 @@ export {
   type AchTier, type AchTierInfo, type AchievementBadge, type AchievementGroup, type AchievementItem, type AchievementStripItem, type AchievementToastData, type AchievementToastOptions,
 } from './ui/achievements.ts';
 export {
-  AVATAR_FACES, AVATAR_SHAPES, MENU_MODES, SETTINGS_LAYOUT, UNLOCKS, avatarPanel, avatarUrl, drawAvatarFigure, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel,
+  AVATAR_FACES, AVATAR_SHAPES, MENU_MODES, PURCHASE_SETTINGS, SETTINGS_LAYOUT, UNLOCKS, avatarPanel, avatarUrl, drawAvatarFigure, levelUp, loadUiFonts, mainMenu, onAction, pauseCard, profilePanel,
   readAvatar, readSettings, rewardAt, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, xpBar,
   type AvatarPanelData, type AvatarSpec, type LevelUpOptions, type MenuData, type MenuMode, type PauseOptions, type ProfileData, type ProfileStats,
   type SettingGroup, type SettingItem, type SettingValue, type SummaryData, type Unlock, type XpState,
