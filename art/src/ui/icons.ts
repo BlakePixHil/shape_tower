@@ -18,6 +18,7 @@ export const UI_ICONS = [
   'wind', 'junk', 'meteor', 'swirl', 'plumb',
   'combo', 'avalanche', 'toolbox', 'undo', 'needle', 'purist',
   'bag', 'shapes',
+  'workshop', 'restore', 'noads',
 ] as const;
 export type UiIcon = (typeof UI_ICONS)[number];
 
@@ -344,6 +345,36 @@ const DRAW: Record<UiIcon, (c: Ctx) => void> = {
     fill(c, turn(n, A, 0, 0), ['#C9D1DE', '#F4F7FB', '#8E98AB'], 0.035);
     const front = new Path2D(); front.moveTo(f.x, f.y); front.bezierCurveTo(f.x + 0.14, f.y + 0.06, f.x + 0.12, f.y + 0.3, f.x - 0.04, f.y + 0.42); tube(c, front, 0.05, SIGNAL.danger);
   },
+  // The Workshop and its buttons (build-plan.md, Part A): a shop booth under a striped awning, Restore
+  // purchases (a circular arrow round the bag), and Remove Ads.
+  workshop: c => {
+    fill(c, rrPath(-0.3, -0.16, 0.6, 0.52, 0.05), PAPERS, 0.03);
+    c.fillStyle = '#6E4322'; c.fill(rrPath(-0.2, -0.04, 0.4, 0.2, 0.03));
+    // Two blocks for sale on the counter.
+    for (const [k, x] of [['O', -0.155], ['I', 0.025]] as [string, number][]) {
+      const s = ART_SHAPES[k], b = rrPath(x, 0.0, 0.13, 0.13, 0.03);
+      c.fillStyle = s.base; c.fill(b); c.fillStyle = s.light; c.fillRect(x + 0.02, 0.015, 0.09, 0.025); ink(c, b, O * 0.55);
+    }
+    fill(c, rrPath(-0.26, 0.13, 0.52, 0.08, 0.03), ['#F2C891', '#FFE2B8', '#A8723E'], 0.02);
+    const n = 5, top = -0.4, bot = -0.13, w = 0.84 / n, aw = new Path2D();
+    aw.moveTo(-0.34, top); aw.lineTo(0.34, top); aw.lineTo(0.42, bot);
+    for (let i = n - 1; i >= 0; i--) aw.arc(-0.42 + w * (i + 0.5), bot, w / 2, 0, Math.PI);
+    aw.closePath();
+    c.save(); c.clip(aw);
+    c.fillStyle = SIGNAL.danger; c.fill(aw);
+    c.fillStyle = '#FFFFFF';
+    // Stripes fan out with the awning: a fifth of its top edge each, a fifth of the scalloped edge below.
+    const tw = 0.68 / n;
+    for (let i = 1; i < n; i += 2) c.fill(poly([[-0.34 + tw * i, top], [-0.34 + tw * (i + 1), top], [-0.42 + w * (i + 1), bot + 0.1], [-0.42 + w * i, bot + 0.1]]));
+    c.fillStyle = 'rgba(255,255,255,0.45)'; c.fillRect(-0.5, top, 1, 0.035);
+    c.restore();
+    ink(c, aw);
+  },
+  restore: c => {
+    c.save(); c.translate(0.02, 0.05); c.scale(0.6, 0.6); drawBag(c); c.restore();
+    curlArrow(c, 0.39, Math.PI * 0.72, Math.PI * 2.2);
+  },
+  noads: drawNoAds,
   purist: c => {
     const b = circlePath(0, 0, 0.27);
     fill(c, b, ['#7FD8FF', '#CFF3FF', '#3AA9C9'], 0.05);
@@ -352,6 +383,19 @@ const DRAW: Record<UiIcon, (c: Ctx) => void> = {
     const s = new Path2D(); s.moveTo(-0.25, 0.25); s.lineTo(0.25, -0.25); tube(c, s, 0.07, SIGNAL.danger);
   },
 };
+
+/** The Remove Ads sign: "AD" crossed out by a red ring and slash. Shared with the Workshop's Remove Ads art. */
+export function drawNoAds(c: Ctx): void {
+  c.fillStyle = '#FFFFFF'; c.fill(circlePath(0, 0, 0.36));
+  // The slash runs through the gap between the letters, so both stay readable under it.
+  const a = new Path2D(); a.moveTo(-0.245, 0.135); a.lineTo(-0.14, -0.135); a.lineTo(-0.035, 0.135); a.moveTo(-0.2, 0.045); a.lineTo(-0.08, 0.045);
+  line(c, a, 0.075);
+  const d = new Path2D(); d.moveTo(0.045, -0.135); d.lineTo(0.045, 0.135); d.lineTo(0.09, 0.135); d.bezierCurveTo(0.29, 0.135, 0.29, -0.135, 0.09, -0.135); d.closePath();
+  line(c, d, 0.075);
+  tube(c, circlePath(0, 0, 0.37), 0.075, SIGNAL.danger);
+  const s = new Path2D(); s.moveTo(-0.27, 0.27); s.lineTo(0.27, -0.27);
+  line(c, s, 0.05 + O * 1.4); line(c, s, 0.05, SIGNAL.danger);
+}
 
 /** Draw icon `name` centred at (x, y), `size` px square. */
 export function drawUiIcon(c: Ctx, name: UiIcon, x: number, y: number, size: number): void {
