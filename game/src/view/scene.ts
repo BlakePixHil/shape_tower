@@ -219,6 +219,8 @@ export class PlayScene extends Phaser.Scene {
     // The canvas already renders at device resolution, so the kit bakes at 1 texture px per game px.
     this.art = new ArtTextures(this, { cellPx: this.ppb, texScale: 1 });
     this.art.prewarm(Object.keys(SHAPES), { finishes: ['wood'], hazards: true, celebrations: true });
+    // A look set before the scene existed: its pieces and landings bake now, not at the first drop.
+    if (this.skin || this.landing) this.art.prewarm(Object.keys(SHAPES), { skin: this.skin, landing: this.landing, vfx: false });
     this.backdrop = new Backdrop(this, { width: this.W, height: this.H, texScale: 1, frontDepth: D.front, reduceMotion: this.view.reducedMotion });
     this.guide = new GuideView(this.art, D.guide);
     this.pb = new PbMarker(this.art, D.line - 0.1);
