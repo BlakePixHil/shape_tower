@@ -12,5 +12,13 @@
     "bindings": [{ "name": "LADDER", "class_name": "Ladder" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Ladder"] }],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Pushes to other branches run Cloudflare's Preview build (wrangler preview), which needs this block.
+  // Each Preview gets its own empty Durable Object, so a branch never touches the live ladder.
+  "previews": {
+    "durable_objects": {
+      "bindings": [{ "name": "LADDER", "class_name": "Ladder" }]
+    },
+    "observability": { "enabled": true }
+  }
 }
