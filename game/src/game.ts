@@ -25,7 +25,9 @@ import { ADS, addRunTime, adCheck, adShown, freshAds, loadAds, type AdState } fr
 import { Store } from './store/store.ts';
 import { adNetwork } from './store/admob.ts';
 import { Workshop } from './view/workshop.ts';
-import { PRODUCTS } from './meta/shop.ts';
+import { PRODUCTS, supporterOffer } from './meta/shop.ts';
+import { ownerOf, runLook, wornLook } from './view/look.ts';
+import { badgeFrame, hatFor, passRewardAt, passRewardsBetween, setBadgeFrame } from '@art/index.ts';
 import { splashDone, splashFailed } from './view/splash.ts';
 
 /** Calls Sound adds in its next module version, made safe until then. */
@@ -169,13 +171,13 @@ async function boot(): Promise<void> {
   // The Daily ladder (§12.3): the menu and profile show the player's name once they have one; it's their
   // ladder name too, picked from the Profile or the Daily card (§10.3).
   const ladder = new DailyLadder(profile, () => settings.reduceMotion, name => { sc.playerName = name ?? 'Builder'; });
-  const saveLook = () => { saveProfile(profile); ladder.restyle(); };
+  const saveLook = () => { saveProfile(profile); ladder.restyle(); applyLook(); };
   const identity: ProfileIdentity = {
     get: () => ({ ...ladder.identity(), still: settings.reduceMotion }),
     onName: back => { void ladder.ready.then(() => sc.ladderName(ladder.nameHooks(back))); },
   };
   const workshop = new Workshop(sc, store, {
-    avatar: () => profile.avatar, still: () => settings.reduceMotion, adsLive: () => ads.live,
+    avatar: () => profile.avatar, still: () => settings.reduceMotion, adsLive: () => ads.live, level: () => profile.level,
     bought: () => audio()?.ui('unlock'),
   });
   /** The Workshop, from the menu, Settings or a locked shop portrait; `back` is where its close goes. */
@@ -183,9 +185,48 @@ async function boot(): Promise<void> {
     audio()?.screen?.('profile');
     workshop.open(back, focus);
   }
+  /** A product as the Workshop shows it: the Supporter Pack is whichever offer fits what they own. */
+  const offerFor = (id: string | undefined): string | undefined => (id === 'supporter_pack' ? supporterOffer(store.list())?.id : id);
   // Bought portraits show in the picker, and a locked one opens the Workshop on it, then comes back to the card.
   ladder.bought = () => store.ent.portraits;
-  ladder.shop = (portrait, back) => openWorkshop(() => sc.ladderName(ladder.nameHooks(back)), PRODUCTS.find(p => p.portrait === portrait && !p.soon)?.id);
+  ladder.shop = (portrait, back) => openWorkshop(() => sc.ladderName(ladder.nameHooks(back)),
+    portrait === 'supporter' ? offerFor('supporter_pack') : PRODUCTS.find(p => p.portrait === portrait && !p.soon)?.id);
+
+  // The look (monetisation plan v2, cosmetics): what runs wear, the Supporter badge frame, and the
+  // Workshop from the locked items. Ownership follows the store, so a refund takes its items back.
+  const applyLook = () => {
+    scene.setLook(runLook(profile, store.ent));
+    setBadgeFrame(store.ent.supporter ? 'supporter' : null);
+  };
+  applyLook();
+  // For QA's browser checks: what the run wears and the badge frame.
+  (window as unknown as { __wobble: Record<string, unknown> }).__wobble.look = { worn: () => wornLook(profile, store.ent), scene: () => scene.look, frame: badgeFrame };
+  store.onChange(() => {
+    // A hat they no longer own comes off once the store has answered (not from an offline cache).
+    if (store.status === 'ready') {
+      const hat = wornLook(profile, store.ent).hat;
+      const key = hat ? hatFor(hat) : null;
+      if ((profile.avatar.hat ?? null) !== key) { profile.avatar = { ...profile.avatar, hat: key }; saveLook(); }
+    }
+    applyLook();
+  });
+  sc.looks = {
+    ent: () => store.ent,
+    owner: p => ownerOf(p, store.ent),
+    still: () => settings.reduceMotion,
+    // From the run summary (back is null) the Workshop goes home after, and this run end skips its ad.
+    onWorkshop: (product, back) => { if (!back) adAsked = true; openWorkshop(back ?? home, offerFor(product)); },
+    levelPass: (from, to) => {
+      if (store.ent.pass) return passRewardAt(to) ? { pass: 'owned' } : null;
+      // The pass's one mention, ever: the level-10 card, for players without it (plan v2, "One introduction").
+      if (from < 10 && to >= 10 && !profile.passIntro && passRewardAt(to)) {
+        profile.passIntro = true;
+        saveProfile(profile);
+        return { pass: 'intro', passWaiting: passRewardsBetween(2, to).length };
+      }
+      return null;
+    },
+  };
 
   // ------------------------------------------------------------------ flow
 
@@ -285,6 +326,7 @@ async function boot(): Promise<void> {
     state.tuning = runTuning(m);
     state.view = viewFor(settings, juice);
     scene.applyView(state.view);
+    applyLook();
     audio()?.setJuice?.(juice);
     audio()?.setZen?.(m.id === 'zen'); // Zen's holds skip the music's drain, as they skip the grey (gameplay.md §7.3)
     audio()?.screen?.('none');

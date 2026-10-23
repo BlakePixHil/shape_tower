@@ -3,7 +3,7 @@
 // (art/src/ui/workshop.ts). It opens from the main menu (and from Settings' "Remove ads" line, or a
 // locked shop portrait), never during a run, on pause or on the run-over screens.
 
-import type { AvatarSpec, WorkshopArt, WorkshopData, WorkshopItem } from '@art/index.ts';
+import { passRewardsBetween, type AvatarSpec, type WorkshopArt, type WorkshopData, type WorkshopItem } from '@art/index.ts';
 import { ON_SALE, entitlements, supporterOffer, type Product } from '../meta/shop.ts';
 import type { BuyResult, Store } from '../store/store.ts';
 import type { Screens, WorkshopHandle } from './screens.ts';
@@ -22,6 +22,8 @@ export interface WorkshopOptions {
   still(): boolean;
   /** Whether this build shows ads at all (the store apps). */
   adsLive(): boolean;
+  /** The player's level: the Builder's Pass says how many of its rewards are waiting. */
+  level(): number;
   /** A purchase went through: an unlock sound, and anything the game shows from it. */
   bought(p: Product): void;
 }
@@ -92,6 +94,12 @@ export class Workshop {
         return this.o.adsLive() ? undefined : 'Ads only ever show in the phone app, never on this page.';
       case 'wind': return owned ? 'Ready at the start of every Endless run.' : 'Everyone can still earn it free at checkpoint 2.';
       case 'portrait': return owned ? 'Yours: pick it for your ladder portrait.' : undefined;
+      case 'pass': {
+        if (owned) return 'Yours: a second reward at every level. Pick them in Your look.';
+        const n = passRewardsBetween(2, this.o.level()).length;
+        return n > 1 ? `${n} rewards are waiting for you already.` : undefined;
+      }
+      case 'set': return owned ? 'Yours: wear it in Your look, on your profile.' : undefined;
       case 'supporter':
         return p.owns === 'pass' ? 'You own the Builder\'s Pass, so you pay the difference.'
           : p.owns === 'ads' ? 'You own Remove Ads, so you pay the difference.'
@@ -115,7 +123,9 @@ export class Workshop {
     this.redraw();
     if (r === 'bought') {
       this.o.bought(p);
-      h.note(`Thanks! ${p.name} is yours${entitlements([id]).portraits.length ? '. Pick it for your ladder portrait.' : '.'}`, 'good');
+      const e = entitlements([id]);
+      const where = e.portraits.length && !e.pass ? ' Pick it for your ladder portrait.' : e.pass || e.sets.length ? ' Wear it in Your look, on your profile.' : '';
+      h.note(`Thanks! ${p.name} is yours.${where}`, 'good');
     } else {
       h.note(...AFTER[r], r === 'pending');
     }
@@ -137,5 +147,5 @@ function artFor(p: Product): WorkshopArt {
   if (p.kind === 'pass') return 'builders_pass';
   if (p.kind === 'noads') return 'remove_ads';
   if (p.kind === 'wind') return 'second_wind_ready';
-  return { set: p.id.replace(/^set_/, '') };
+  return { set: p.set ?? p.id };
 }

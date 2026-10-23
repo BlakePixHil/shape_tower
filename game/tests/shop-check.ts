@@ -1,5 +1,6 @@
 // The Workshop's rules without a browser (monetisation plan v2): the products and their prices, what
-// owning each one gives, the one Supporter offer for what a player owns, and the end-of-run ad pacing:
+// owning each one gives (with the look's items from Art's catalogue: the pass lane up to the player's
+// level at once, sets, the Supporter crown, refunds), the one Supporter offer, and the end-of-run ad pacing:
 // 6 minutes of active run time, at most 8 a day, none below level 3 (and time before it doesn't count),
 // none with Remove Ads, and an ad that didn't show staying due. The rules that never change: nothing sold
 // touches play, and achievements, power-ups, XP, hearts and bricks aren't for sale.
@@ -8,6 +9,9 @@
 import { ADS, addRunTime, adCheck, adShown, freshAds, loadAds, localDay } from '../src/meta/ads.ts';
 import { PRODUCTS, ON_SALE, entitlements, product, supporterOffer, usd } from '../src/meta/shop.ts';
 import { PORTRAITS } from '../src/meta/portraits.ts';
+import { DEFAULT_AVATAR, freshLook } from '../src/view/profile.ts';
+import { COSMETICS, DEFAULT_LOOK, PASS_LAST_NEW, WORKSHOP_SETS, hatCosmeticId, passRewardAt, passRewardsBetween } from '../../art/src/cosmetics.ts';
+import { cosmeticOwned, ownedLook } from '../../art/src/ui/look.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -35,8 +39,10 @@ const at = (iso: string) => new Date(iso);
   check('nothing sold is a hearts, bricks, power-up, XP, mode or achievement product',
     PRODUCTS.every(p => ['pass', 'noads', 'wind', 'portrait', 'supporter', 'set'].includes(p.kind)) && !ids.some(id => /heart|brick|power|xp|boost|zen|daily|achiev|retry|continue|gem|coin/.test(id)));
   check('the test store\'s labels', usd(499) === '$4.99' && usd(99) === '$0.99' && usd(1299) === '$12.99');
-  check('what has no art yet isn\'t on sale (pass lane, sets, supporter hat and frame)', ON_SALE.every(p => !p.soon) && !ON_SALE.some(p => p.kind === 'pass' || p.kind === 'supporter'));
-  check('Remove Ads and Second Wind always ready are on sale today', ON_SALE.some(p => p.id === 'remove_ads') && ON_SALE.some(p => p.id === 'second_wind_ready'));
+  check('everything is on sale now that its rewards are drawn (Art\'s cosmetics)', ON_SALE.length === PRODUCTS.length && PRODUCTS.every(p => !p.soon));
+  check('Remove Ads and Second Wind always ready are on sale', ON_SALE.some(p => p.id === 'remove_ads') && ON_SALE.some(p => p.id === 'second_wind_ready'));
+  const sets = PRODUCTS.filter(p => p.kind === 'set');
+  check('the three Workshop sets are Art\'s, at $1.99, $1.99 and $2.99', sets.map(p => p.id).join() === WORKSHOP_SETS.map(w => w.id).join() && sets.map(p => p.cents).join() === '199,199,299' && sets.every(p => p.set === p.id), sets.map(p => `${p.id} ${p.cents}`).join(', '));
 }
 
 // ---------------------------------------------------------------- what owning gives
@@ -54,8 +60,29 @@ const at = (iso: string) => new Date(iso);
   }
   const p = entitlements(['portrait_disco', 'portrait_retro', 'portrait_disco']);
   check('a bought portrait unlocks that portrait, once', p.portraits.length === 2 && p.portraits.includes('disco') && p.portraits.includes('retro'));
+  const set = entitlements(['set_robot', 'set_robot']);
+  check('a set gives that set, once, and nothing else', set.sets.join() === 'set_robot' && !set.pass && !set.noAds && !set.supporter);
   const future = entitlements(['some_newer_product', 'remove_ads']);
   check('an id from a newer version is ignored, the rest still count', future.noAds && !future.pass);
+}
+
+// ---------------------------------------------------------------- the look: what owning gives (Art's catalogue)
+
+{
+  const owner = (level: number, owned: string[]) => { const e = entitlements(owned); return { level, pass: e.pass, sets: e.sets, supporter: e.supporter }; };
+  const passItems = COSMETICS.filter(d => d.source === 'pass');
+  check('without the pass, no pass reward is owned, at any level', passItems.every(d => !cosmeticOwned(d.id, owner(99, []))));
+  const at30 = owner(30, ['builders_pass']);
+  check('buying the pass at level 30 gives the 29 rewards from level 2 to 30 at once, and none above', passRewardsBetween(2, 30).length === 29 && passRewardsBetween(2, 30).every(d => cosmeticOwned(d.id, at30)) && passItems.filter(d => (d.level ?? 0) > 30).every(d => !cosmeticOwned(d.id, at30)));
+  check('the Supporter Pack gives the pass lane and the heart crown', cosmeticOwned('hat_heart_crown', owner(5, ['supporter_pack'])) && cosmeticOwned(passRewardAt(5)!.id, owner(5, ['supporter_upgrade_ads'])) && !cosmeticOwned('hat_heart_crown', owner(60, ['builders_pass'])));
+  const candy = WORKSHOP_SETS.find(w => w.id === 'set_candy')!;
+  check('a set gives its five items at any level, and only to its owner', candy.items.length === 5 && candy.items.every(id => cosmeticOwned(id, owner(1, ['set_candy']))) && candy.items.every(id => !cosmeticOwned(id, owner(80, ['set_robot', 'builders_pass']))));
+  const worn = ownedLook({ skin: candy.items[0], landing: passRewardAt(3)!.id, foundation: 'foundation_classic', flag: 'flag_classic', hat: 'hat_heart_crown' }, owner(40, []));
+  check('a worn item no longer owned (a refund) shows as the default, and an unowned hat comes off', worn.skin === 'skin_classic' && worn.landing === 'landing_classic' && worn.hat === null, JSON.stringify(worn));
+  check('after level 60 the pass keeps giving, every 5 levels', !!passRewardAt(65) && !passRewardAt(63) && passRewardAt(65)!.id.endsWith('_ii') && PASS_LAST_NEW === 60);
+  const fl = freshLook();
+  check('a new profile wears Art\'s default look (the four saved slots, and the party hat on the avatar)', (['skin', 'landing', 'foundation', 'flag'] as const).every(k => fl[k] === DEFAULT_LOOK[k]) && hatCosmeticId(DEFAULT_AVATAR.hat!) === DEFAULT_LOOK.hat, JSON.stringify(fl));
+  check('nothing in the catalogue changes play: only the five look slots', COSMETICS.every(d => ['skin', 'landing', 'foundation', 'flag', 'hat'].includes(d.slot)));
 }
 
 // ---------------------------------------------------------------- the one Supporter offer

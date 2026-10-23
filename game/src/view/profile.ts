@@ -24,6 +24,8 @@ export interface Profile {
   seenBrittle: boolean; // the first brittle shape shows a card (§4.3)
   postcards: (string | null)[]; // per biome (1 to 10), the local date it was first reached
   avatar: AvatarSpec;   // the player's Blockling on the menu and profile: shape, face and hat
+  look: SavedLook;      // the cosmetics a run wears (monetisation plan v2); the hat is avatar.hat
+  passIntro: boolean;   // the level-10 card has mentioned the Builder's Pass (once, ever)
   achievements: Record<string, AchievementState>; // earned achievements by id: the local date, and whether its XP is paid (§18)
   achCounts: AchievementCounts; // the counts achievements need that the stats don't keep: bubbles, powers used
   daily: DailyState;    // the Daily Tower: scored tries by seed day (kept forever) and recent practice (meta/daily.ts)
@@ -60,9 +62,14 @@ const KEY = 'shape-tower-profile-v1';
 /** Everyone starts as the Butterblock in the party hat (the level 1 hat). */
 export const DEFAULT_AVATAR: AvatarSpec = { shape: 'O', face: 'idle', hat: 'party' };
 
+/** The four run slots of the look, as cosmetic ids (Art's catalogue); the fifth, the hat, is the avatar's. */
+export interface SavedLook { skin: string; landing: string; foundation: string; flag: string }
+/** Art's DEFAULT_LOOK, written out so the Node checks that load profiles don't load the art kit (look-check.mjs compares them). */
+export const freshLook = (): SavedLook => ({ skin: 'skin_classic', landing: 'landing_classic', foundation: 'foundation_classic', flag: 'flag_classic' });
+
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], seenBrittle: false, postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, achievements: {}, achCounts: freshCounts(), daily: freshDaily() });
+const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], seenBrittle: false, postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, look: freshLook(), passIntro: false, achievements: {}, achCounts: freshCounts(), daily: freshDaily() });
 
 export function loadProfile(): Profile {
   try {
@@ -73,6 +80,7 @@ export function loadProfile(): Profile {
       p.postcards = Array.from({ length: 10 }, (_, i) => p.postcards?.[i] ?? null);
       if (!Array.isArray(p.seenHazards)) p.seenHazards = [];
       if (!p.avatar || typeof p.avatar !== 'object') p.avatar = { ...DEFAULT_AVATAR };
+      p.look = { ...freshLook(), ...(p.look && typeof p.look === 'object' ? p.look : {}) };
       if (!p.achievements || typeof p.achievements !== 'object') p.achievements = {};
       p.achCounts = { ...freshCounts(), ...p.achCounts };
       if (!Array.isArray(p.achCounts.powers)) p.achCounts.powers = [];

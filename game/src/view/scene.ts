@@ -7,6 +7,7 @@
 import * as Phaser from 'phaser';
 import {
   ArtTextures, Backdrop, BIOMES as ART_BIOMES, BUNTING_KEYS, BlocklingView, Celebration, CheckpointLine, GuideView, HazardFx, JUNK_KINDS, PbMarker, POWER_COLORS, PowerBubble, SkyClock, VFX,
+  flagFor, foundationFor, landingFor, skinFor, type FlagLook, type FoundationLook, type LandingStyle, type SkinLook,
   WindView, windDrifters,
   biomeForCheckpoint, rimAmount, type Expression, type Finish, type GuideState, type TexRef, type VfxName,
 } from '@art/index.ts';
@@ -73,6 +74,12 @@ export interface RunOpts {
   /** Extra fields for the run record (mode, Daily details). */
   record?: Partial<RunStart>;
 }
+
+/**
+ * The player's look (monetisation plan v2, cosmetics): cosmetic ids for the shape skin, the landing
+ * burst, the foundation and the checkpoint flag. Only how a run looks: nothing here reaches the sim.
+ */
+export interface RunLook { skin?: string; landing?: string; foundation?: string; flag?: string }
 
 /** Endless's personal best height. */
 const BEST_KEY = 'shape-tower-best';
@@ -175,6 +182,11 @@ export class PlayScene extends Phaser.Scene {
   private hzShots = new Map<number, Shot['phase']>(); // what's drawn for each shot
   private hzDevil: { id: number; phase: 'warn' | 'blow' } | null = null;
   private dustPuffAt = 0; // sim s
+  private skin: SkinLook | null = null; // the look (setLook), resolved to what Art's textures take; null is the classic
+  private landing: LandingStyle | null = null;
+  private found: FoundationLook | null = null;
+  private flag: FlagLook | null = null;
+  private worn: RunLook = {};
   private cracks!: Phaser.GameObjects.Graphics;     // on brittle pieces in the tower
   private ctrlCracks!: Phaser.GameObjects.Graphics; // on the shape in hand
   private brittleShown = false;
@@ -207,6 +219,8 @@ export class PlayScene extends Phaser.Scene {
     // The canvas already renders at device resolution, so the kit bakes at 1 texture px per game px.
     this.art = new ArtTextures(this, { cellPx: this.ppb, texScale: 1 });
     this.art.prewarm(Object.keys(SHAPES), { finishes: ['wood'], hazards: true, celebrations: true });
+    // A look set before the scene existed: its pieces and landings bake now, not at the first drop.
+    if (this.skin || this.landing) this.art.prewarm(Object.keys(SHAPES), { skin: this.skin, landing: this.landing, vfx: false });
     this.backdrop = new Backdrop(this, { width: this.W, height: this.H, texScale: 1, frontDepth: D.front, reduceMotion: this.view.reducedMotion });
     this.guide = new GuideView(this.art, D.guide);
     this.pb = new PbMarker(this.art, D.line - 0.1);
@@ -403,6 +417,22 @@ export class PlayScene extends Phaser.Scene {
   hold(): void { this.intent({ type: 'hold' }); }
 
   retune(patch: Partial<Tuning>): void { this.sim.retune(patch); }
+
+  /** The player's look. Pieces, foundations and flags made after this wear it. */
+  setLook(l: RunLook): void {
+    this.worn = { ...l };
+    const skin = skinFor(l.skin), landing = landingFor(l.landing);
+    if (this.art && (skin !== this.skin || landing !== this.landing)) this.art.prewarm(Object.keys(SHAPES), { skin, landing, vfx: false });
+    this.skin = skin;
+    this.landing = landing;
+    this.found = foundationFor(l.foundation);
+    this.flag = flagFor(l.flag);
+  }
+
+  /** For QA's checks: the look setLook last got, and what each slot drew from (null: the classic). */
+  get look(): { ids: RunLook; skin: string | null; landing: boolean; foundation: string | null; flag: string | null } {
+    return { ids: this.worn, skin: this.skin?.kind ?? null, landing: !!this.landing, foundation: this.found?.kind ?? null, flag: this.flag?.kind ?? null };
+  }
 
   applyView(v: ViewSettings): void {
     this.view = v;
@@ -676,7 +706,13 @@ export class PlayScene extends Phaser.Scene {
     const pose = p.pose as { x: number; y: number; rot: number };
     const e = extents(p.shape, pose.rot);
     const by = -(pose.y + e.minY) * this.ppb;
-    const nDust = Math.round(4 + 8 * impact);
+    // A landing style bursts under the ghost and beam, keeping some of the biome's dust (Art's README, Cosmetics).
+    const nDust = Math.round((4 + 8 * impact) * (this.landing ? this.landing.dust : 1));
+    if (this.landing) {
+      for (const b of this.art.landingBurst(this.landing, { x0: (pose.x + e.minX) * this.ppb, x1: (pose.x + e.maxX) * this.ppb, y: by, impact, ppb: this.ppb })) {
+        this.particles.spawn(b.x, b.y, b.vx, b.vy, { ...b.opts, blend: b.add ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL });
+      }
+    }
     const bi = this.biomeIndex();
     const dust = num(ART_BIOMES[bi].dust);
     for (let i = 0; i < nDust; i++) {
@@ -1094,7 +1130,7 @@ export class PlayScene extends Phaser.Scene {
   private finish(): Finish | null { return ART_BIOMES[this.biomeIndex()].finish; }
 
   private makeSprite(shape: string, id: number, depth: number): PieceSprite {
-    const view = new BlocklingView(this.art, shape, { seed: id, finish: this.finish(), faces: this.view.faces, depth });
+    const view = new BlocklingView(this.art, shape, { seed: id, finish: this.finish(), skin: this.skin, faces: this.view.faces, depth });
     return { id, shape, view, squash: 0, squashAt: 0, stone: 0, stoneAt: null, lost: false, gone: false };
   }
 
@@ -1286,7 +1322,7 @@ export class PlayScene extends Phaser.Scene {
       let s = this.slabs.get(f.id);
       if (!s) {
         const plinth = f.id === plinthId;
-        const r = plinth ? this.art.pedestal(f.width, PEDESTAL_LEGS) : this.art.slab(this.biomeIndex(), f.width);
+        const r = plinth ? this.art.pedestal(f.width, PEDESTAL_LEGS, this.found) : this.art.slab(this.biomeIndex(), f.width, this.found);
         const img = this.add.image(f.x * this.ppb, -f.top * this.ppb, r.key, r.frame).setOrigin(r.originX, r.originY).setDepth(D.slab);
         s = { img, born: plinth ? 0 : now, landed: plinth };
         this.slabs.set(f.id, s);
@@ -1328,7 +1364,7 @@ export class PlayScene extends Phaser.Scene {
     // (§7.1). Claimed lines keep their gold rope and flag; only the last few are kept.
     let line = this.lines[this.lines.length - 1];
     if (!line || line.claimed) {
-      line = new CheckpointLine(this.art, sim.checkpoint, D.line);
+      line = new CheckpointLine(this.art, sim.checkpoint, D.line).setFlagStyle(this.flag);
       line.reduceMotion = this.view.reducedMotion;
       this.lines.push(line);
       while (this.lines.length > 4) this.lines.shift()!.destroy();
