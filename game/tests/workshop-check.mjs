@@ -200,6 +200,19 @@ const picker = await page.evaluate(async () => {
 await shot('04-picker');
 step('a bought portrait is owned in the picker; one not bought is still locked', picker.found && picker.disco === true && picker.rainbow === false, JSON.stringify({ ...picker, text: undefined }));
 step('a locked shop portrait points at the Workshop, with no price', /Workshop/.test(picker.rainbowLabel ?? '') && !/Soon/.test(picker.rainbowLabel ?? '') && !/\$\d/.test(picker.text), String(picker.rainbowLabel));
+// Tapping it opens the Workshop on that portrait, and closing the Workshop comes back to the card.
+await page.click('.sc-root .ui-pt-pick.shop[data-id="rainbow"]', { force: true }); // its radio is disabled, the label still taps
+await page.waitForTimeout(700);
+const onIt = await page.evaluate(() => {
+  const b = document.querySelector('.sc-root [data-action="buy"][data-id="portrait_rainbow"]');
+  const r = b?.getBoundingClientRect();
+  return { workshop: /Workshop/.test(document.querySelector('.sc-root')?.textContent ?? '') && !!b, inView: !!r && r.top >= 0 && r.bottom <= innerHeight };
+});
+await shot('04b-workshop-on-portrait');
+step('tapping a locked shop portrait opens the Workshop with that portrait in view', onIt.workshop && onIt.inView, JSON.stringify(onIt));
+await page.click('.sc-root [data-action="close"]');
+await page.waitForTimeout(500);
+step('closing it goes back to the name card', !!(await page.$('.sc-root .ui-namecard')));
 await page.evaluate(() => document.querySelector('.sc-root [data-action="close"]')?.click());
 await page.waitForTimeout(300);
 await page.evaluate(() => document.querySelector('.sc-root [data-action="close"]')?.click());
