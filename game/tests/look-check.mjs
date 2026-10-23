@@ -3,7 +3,7 @@
 // and coming back; the Builder's Pass bought at level 12 unlocking every reward to 12 at once; a refund
 // taking the items (and the hat) off; the Supporter frame and crown; the XP tally's greyed pass reward
 // opening the Workshop; and the pass's one mention, the level-10 card, shown once. No prices anywhere
-// but the Workshop.
+// but the Workshop. Greyed pass rewards are found by their data-action (workshop), not their class.
 //   npm run build:game && node tests/look-check.mjs [outDir]
 
 import { chromium } from '@playwright/test';
@@ -121,7 +121,7 @@ await page.click('.sc-root.show [data-action="profile"]');
 await page.waitForTimeout(600);
 const prof = await page.evaluate(() => ({
   look: !!document.querySelector('.sc-root .sc-look'), track: !!document.querySelector('.sc-root .ui-trk'),
-  locked: document.querySelectorAll('.sc-root .ui-trk-pass.locked[data-action="workshop"][data-id="builders_pass"]').length,
+  locked: document.querySelectorAll('.sc-root .ui-trk-pass[data-action="workshop"][data-id="builders_pass"]').length,
   now: document.querySelector('.sc-root .ui-trk-col.now')?.dataset.level ?? null,
 }));
 await page.screenshot({ path: `${out}/01-profile.png` });
@@ -150,7 +150,7 @@ step('Done keeps the picks: the top hat goes on the avatar', lk.worn.hat === 'ha
 step('and the profile is saved', await page.evaluate(() => JSON.parse(localStorage.getItem('shape-tower-profile-v1')).avatar.hat === 'tophat'));
 
 // The level track's greyed pass reward opens the Workshop, and its close comes back to the profile.
-await page.click('.sc-root .ui-trk-col[data-level="13"] .ui-trk-pass.locked');
+await page.click('.sc-root .ui-trk-col[data-level="13"] .ui-trk-pass[data-action="workshop"]');
 await page.waitForTimeout(600);
 let ws = await workshopOn(page, 'builders_pass');
 await page.screenshot({ path: `${out}/03-workshop-from-track.png` });
@@ -185,7 +185,7 @@ await page.waitForTimeout(400);
 lk = await look(page);
 step('the new look is saved', lk.saved.skin === 'skin_checks' && lk.saved.landing === 'landing_pixels' && lk.saved.foundation === 'foundation_log' && lk.saved.flag === 'flag_checkered' && lk.hat === 'beanie', JSON.stringify({ ...lk.saved, hat: lk.hat }));
 step('and the run wears it: skin, landing, foundation and flag', lk.scene.ids.skin === 'skin_checks' && lk.scene.ids.landing === 'landing_pixels' && lk.scene.ids.foundation === 'foundation_log' && lk.scene.ids.flag === 'flag_checkered' && !!lk.scene.skin && lk.scene.landing && !!lk.scene.foundation && !!lk.scene.flag, JSON.stringify(lk.scene));
-const prof2 = await page.evaluate(() => ({ pass: !!document.querySelector('.sc-root .ui-trk.has-pass'), locked: document.querySelectorAll('.sc-root .ui-trk-pass.locked').length, got: document.querySelectorAll('.sc-root .ui-trk-pass.got').length }));
+const prof2 = await page.evaluate(() => ({ pass: !!document.querySelector('.sc-root .ui-trk.has-pass'), locked: document.querySelectorAll('.sc-root .ui-trk-pass[data-action="workshop"]').length, got: document.querySelectorAll('.sc-root .ui-trk-pass.got').length }));
 step('the track\'s pass lane is in colour, ticked to 12', prof2.pass && prof2.locked === 0 && prof2.got === 11, JSON.stringify(prof2));
 await page.click('.sc-root [data-action="avatar"]');
 await page.waitForTimeout(400);
@@ -256,8 +256,8 @@ await page.screenshot({ path: `${out}/06-level-10.png` });
 step('reaching level 10 shows the pass\'s one mention: its reward, how many wait, Take a look and Not now', lu.level === 10 && lu.intro && /Builder's Pass/.test(lu.text) && /9 are waiting/.test(lu.text) && /Take a look/.test(lu.take ?? '') && /Not now/.test(lu.notNow ?? ''), JSON.stringify(lu));
 step('with no price on it', !(await selling(page)).price);
 step('the mention is saved as shown', await page.evaluate(() => JSON.parse(localStorage.getItem('shape-tower-profile-v1')).passIntro === true));
-const tally = await page.evaluate(() => [...document.querySelectorAll('.sc-root .ui-sum-xp .ui-lvr-item.pass')].map(e => ({ locked: e.classList.contains('locked'), item: e.dataset.item ?? null, action: e.dataset.action ?? null })));
-step('the XP tally shows level 10\'s pass reward, greyed, pointing at the Workshop', tally.length === 1 && tally[0].locked && tally[0].item === 'foundation_log' && tally[0].action === 'workshop', JSON.stringify(tally));
+const tally = await page.evaluate(() => [...document.querySelectorAll('.sc-root .ui-sum-xp .ui-lvr-item.pass')].map(e => ({ greyed: e.dataset.action === 'workshop', item: e.dataset.item ?? null, action: e.dataset.action ?? null })));
+step('the XP tally shows level 10\'s pass reward, greyed, pointing at the Workshop', tally.length === 1 && tally[0].greyed && tally[0].item === 'foundation_log' && tally[0].action === 'workshop', JSON.stringify(tally));
 await page.click('.sc-root .ui-levelup [data-action="workshop"][data-id="builders_pass"]');
 await page.waitForTimeout(600);
 ws = await workshopOn(page, 'builders_pass');
@@ -275,7 +275,7 @@ const lu2 = await page.evaluate(() => ({ level: window.__wobble.profile.level, p
 step('level 11: no second mention of the pass', lu2.level === 11 && !lu2.pass && !lu2.take && /Nice/.test(lu2.btn ?? ''), JSON.stringify(lu2));
 await page.click('.sc-root [data-action="continue"]');
 await page.waitForTimeout(400);
-await page.click('.sc-root .ui-sum-xp .ui-lvr-item.pass.locked');
+await page.click('.sc-root .ui-sum-xp .ui-lvr-item.pass[data-action="workshop"]');
 await page.waitForTimeout(600);
 ws = await workshopOn(page, 'builders_pass');
 step('tapping the tally\'s greyed reward opens the Workshop on the pass', ws.workshop && ws.found, JSON.stringify(ws));
@@ -291,7 +291,7 @@ await page.waitForSelector('.sc-root [data-action="continue"]', { timeout: 15000
 await page.waitForTimeout(1500);
 const lu3 = await page.evaluate(() => {
   const c = document.querySelector('.sc-root .ui-lu-pass');
-  return { level: window.__wobble.profile.level, owned: !!c && !c.classList.contains('intro'), text: c?.textContent.replace(/\s+/g, ' ').trim() ?? '', tally: [...document.querySelectorAll('.sc-root .ui-sum-xp .ui-lvr-item.pass')].map(e => e.classList.contains('locked')) };
+  return { level: window.__wobble.profile.level, owned: !!c && !c.classList.contains('intro'), text: c?.textContent.replace(/\s+/g, ' ').trim() ?? '', tally: [...document.querySelectorAll('.sc-root .ui-sum-xp .ui-lvr-item.pass')].map(e => e.dataset.action === 'workshop') };
 });
 await page.screenshot({ path: `${out}/07-level-12-pass.png` });
 step('with the pass, level 12\'s card shows its reward as theirs', lu3.level === 12 && lu3.owned && /for your look/.test(lu3.text), JSON.stringify(lu3));
