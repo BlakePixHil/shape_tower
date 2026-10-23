@@ -331,16 +331,13 @@ async function boot(): Promise<void> {
     const a = award(profile, Number(p.xp ?? 0), { newBest: newBest && !zen, quit, mode: mode.id, extra: paid });
     const rec = shell.record;
     rec?.finish(sim, { xp: a.gained, xpBase: Number(p.xp ?? 0), level: profile.level, runNumber: profile.runs, newBest: a.lines.some(l => l[0] === 'New best'), view: { ...state.view }, juiceRun, player: profile.player, achievements: paid.ids });
+    // QA's three one-tap questions (Blake, 2026-10-23). The ids are new where the question is: the
+    // old 'fair' asked the other way round, so earlier records keep their own meaning.
     const questions: { id: string; text: string; kind?: 'yesno' | 'faces' }[] = [
       { id: 'feel', text: 'How did that run feel?', kind: 'faces' },
-      { id: 'see', text: 'Could you see what happened?' },
-      { id: 'fair', text: 'Was that fair?' },
+      { id: 'hard', text: 'Was it too difficult?' },
+      { id: 'unfair', text: 'Was it unfair?' },
     ];
-    if (profile.runs >= 3 && !profile.askedGhost) {
-      profile.askedGhost = true;
-      saveProfile(profile);
-      questions.push({ id: 'ghost', text: 'Did the ghost show where shapes would land?' });
-    }
     // The money shot: the camera glides down the whole tower, then the summary card. A tap skips.
     showHud(false);
     skipTap = () => scene.skipPanorama();
