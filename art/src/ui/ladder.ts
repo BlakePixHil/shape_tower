@@ -50,8 +50,8 @@ export interface LadderPanelData {
 
 /**
  * The ladder: today's top heights with portraits, the player's own row highlighted (and pinned below
- * when it's further down), a report button on everyone else's, and the "you" strip: join with a name,
- * or your name and look with Edit. Actions: join, edit, retry, report (data-id on the button).
+ * when it's further down), a report button on everyone else's, and the "you" strip: pick a name (the
+ * profile's: one name for both), or your name and look with Edit. Actions: join, edit, retry, report (data-id on the button).
  */
 export function ladderHtml(d: LadderPanelData): string {
   injectLadderCss();
@@ -66,7 +66,7 @@ export function ladderHtml(d: LadderPanelData): string {
     </li>`;
   const you = d.joined
     ? `<div class="ui-ld-you">${portraitHtml(d.you.portrait, d.you.avatar, 40, { still: d.still })}<span><span class="ui-kicker">On the ladder as</span><b>${esc(d.you.name)}</b></span>${btn('edit', 'Edit', undefined, 'sm')}</div>`
-    : `<div class="ui-ld-you join">${portraitHtml(d.you.portrait, d.you.avatar, 40, { still: d.still })}<span><b>Join the ladder</b><span>Pick a name to see your height here. Without one, it's your personal best.</span></span>${btn('join', 'Pick a name', undefined, 'sm primary')}</div>`;
+    : `<div class="ui-ld-you join">${portraitHtml(d.you.portrait, d.you.avatar, 40, { still: d.still })}<span><b>Not on the ladder yet</b><span>Pick a name for your profile and your height shows here. Without one, it's your personal best.</span></span>${btn('join', 'Pick a name', undefined, 'sm primary')}</div>`;
   let body: string;
   if (d.state === 'none') body = `<p class="ui-ld-msg">${icon('info', 18)}<span>The ladder isn't available here. Your tries still count as personal bests.</span></p>`;
   else if (d.state === 'loading') body = `<p class="ui-ld-msg loading">${icon('tower', 18)}<span>Loading today's ladder…</span></p>`;
@@ -94,6 +94,9 @@ export function armReport(root: HTMLElement, id: string | null): void {
 // ---------------------------------------------------------------------------------------------
 // The name card
 
+/** The delete button's words (the name card's, and Settings'). */
+export const FORGET_LABEL = 'Delete my name and Daily scores';
+
 export interface PortraitChoice {
   id: string;
   name: string;
@@ -109,7 +112,7 @@ export interface NameCardData {
   portrait: string;
   avatar: AvatarSpec;
   portraits: PortraitChoice[];
-  /** Whether they're already on the ladder (the button says Save, not Join). */
+  /** Whether they have a name yet (the title says so; once named, a delete button too). */
   joined: boolean;
   /** A line under the field: the weekly rename rule, or when the next change is allowed. */
   rule: string;
@@ -118,15 +121,20 @@ export interface NameCardData {
 }
 
 /**
- * Picking a ladder name and portrait: a big preview, the name field with a live hint under it (set it
+ * Picking the player's name and portrait, one pair for the profile and the Daily ladder (the Profile and the
+ * Daily card both open it): a big preview, the name field with a live hint under it (set it
  * with setNameHint as they type), and every portrait, locked ones with what unlocks them (shop ones say
- * the Workshop is coming; no prices here). Actions: close, save, forget (only once joined).
+ * the Workshop is coming; no prices here). Actions: close, save, forget (only once joined), workshop (a shop
+ * portrait they don't have; data-id is its id).
  * Read the choice with readNameCard.
  */
 export function nameCard(d: NameCardData): HTMLElement {
   injectLadderCss();
+  // A shop portrait that isn't theirs yet: a tap fires workshop (data-id), so the Workshop can open on it. It
+  // isn't .locked, which onAction skips, but it looks the same, and its radio stays disabled.
+  const shop = (p: PortraitChoice): boolean => !p.owned && /workshop|supporter/i.test(p.lock ?? '');
   const pick = (p: PortraitChoice): string => `
-    <label class="ui-pt-pick${p.owned ? '' : ' locked'}" title="${esc(p.name)}">
+    <label class="ui-pt-pick${p.owned ? '' : shop(p) ? ' shop' : ' locked'}" title="${esc(p.name)}"${shop(p) ? ` data-action="workshop" data-id="${esc(p.id)}"` : ''}>
       <input type="radio" name="ui-pt" value="${esc(p.id)}"${p.id === d.portrait ? ' checked' : ''}${p.owned ? '' : ' disabled'} aria-label="${esc(p.name)}${p.lock ? `, ${esc(p.lock)}` : ''}">
       <span>${portraitHtml(p.id, d.avatar, 56, { still: d.still || !p.owned })}${p.owned ? '' : `<i>${icon('lock', 14)}</i>`}</span>
       <small>${p.owned ? esc(p.name) : esc(p.lock ?? 'Locked')}</small>
@@ -136,9 +144,9 @@ export function nameCard(d: NameCardData): HTMLElement {
     ['Earn them', p => !p.owned && !/workshop|supporter/i.test(p.lock ?? '')],
     ['Workshop', p => !p.owned && /workshop|supporter/i.test(p.lock ?? '')],
   ];
-  const root = el(`<div class="ui ui-overlay" role="dialog" aria-label="Your ladder name"><div class="ui-panel ui-namecard">
+  const root = el(`<div class="ui ui-overlay" role="dialog" aria-label="Your name and portrait"><div class="ui-panel ui-namecard">
     <button type="button" class="ui-btn icon sm ui-close" data-action="close" aria-label="Close">${icon('close', 20)}</button>
-    <h1 class="ui-h1">${d.joined ? 'Your ladder name' : 'Join the ladder'}</h1>
+    <h1 class="ui-h1">${d.joined ? 'Your name and portrait' : 'Pick a name'}</h1>
     <div class="ui-nc-preview">${portraitHtml(d.portrait, d.avatar, 96, { still: d.still })}</div>
     <label class="ui-nc-field"><span class="ui-kicker">Name</span>
       <input class="ui-nc-input" type="text" maxlength="16" autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="done" value="${esc(d.name)}" placeholder="3 to 16 letters or numbers">
@@ -150,8 +158,8 @@ export function nameCard(d: NameCardData): HTMLElement {
       return ps.length ? `<h2 class="ui-h2">${title}</h2><div class="ui-nc-picks">${ps.map(pick).join('')}</div>` : '';
     }).join('')}
     <div class="ui-stack ui-nc-actions">
-      ${btn('save', d.joined ? 'Save' : 'Join the ladder', 'check', 'primary big wide')}
-      ${d.joined ? `<button type="button" class="ui-nc-forget" data-action="forget">Delete my ladder name and scores</button>` : ''}
+      ${btn('save', 'Save', 'check', 'primary big wide')}
+      ${d.joined ? `<button type="button" class="ui-nc-forget" data-action="forget">${FORGET_LABEL}</button>` : ''}
     </div>
   </div></div>`);
   root.addEventListener('change', e => {
@@ -188,7 +196,7 @@ export function armForget(card: HTMLElement, on: boolean): void {
   const b = card.querySelector<HTMLElement>('[data-action="forget"]');
   if (!b) return;
   b.classList.toggle('armed', on);
-  b.textContent = on ? 'Tap again to delete your name and scores' : 'Delete my ladder name and scores';
+  b.textContent = on ? 'Tap again to delete your name and scores' : FORGET_LABEL;
 }
 
 function el(html: string): HTMLElement {
@@ -257,7 +265,7 @@ const CSS = `
 .ui-pt-pick input:checked + span { box-shadow: 0 0 0 4px var(--gold), 0 0 0 7px var(--ink); transform: scale(1.04); }
 .ui-pt-pick input:focus-visible + span { outline: 3px solid var(--xp); outline-offset: 5px; }
 .ui-pt-pick.locked { cursor: default; }
-.ui-pt-pick.locked .ui-portrait { filter: grayscale(0.85) brightness(1.05); opacity: 0.6; }
+.ui-pt-pick.locked .ui-portrait, .ui-pt-pick.shop .ui-portrait { filter: grayscale(0.85) brightness(1.05); opacity: 0.6; }
 .ui-pt-pick > span > i { position: absolute; right: -2px; bottom: -2px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #fff; border: 2px solid var(--ink); }
 .ui-pt-pick > span > i img { width: 13px; height: 13px; }
 .ui-pt-pick small { font: 700 11px/1.15 var(--body); color: var(--ink-soft); max-width: 76px; }
