@@ -199,7 +199,7 @@ export function uiCss(): string {
 
 /* Profile */
 .ui-profile { width: min(360px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 16px; scrollbar-width: none; }
-.ui-prof-head { display: flex; gap: 12px; align-items: center; text-align: left; margin-bottom: 12px; }
+.ui-prof-head { display: flex; gap: 12px; align-items: center; text-align: left; margin-bottom: 12px; padding-top: 6px; } /* the row with Edit clears the close button */
 .ui-prof-head .ui-avatar { --s: 72px; }
 .ui-av-edit { appearance: none; position: relative; flex: none; margin: 0; padding: 0; border: 0; background: none; cursor: pointer; border-radius: 50%; }
 .ui-av-edit:active { transform: scale(0.95); }
@@ -208,6 +208,16 @@ export function uiCss(): string {
 .ui-av-edit i img { width: 18px; height: 18px; }
 .ui-prof-head b { display: block; font: 700 24px/1.1 var(--display); }
 .ui-prof-head .ui-row { justify-content: flex-start; gap: 8px; margin-top: 6px; }
+.ui-prof-id { flex: 1; min-width: 0; }
+.ui-prof-id > b { margin-right: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-prof-id > b.long { font-size: 19px; }
+.ui-prof-id .ui-row { flex-wrap: wrap; row-gap: 6px; }
+.ui-prof-edit, .ui-prof-pick .ui-btn { flex: none; min-height: 44px; padding: 4px 12px; font-size: 15px; }
+.ui-prof-note { margin: -4px 2px 12px; font: 700 12px/1.3 var(--body); color: var(--danger); text-align: left; }
+.ui-prof-pick { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; padding: 6px 6px 6px 12px; text-align: left; background: #EFEAFF; border: 3px solid var(--ink); border-radius: 14px; }
+.ui-prof-pick > span { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.ui-prof-pick b { font: 700 17px/1.1 var(--display); }
+.ui-prof-pick span span { font: 700 12px/1.25 var(--body); color: var(--ink-soft); }
 .ui-cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .ui-cards .ui-postcard { width: 100%; padding: 2px 2px 0; border-width: 2px; border-radius: 6px; box-shadow: 0 2px 0 var(--ink); }
 .ui-cards .ui-pc-name { font-size: 8px; padding: 3px 1px 4px; }

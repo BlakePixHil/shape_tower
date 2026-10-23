@@ -1,7 +1,8 @@
 // The Daily ladder in the built game (gameplay.md §12.3): today's ladder in the Daily card, joining with
 // a name (the filter's hints, a taken name), portraits, the scored try reaching the ladder and the
-// player's own row, reporting a name, deleting a name and scores from Settings, the ladder offline, and
-// the game page's own ladder on a stand-in page database. The app's ladder runs against the API's
+// player's own row, the Profile's name and portrait being the ladder's (§10.3), reporting a name,
+// deleting a name and scores from Settings, the ladder offline, and the game page's own ladder on a
+// stand-in page database. The app's ladder runs against the API's
 // handler on this machine (online/scripts/dev-server.ts), never the live one.
 //   npm run build:game && node tests/ladder-check.mjs [outDir]
 
@@ -99,14 +100,27 @@ const openDaily = async page => {
 const nameCardState = page => page.evaluate(() => {
   const c = document.querySelector('.ui-namecard');
   if (!c) return null;
-  const picks = [...c.querySelectorAll('.ui-pt-pick')].map(p => ({ id: p.querySelector('input').value, locked: p.classList.contains('locked'), label: p.querySelector('small')?.textContent }));
+  const picks = [...c.querySelectorAll('.ui-pt-pick')].map(p => ({
+    id: p.querySelector('input').value, locked: p.querySelector('input').disabled, label: p.querySelector('small')?.textContent, workshop: p.dataset.action === 'workshop' && p.dataset.id === p.querySelector('input').value,
+  }));
   return {
     title: c.querySelector('.ui-h1')?.textContent, hint: c.querySelector('.ui-nc-hint')?.textContent?.trim(), bad: c.querySelector('.ui-nc-hint')?.classList.contains('bad'),
-    saveLocked: c.querySelector('[data-action="save"]')?.classList.contains('locked'), picks, rule: c.querySelector('.ui-nc-rule')?.textContent,
+    saveLocked: c.querySelector('[data-action="save"]')?.classList.contains('locked'), picks, rule: c.querySelector('.ui-nc-rule')?.textContent, value: c.querySelector('.ui-nc-input')?.value,
     priced: /\$|price|buy/i.test(c.textContent ?? ''), forget: !!c.querySelector('[data-action="forget"]'),
     overflowX: document.documentElement.scrollWidth > window.innerWidth,
   };
 });
+const profileState = page => page.evaluate(() => {
+  const c = document.querySelector('.ui-profile');
+  if (!c) return null;
+  return {
+    name: c.querySelector('.ui-prof-id > b')?.textContent, edit: !!c.querySelector('.ui-prof-head [data-action="name"]'), pick: !!c.querySelector('.ui-prof-pick [data-action="name"]'),
+    portrait: c.querySelector('.ui-prof-head .ui-portrait')?.dataset.portrait ?? null, note: c.querySelector('.ui-prof-note')?.textContent ?? null,
+    overflowX: document.documentElement.scrollWidth > window.innerWidth,
+    small: [...c.querySelectorAll('button')].filter(b => b.offsetParent).map(b => ({ b: b.dataset.action ?? b.className, w: b.offsetWidth, h: b.offsetHeight })).filter(x => x.w < 44 || x.h < 44),
+  };
+});
+const openProfile = async page => { await page.click('.ui-menu [data-action="profile"]'); await page.waitForSelector('.ui-profile'); await page.waitForTimeout(300); };
 const typeName = async (page, name) => { await page.fill('.ui-namecard input[type="text"]', name); await page.waitForTimeout(100); };
 async function toSummary(page) {
   await page.evaluate(() => window.__wobble.scene.sim.quit());
@@ -121,24 +135,41 @@ async function toSummary(page) {
 {
   const { ctx, page } = await open({ width: 390, height: 844 }, { api });
   const shot = name => page.screenshot({ path: `${out}/${name}.png` });
+
+  // The Profile before they have a name: Builder, and a strip to pick one (§10.3).
+  await openProfile(page);
+  let pr = await profileState(page);
+  await shot('00-profile');
+  step('the Profile without a name: Builder, a "Pick a name" strip, their Blockling in a portrait', pr.name === 'Builder' && pr.pick && !pr.edit && pr.portrait === 'meadow' && !pr.overflowX && !pr.small.length, JSON.stringify(pr));
+  await page.click('.ui-profile .ui-prof-pick [data-action="name"]');
+  await page.waitForSelector('.ui-namecard');
+  let n = await nameCardState(page);
+  step('"Pick a name" on the Profile opens the name card, which says it\'s the ladder\'s too', n.title === 'Pick a name' && /profile and on the Daily ladder/.test(n.rule), JSON.stringify({ title: n.title, rule: n.rule }));
+  await page.click('.ui-namecard [data-action="close"]');
+  await page.waitForSelector('.ui-profile');
+  await page.click('.ui-profile [data-action="close"]');
+  await page.waitForSelector('.sc-root.show [data-action="play"]');
+
   await openDaily(page);
   let l = await ladder(page);
   await shot('01-ladder');
   step('the card shows today\'s shapes, "Only these N", and opens on the Ladder tab', [3, 5].includes(l.shapes.length) && l.only === `Only these ${l.shapes.length}` && l.tab === 'ladder', JSON.stringify({ shapes: l.shapes, only: l.only, tab: l.tab }));
   step('the ladder: 12 players, highest first, ranks 1 to 12, portraits on every row', l.rows.length === 12 && l.rows[0].name === 'Tower Tess' && l.rows.every((r, i) => r.rank === i + 1 && (i === 0 || r.height <= l.rows[i - 1].height) && r.portrait)
     && /Everyone/.test(l.head) && /12 players/.test(l.head), JSON.stringify({ head: l.head, rows: l.rows.slice(0, 3) }));
-  step('without a name: a "Join the ladder" strip, a report flag on every row', l.join && l.rows.every(r => r.flag && !r.me), JSON.stringify({ join: l.join }));
+  step('without a name: a "Pick a name" strip, a report flag on every row', l.join && l.you === 'Not on the ladder yet' && l.rows.every(r => r.flag && !r.me), JSON.stringify({ join: l.join, you: l.you }));
   step('the card fits: no sideways scroll, every button 44 px', !l.overflowX && !l.small.length, JSON.stringify(l.small));
 
   // Joining: the filter's hints, a taken name, then a good one.
   await page.click('.ui-daily [data-action="join"]');
   await page.waitForSelector('.ui-namecard');
-  let n = await nameCardState(page);
+  n = await nameCardState(page);
   await shot('02-namecard');
-  step('the name card: "Join the ladder", Save locked while empty, no prices anywhere', n.title === 'Join the ladder' && n.saveLocked && !n.priced && !n.forget, JSON.stringify({ title: n.title, saveLocked: n.saveLocked, priced: n.priced }));
+  step('the name card: "Pick a name", Save locked while empty, no prices anywhere', n.title === 'Pick a name' && n.saveLocked && !n.priced && !n.forget, JSON.stringify({ title: n.title, saveLocked: n.saveLocked, priced: n.priced }));
   const pick = id => n.picks.find(p => p.id === id);
   step('portraits: level ones owned to level 6, the rest locked with what unlocks them', !pick('meadow').locked && !pick('sunset').locked && pick('nightsky').locked && pick('nightsky').label === 'Level 8'
-    && pick('disco').locked && pick('disco').label === 'Workshop · Soon' && pick('supporter').label === 'Supporter Pack · Soon' && pick('moonwalk').locked && !!pick('moonwalk').label,
+    && pick('disco').locked && pick('disco').label === 'Workshop · Soon' && pick('supporter').label === 'Supporter Pack · Soon' && pick('moonwalk').locked && !!pick('moonwalk').label
+    // Shop ones (only) say workshop when tapped, for the Workshop to open on them.
+    && n.picks.filter(p => p.workshop).map(p => p.id).join() === 'bubblegum,checkers,retro,rainbow,lava_lamp,disco,supporter',
   JSON.stringify(n.picks.map(p => `${p.id}:${p.locked ? p.label : 'owned'}`)));
   await typeName(page, 'ab');
   n = await nameCardState(page);
@@ -189,6 +220,28 @@ async function toSummary(page) {
   const me = l.rows.find(r => r.me);
   step('their row: highlighted, marked you, no report flag, ranked 13 of 13', !!me && me.rank === 13 && !me.flag && /13 players/.test(l.head), JSON.stringify({ me, head: l.head }));
 
+  // The Profile: the same name and portrait, and changed from there (§10.3).
+  await page.click('.ui-daily [data-action="close"]');
+  await openProfile(page);
+  pr = await profileState(page);
+  await shot('04b-profile-named');
+  step('the Profile: their name with Edit, their Blockling in the Sunset portrait, no "Pick a name"', pr.name === 'Blake Builds' && pr.edit && !pr.pick && pr.portrait === 'sunset' && !pr.small.length, JSON.stringify(pr));
+  await page.click('.ui-profile [data-action="name"]');
+  await page.waitForSelector('.ui-namecard');
+  n = await nameCardState(page);
+  step('Edit on the Profile opens the same card: "Your name and portrait", their name in it', n.title === 'Your name and portrait' && n.value === 'Blake Builds' && n.forget, JSON.stringify({ title: n.title, value: n.value }));
+  await page.click('.ui-namecard input[value="meadow"] + span');
+  await page.click('.ui-namecard [data-action="save"]');
+  await page.waitForSelector('.ui-profile', { timeout: 10000 });
+  pr = await profileState(page);
+  step('saved: back on the Profile, now in the Meadow portrait', pr.name === 'Blake Builds' && pr.portrait === 'meadow', JSON.stringify(pr));
+  await page.click('.ui-profile [data-action="close"]');
+  await openDaily(page);
+  l = await ladder(page);
+  step('the Daily card follows: their strip and their row in Meadow', l.youPortrait === 'meadow' && l.rows.find(r => r.me)?.portrait === 'meadow', JSON.stringify({ you: l.youPortrait, row: l.rows.find(r => r.me) }));
+  v = await fetch(`${api}/?day=${today}`).then(r => r.json());
+  step('...and so does their row for everyone', v.view.top.find(r => r.name === 'Blake Builds')?.portrait === 'meadow', JSON.stringify(v.view.top.find(r => r.name === 'Blake Builds')));
+
   // Reporting: hidden for them at once, behind a "Report this name?" question.
   await page.click('.ui-daily .ui-ld-row:nth-child(2) button.ui-ld-flag');
   await page.waitForTimeout(200);
@@ -211,7 +264,7 @@ async function toSummary(page) {
   await page.click('.ui-daily [data-action="edit"]');
   await page.waitForSelector('.ui-namecard');
   n = await nameCardState(page);
-  step('Edit: "Your ladder name", the weekly rule, a delete button', n.title === 'Your ladder name' && /once a week/.test(n.rule) && n.forget, JSON.stringify({ title: n.title, rule: n.rule }));
+  step('Edit on the Daily card: the same card, the weekly rule, a delete button', n.title === 'Your name and portrait' && /once a week/.test(n.rule) && n.forget, JSON.stringify({ title: n.title, rule: n.rule }));
   await typeName(page, 'Blake Again');
   await page.click('.ui-namecard [data-action="save"]');
   await page.waitForTimeout(800);
@@ -223,19 +276,26 @@ async function toSummary(page) {
   await page.click('.ui-daily [data-action="close"]');
   await page.click('[data-action="settings"]');
   await page.waitForSelector('.sc-ladder [data-action="forget"]');
+  const label = await page.evaluate(() => document.querySelector('.sc-ladder')?.textContent);
   await page.click('.sc-ladder [data-action="forget"]');
   const armed = await page.evaluate(() => document.querySelector('.sc-ladder [data-action="forget"]').textContent);
   await page.click('.sc-ladder [data-action="forget"]');
   await page.waitForTimeout(1200);
   const done = await page.evaluate(() => document.querySelector('.sc-ladder-msg')?.textContent);
   await shot('07-deleted');
-  step('Settings: delete takes two taps, then says it\'s done', /Tap again/.test(armed) && /gone/.test(done ?? ''), `${armed} / ${done}`);
+  step('Settings: "Your name", delete takes two taps, then says it\'s done', /Your name/.test(label) && /Delete my name and Daily scores/.test(label) && /Tap again/.test(armed) && /gone/.test(done ?? ''), `${armed} / ${done}`);
   v = await fetch(`${api}/?day=${today}`).then(r => r.json());
   step('their row and name are gone from the ladder', !v.view.top.some(r => r.name === 'Blake Builds') && v.view.total === 12, String(v.view.total));
   await page.click('.sc-root [data-action="close"]');
   await openDaily(page);
   l = await ladder(page);
-  step('back to "Join the ladder", today\'s try a personal best', l.join && !l.rows.some(r => r.me), JSON.stringify({ join: l.join, note: l.note }));
+  step('back to "Pick a name", today\'s try a personal best', l.join && !l.rows.some(r => r.me), JSON.stringify({ join: l.join, note: l.note }));
+  await page.click('.ui-daily [data-action="close"]');
+  await openProfile(page);
+  pr = await profileState(page);
+  step('the Profile is Builder again, with "Pick a name"', pr.name === 'Builder' && pr.pick && !pr.edit, JSON.stringify(pr));
+  await page.click('.ui-profile [data-action="close"]');
+  await openDaily(page);
 
   // A small phone.
   await page.setViewportSize({ width: 360, height: 640 });
@@ -288,7 +348,10 @@ const pageDb = () => {
   await openDaily(page);
   let l = await ladder(page);
   step('the game page: its own ladder, "This page", its two players', /This page/.test(l.head) && l.rows.map(r => r.name).join(',') === 'Page Ann,Page Bo', JSON.stringify({ head: l.head, rows: l.rows.map(r => r.name) }));
-  await page.click('.ui-daily [data-action="join"]');
+  // Here the name is picked on the Profile, and the Daily card uses it.
+  await page.click('.ui-daily [data-action="close"]');
+  await openProfile(page);
+  await page.click('.ui-profile [data-action="name"]');
   await page.waitForSelector('.ui-namecard');
   await typeName(page, 'page ann');
   await page.click('.ui-namecard [data-action="save"]');
@@ -297,7 +360,13 @@ const pageDb = () => {
   step('the page ladder: a name another viewer holds is taken', n && /already has that name/.test(n.hint), n?.hint);
   await typeName(page, 'Page Me');
   await page.click('.ui-namecard [data-action="save"]');
-  await page.waitForSelector('.ui-daily .ui-ld');
+  await page.waitForSelector('.ui-profile');
+  const pr = await profileState(page);
+  step('the page: named on the Profile, which shows it with Edit', pr.name === 'Page Me' && pr.edit && !pr.pick, JSON.stringify(pr));
+  await page.click('.ui-profile [data-action="close"]');
+  await openDaily(page);
+  l = await ladder(page);
+  step('the page\'s Daily card: on the ladder as the Profile\'s name', !l.join && l.you === 'Page Me', JSON.stringify({ join: l.join, you: l.you }));
   await page.click('.ui-daily [data-action="scored"]');
   await page.click('.ui-daily [data-action="scored"]', { force: true });
   await page.waitForFunction(() => window.__wobble.scene.started && window.__wobble.scene.sim?.stepIndex > 0 && window.__wobble.scene.sim.state === 'playing', null, { timeout: 15000 });
@@ -321,6 +390,10 @@ const pageDb = () => {
   await openDaily(page);
   const l = await ladder(page);
   step('no database: "The ladder isn\'t available here", no join strip', /isn't available/.test(l.msg ?? '') && l.you === null, l.msg);
+  await page.click('.ui-daily [data-action="close"]');
+  await openProfile(page);
+  const pr = await profileState(page);
+  step('no database: the Profile has no name button (names live on the ladder)', pr.name === 'Builder' && !pr.edit && !pr.pick, JSON.stringify(pr));
   await ctx.close();
 }
 
