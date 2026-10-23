@@ -239,22 +239,12 @@ export class Screens {
   }
 
   private bind(el: HTMLElement, handlers: Record<string, (target: HTMLElement) => void>): () => void {
-    const off = onAction(el, (action, target) => {
+    return onAction(el, (action, target) => {
       const fn = handlers[action];
       if (!fn) return;
       this.sounds.ui(ACTION_SOUND[action] ?? 'tap');
       fn(target);
     });
-    // The greyed pass rewards (the level track, the XP tally) are .locked, which onAction skips, but they
-    // still open the Workshop.
-    const pass = (e: Event): void => {
-      const t = (e.target as HTMLElement | null)?.closest<HTMLElement>('.locked[data-action="workshop"]');
-      if (!t || !el.contains(t) || !handlers.workshop) return;
-      this.sounds.ui('tap');
-      handlers.workshop(t);
-    };
-    el.addEventListener('click', pass);
-    return () => { off(); el.removeEventListener('click', pass); };
   }
 
   // ---------------------------------------------------------------- main menu
