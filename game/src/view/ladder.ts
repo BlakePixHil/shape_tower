@@ -37,8 +37,18 @@ export class DailyLadder {
   constructor(private profile: Profile, private still: () => boolean, private onNamed: (name: string | null) => void) {
     this.ready = chooseBackend().catch(() => null).then(b => {
       const l = (this.ladder = new Ladder(b));
-      this.onNamed(l.me?.name ?? null);
-      if (l.available) void l.refresh().then(() => { this.onNamed(l.me?.name ?? null); void l.flush(); });
+      const had = l.me;
+      this.onNamed(had?.name ?? null);
+      if (l.available) void l.refresh().then(async () => {
+        // A ladder that answers without the name this device had (the move off the first server, §12.3)
+        // gets it again, with their portrait and today's try.
+        if (had?.name && !had.hidden && l.me && !l.named) {
+          const r = await l.setName(had.name, { portrait: had.portrait, avatar: this.profile.avatar });
+          if ('me' in r) this.submit(dailyDay());
+        }
+        this.onNamed(l.me?.name ?? null);
+        void l.flush();
+      });
       return l;
     });
   }
