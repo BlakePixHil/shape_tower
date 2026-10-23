@@ -318,6 +318,32 @@ async function toSummary(page) {
   await ctx.close();
 }
 
+// ---------------------------------------------------------------- a new server
+
+// A device named on the first server (Vercel) meets one that has never seen its key (the move to Cloudflare).
+{
+  const moved = key(0x5a);
+  const day = today;
+  const script = `if (!localStorage.getItem('shape-tower-online-v1')) {
+    localStorage.setItem('shape-tower-online-v1', JSON.stringify({ key: '${moved}', portrait: 'sunset', reported: [], pending: null,
+      me: { id: 'old-server-id', name: 'Moved Mo', portrait: 'sunset', avatar: { shape: 'O', face: 'idle', hat: 'party' }, hidden: false, renamedAt: 1 } }));
+    const p = JSON.parse(localStorage.getItem('shape-tower-profile-v1'));
+    p.daily = { ...(p.daily ?? {}), scored: { '${day}': { at: new Date(Date.now() - 600000).toISOString(), height: 12.5, score: 900, checkpoints: 2, biome: 1, finished: true, v: 2 } } };
+    localStorage.setItem('shape-tower-profile-v1', JSON.stringify(p));
+  }`;
+  const { ctx, page } = await open({ width: 390, height: 844 }, { api, script });
+  await page.waitForTimeout(1500);
+  const me = await post({ op: 'me', key: moved });
+  step('a name from the old server comes along: the new ladder has it, in Sunset', me.me?.name === 'Moved Mo' && me.me.portrait === 'sunset', JSON.stringify(me.me));
+  await openProfile(page);
+  const pr = await profileState(page);
+  step('...and the Profile shows it with Edit', pr.name === 'Moved Mo' && pr.edit && !pr.pick, JSON.stringify(pr));
+  const v = await post({ op: 'ladder', day });
+  const row = v.view.top.find(r => r.name === 'Moved Mo');
+  step('...with today\'s finished try on the new ladder', row?.finished === true && row.height === 12.5, JSON.stringify(row));
+  await ctx.close();
+}
+
 // ---------------------------------------------------------------- the game page's own ladder
 
 // A stand-in for claude.ai's page database: one shared map, two viewers' rows already in it.

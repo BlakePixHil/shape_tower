@@ -7,7 +7,7 @@ import { submitProblem, type LadderView, type Submission } from '../meta/ladder.
 import { DEFAULT_PORTRAIT } from '../meta/portraits.ts';
 import type { LadderError, LadderReply, LadderRequest, Look, Me } from './protocol.ts';
 
-export const API_URL = 'https://shape-tower-api.vercel.app/api/v1';
+export const API_URL = 'https://shape-tower.shape-tower.workers.dev/api/v1';
 /** QA's checks point the game at a local server (online/scripts/dev-server.ts) with this key. */
 const API_OVERRIDE = 'shape-tower-ladder-api';
 const KEY = 'shape-tower-online-v1';
