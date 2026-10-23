@@ -6,6 +6,8 @@
   "name": "shape-tower",
   "main": "online/cloudflare/worker.ts",
   "compatibility_date": "2026-09-01",
+  // The game calls https://shape-tower.<account>.workers.dev/api/v1 (game/src/online/online.ts), so keep it on.
+  "workers_dev": true,
   "durable_objects": {
     "bindings": [{ "name": "LADDER", "class_name": "Ladder" }]
   },

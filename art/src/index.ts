@@ -48,7 +48,7 @@ export {
   armDailyScored, dailyCard, dailyChip, dailyMenuDot, setDailyCountdown, setDailyLadder, setDailyTab, type DailyCardData, type DailyResultData, type DailyTab,
 } from './ui/daily.ts';
 export {
-  armForget, armReport, injectLadderCss, ladderHtml, nameCard, readNameCard, setNameBusy, setNameHint, type LadderPanelData, type LadderRowData, type NameCardData, type PortraitChoice,
+  FORGET_LABEL, armForget, armReport, injectLadderCss, ladderHtml, nameCard, readNameCard, setNameBusy, setNameHint, type LadderPanelData, type LadderRowData, type NameCardData, type PortraitChoice,
 } from './ui/ladder.ts';
 export {
   ACH_TIERS, achievementBadgeUrl, achievementStrip, achievementToast, achievementsPanel, achievementsRow, bakeAchievementBadge, bakeAchievementForStore, drawAchievementBadge,

@@ -124,12 +124,16 @@ if (lvl) {
 await shot('09-summary');
 const summary = await page.evaluate(() => ({ again: document.querySelector('[data-action="again"]') !== null, xp: document.querySelector('.ui-line.total b')?.textContent, level: document.querySelector('.ui-summary .ui-xp')?.dataset.level }));
 step('the summary shows the XP tally and Play again', summary.again && /\+\d+ XP/.test(summary.xp ?? ''), JSON.stringify(summary));
+const prompts = await page.evaluate(() => [...document.querySelectorAll('.sc-ask p')].map(p => p.textContent));
+step('the run card asks Blake\'s three questions: feel, too difficult, unfair', JSON.stringify(prompts) === JSON.stringify(['How did that run feel?', 'Was it too difficult?', 'Was it unfair?']), JSON.stringify(prompts));
 await page.click('.sc-ask .ui-btn');
+await page.evaluate(() => [...document.querySelectorAll('.sc-ask')].find(a => a.querySelector('p')?.textContent === 'Was it unfair?')?.querySelector('.ui-btn')?.click());
 const rec = await sim(() => window.__dbWrites.find(w => w.op === 'set' && w.data.kind === 'run')?.data ?? null);
 if (rec) writeFileSync(`${out}/run-record.json`, JSON.stringify(rec));
 step('the first run record: app game, juice-on warm-up, player id, feel answer', rec?.app === 'game' && rec?.juice === 'on' && rec?.juiceRun === 0 && /^p-/.test(rec?.player ?? '') && rec?.cause === 'quit', rec ? `${rec.app} ${rec.juice} run ${rec.juiceRun} ${rec.player} ${rec.cause} ${rec.stats?.placed} placed` : 'none');
 const answered = await sim(() => window.__dbWrites.filter(w => w.op === 'update').map(w => w.data));
 step('the face answer is saved as a number', answered.some(d => d.answers?.feel === 1), JSON.stringify(answered));
+step('a yes/no answer is saved under its own id', answered.some(d => d.answers?.feel === 1 && d.answers?.unfair === 'yes'), JSON.stringify(answered));
 
 await page.click('[data-action="home"]');
 await page.waitForTimeout(1500);

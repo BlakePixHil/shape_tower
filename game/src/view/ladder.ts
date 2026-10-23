@@ -1,6 +1,7 @@
-// The Daily ladder in the game (gameplay.md §12.3): today's list for the Daily card, the name card, the
-// scored try's progress on its way to the ladder, and deleting it all. The ladder itself is
-// online/online.ts (the API, or the game page's own); this file turns it into what the screens show.
+// The Daily ladder in the game (gameplay.md §12.3): today's list for the Daily card, the player's name and
+// portrait (one pair for the Profile and the ladder, §10.3) and the card that picks them, the scored try's
+// progress on its way to the ladder, and deleting it all. The ladder itself is online/online.ts (the API,
+// or the game page's own); this file turns it into what the screens show.
 
 import { PORTRAIT_ART, type LadderPanelData, type LadderRowData, type NameCardData, type PortraitChoice } from '@art/index.ts';
 import { BY_ID } from '../meta/achievements.ts';
@@ -10,7 +11,7 @@ import { NAME_HINT, nameProblem, tidyName } from '../meta/names/names.ts';
 import { portraitDef, portraitOwned } from '../meta/portraits.ts';
 import { Ladder, chooseBackend, errorOf } from '../online/online.ts';
 import { RENAME_MS, type LadderError, type Look } from '../online/protocol.ts';
-import type { DailyLadderHooks, NameCardHooks } from './screens.ts';
+import type { DailyLadderHooks, NameCardHooks, ProfileIdentity } from './screens.ts';
 import type { Profile } from './profile.ts';
 
 /** What the ladder's refusals say on the name card. */
@@ -22,6 +23,7 @@ const ERROR_LINE: Partial<Record<LadderError, string>> = {
 };
 
 const DAY_MS = 86_400_000;
+const REPORTED = 'Your name was reported, so the ladder shows a stand-in. Pick a new one to show yours.';
 
 export class DailyLadder {
   ladder: Ladder | null = null;
@@ -48,6 +50,17 @@ export class DailyLadder {
 
   /** The player's Blockling changed: their ladder row follows. */
   restyle(): void { void this.ladder?.setLook(this.look()); }
+
+  /**
+   * The Profile's name and portrait: the ones the ladder shows. Without a ladder in this copy of the game
+   * there are no names, so no button.
+   */
+  identity(): ReturnType<ProfileIdentity['get']> {
+    const l = this.ladder;
+    const portrait = l?.state.portrait ?? 'meadow';
+    if (l && !l.available) return { portrait };
+    return { portrait, nameAction: l?.named ? 'edit' : 'pick', nameNote: l?.me?.hidden ? REPORTED : undefined };
+  }
 
   /** The Daily card's ladder hooks. `onName` opens the name card. */
   hooks(onName: () => void): DailyLadderHooks {
@@ -96,14 +109,14 @@ export class DailyLadder {
   /** Why the player's try isn't on today's ladder, when it isn't. */
   private note(d: DailyState, day: string, v: LadderView): string | undefined {
     const r = d.scored[day];
-    if (this.ladder?.me?.hidden) return 'Your name was reported, so the ladder shows a stand-in. Pick a new one to show yours.';
+    if (this.ladder?.me?.hidden) return REPORTED;
     if (r && !ladderReady(r)) return "Your try from earlier today was before the new Daily, so it isn't on the ladder. Today's new try is open.";
     if (r && !this.ladder?.named) return 'Pick a name and your try today joins the ladder.';
     if (r && this.ladder?.named && !v.me) return this.ladder.state.pending ? 'Your try is on its way to the ladder.' : undefined;
     return undefined;
   }
 
-  // ------------------------------------------------------------------ the name card
+  // ------------------------------------------------------------------ the name card (from the Profile or the Daily card)
 
   nameHooks(back: () => void): NameCardHooks {
     const l = this.ladder;
@@ -113,7 +126,7 @@ export class DailyLadder {
     const data: NameCardData = {
       name: me?.name ?? '', portrait: l?.state.portrait ?? 'meadow', avatar: this.profile.avatar, joined, still: this.still(),
       portraits: this.choices(),
-      rule: !joined ? 'Shown to everyone on the ladder. Letters, numbers, spaces, - and _. You can change it once a week.'
+      rule: !joined ? 'Your name and portrait show on your profile and on the Daily ladder for everyone. Letters, numbers, spaces, - and _. You can change it once a week.'
         : wait > 0 ? `You can change your name once a week: next change in ${Math.ceil(wait / DAY_MS)} ${Math.ceil(wait / DAY_MS) === 1 ? 'day' : 'days'}. Portraits change any time.`
         : 'You can change your name once a week. Portraits change any time.',
     };
@@ -147,7 +160,7 @@ export class DailyLadder {
     };
   }
 
-  /** "Delete my ladder name and scores". Resolves an error line, or null when it's done. */
+  /** "Delete my name and Daily scores". Resolves an error line, or null when it's done. */
   async forget(): Promise<string | null> {
     const l = await this.ready;
     const e = errorOf(await l.forget());

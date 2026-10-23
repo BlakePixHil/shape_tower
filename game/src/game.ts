@@ -14,7 +14,7 @@ import { biomeFor, type Tuning } from './sim/tuning.ts';
 import type { LabState } from './view/panel.ts';
 import type { RunOpts } from './view/scene.ts';
 import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, saveProfile, spendDailyWind, updateStreak } from './view/profile.ts';
-import { Screens, type UiSound } from './view/screens.ts';
+import { Screens, type ProfileIdentity, type UiSound } from './view/screens.ts';
 import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor } from './view/settings.ts';
 import { ENDLESS, type RunMode } from './view/modes.ts';
 import { BUILD, startShell } from './view/shell.ts';
@@ -135,9 +135,14 @@ async function boot(): Promise<void> {
     levelUp: level => audio()?.handle('level_up', { level }),
   });
   sc.stores = { label: () => stores.label(), open: () => void stores.open(profile) };
-  // The Daily ladder (§12.3): the menu and profile show the player's ladder name once they have one.
+  // The Daily ladder (§12.3): the menu and profile show the player's name once they have one; it's their
+  // ladder name too, picked from the Profile or the Daily card (§10.3).
   const ladder = new DailyLadder(profile, () => settings.reduceMotion, name => { sc.playerName = name ?? 'Builder'; });
   const saveLook = () => { saveProfile(profile); ladder.restyle(); };
+  const identity: ProfileIdentity = {
+    get: () => ({ ...ladder.identity(), still: settings.reduceMotion }),
+    onName: back => { void ladder.ready.then(() => sc.ladderName(ladder.nameHooks(back))); },
+  };
 
   // ------------------------------------------------------------------ flow
 
@@ -158,7 +163,7 @@ async function boot(): Promise<void> {
       dailyDot: !done,
       onPlay: () => play(),
       onMode: id => { if (id === 'zen') play({ id: 'zen' }); else openDaily(); },
-      onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, saveLook); },
+      onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, saveLook, identity); },
       onSettings: () => { audio()?.screen?.('profile'); openSettings(home); },
       note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
     });
@@ -337,16 +342,13 @@ async function boot(): Promise<void> {
     const a = award(profile, Number(p.xp ?? 0), { newBest: newBest && !zen, quit, mode: mode.id, extra: paid });
     const rec = shell.record;
     rec?.finish(sim, { xp: a.gained, xpBase: Number(p.xp ?? 0), level: profile.level, runNumber: profile.runs, newBest: a.lines.some(l => l[0] === 'New best'), view: { ...state.view }, juiceRun, player: profile.player, achievements: paid.ids });
+    // QA's three one-tap questions (Blake, 2026-10-23). The ids are new where the question is: the
+    // old 'fair' asked the other way round, so earlier records keep their own meaning.
     const questions: { id: string; text: string; kind?: 'yesno' | 'faces' }[] = [
       { id: 'feel', text: 'How did that run feel?', kind: 'faces' },
-      { id: 'see', text: 'Could you see what happened?' },
-      { id: 'fair', text: 'Was that fair?' },
+      { id: 'hard', text: 'Was it too difficult?' },
+      { id: 'unfair', text: 'Was it unfair?' },
     ];
-    if (profile.runs >= 3 && !profile.askedGhost) {
-      profile.askedGhost = true;
-      saveProfile(profile);
-      questions.push({ id: 'ghost', text: 'Did the ghost show where shapes would land?' });
-    }
     // The money shot: the camera glides down the whole tower, then the summary card. A tap skips.
     showHud(false);
     skipTap = () => scene.skipPanorama();
@@ -365,7 +367,7 @@ async function boot(): Promise<void> {
         onAnswer: (id, answer) => rec?.answer(id, answer),
         onAgain: () => { rec?.exit('again'); if (mode.id === 'daily') practiceDaily(); else play(mode); },
         daily: mode.id === 'daily' ? { number: dailyNumber(mode.day!), scored: !!mode.scored, again: mode.scored ? 'Practice' : 'Practice again' } : undefined,
-        onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, saveLook); },
+        onProfile: () => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, saveLook, identity); },
         onHome: () => { rec?.exit('menu'); home(); },
         reducedMotion: settings.reduceMotion,
       });
