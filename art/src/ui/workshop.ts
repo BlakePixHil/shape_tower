@@ -6,11 +6,16 @@
 // (setWorkshopNote). Prices only ever appear here. Needs uiCss(); adds its own rules once.
 
 import { INK, PAPER, SIGNAL } from '../config.ts';
+import { bakeFlag } from '../checkpoint.ts';
+import { WORKSHOP_SETS, flagFor, hatFor, skinFor } from '../cosmetics.ts';
+import { faceAnchor } from '../geometry.ts';
+import { drawPiece } from '../piece.ts';
 import { drawPowerIcon } from '../powers.ts';
-import { ART_SHAPES } from '../shapes.ts';
+import { ART_SHAPES, pose } from '../shapes.ts';
 import { O, circlePath, heart, ink, part, rrPath, twinkle } from '../sticker.ts';
 import { type Ctx, TAU, ctx2d, makeCanvas } from '../util.ts';
 import { canvasUrl } from '../urls.ts';
+import { drawHat, hatInfo } from './hats.ts';
 import { type UiIcon, drawNoAds, uiIconUrl } from './icons.ts';
 import { portraitHtml } from './portraits.ts';
 import type { AvatarSpec } from './screens.ts';
@@ -192,13 +197,40 @@ function drawSet(c: Ctx, id: string): void {
   fill(c, rrPath(-0.4, -0.12, 0.8, 0.12, 0.04), ['#E9B872', '#FFE2B8', '#B9874E'], 0.025);
 }
 
+/** The gift box a set comes in, in unit space: the back flap, then (after what's inside) the front. */
+function setBox(c: Ctx, rib: Tri, front: boolean): void {
+  if (!front) { fill(c, rrPath(-0.34, -0.1, 0.68, 0.1, 0.03), ['#C99A62', '#E9B872', '#A8723E'], 0.02); return; }
+  const box = rrPath(-0.36, -0.02, 0.72, 0.4, 0.06);
+  fill(c, box, ['#F2C891', '#FFE2B8', '#C99A62'], 0.04);
+  c.save(); c.clip(box); c.fillStyle = rib[0]; c.fillRect(-0.07, -1, 0.14, 2); c.fillStyle = rib[1]; c.fillRect(-0.07, -1, 0.04, 2); c.restore();
+  ink(c, box);
+  fill(c, rrPath(-0.4, -0.08, 0.8, 0.13, 0.04), ['#E9B872', '#FFE2B8', '#B9874E'], 0.025);
+}
+
+const SET_RIBBON: Record<string, Tri> = { set_candy: ['#FF7FB0', '#FFC2D8', '#D9578A'], set_robot: ['#33C3F0', '#9BE6FF', '#1E8BC3'], set_dragon: GOLD };
+
+/** A Workshop set: its flag behind an open gift box, its Blockling in the set's skin and hat peeking out. Pixel space. */
+function drawSetArt(c: Ctx, id: string, x: number, y: number, size: number): void {
+  const items = WORKSHOP_SETS.find(s => s.id === id)?.items;
+  if (!items) { c.save(); c.translate(x, y); c.scale(size, size); drawSet(c, id); c.restore(); return; }
+  const [skin, , , flag, hat] = items, rib = SET_RIBBON[id] ?? RIBBON;
+  const fs = Math.max(6, size * 0.3), fl = bakeFlag(2, fs, flagFor(flag));
+  c.drawImage(fl.canvas, x + size * 0.2 - fl.originX * fl.canvas.width, y + size * 0.02 - fl.originY * fl.canvas.height);
+  c.save(); c.translate(x, y); c.scale(size, size); setBox(c, rib, false); c.restore();
+  const s = size * 0.19, p = pose('O', 0), px = x - (p.w * s) / 2 - size * 0.04, py = y - size * 0.02 - p.h * s * 0.72;
+  c.save(); c.translate(px, py); drawPiece(c, 'O', 0, s, { skin: skinFor(skin), face: 'proud', shadow: false, detail: s >= 20 }); c.restore();
+  const hk = hatFor(hat), info = hatInfo(hk);
+  if (hk && info) { const [fx] = faceAnchor(p); drawHat(c, hk, px + fx * s, py + s * 0.06, 1.35 * s); }
+  c.save(); c.translate(x, y); c.scale(size, size); setBox(c, rib, true); c.restore();
+}
+
 type ArtName = Exclude<WorkshopArt, { portrait: string }>;
 
 /** Draw a product's art centred at (x, y), `size` px square. Portraits are portraitHtml's. */
 export function drawWorkshopArt(c: Ctx, art: ArtName, x: number, y: number, size: number): void {
+  if (typeof art === 'object') { drawSetArt(c, art.set, x, y, size); return; }
   c.save(); c.translate(x, y); c.scale(size, size);
-  if (typeof art === 'object') drawSet(c, art.set);
-  else ({ supporter: drawSupporter, builders_pass: drawPass, remove_ads: drawRemoveAds, second_wind_ready: drawWindReady })[art](c);
+  ({ supporter: drawSupporter, builders_pass: drawPass, remove_ads: drawRemoveAds, second_wind_ready: drawWindReady })[art](c);
   c.restore();
 }
 

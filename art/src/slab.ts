@@ -2,7 +2,11 @@
 // and the grade stamp. Slabs are gameplay objects, so they get the Ink outline.
 
 import { FONT_DISPLAY, INK } from './config.ts';
-import { type Ctx, TAU, circ, ctx2d, makeCanvas, rr, star4 } from './util.ts';
+import { type FoundationKind, drawFoundation, drawFoundationPedestal, foundationPad } from './foundations.ts';
+import { type Ctx, TAU, circ, cpuBaked, ctx2d, makeCanvas, rr, star4, turnCanvas } from './util.ts';
+
+/** A foundation style (cosmetics.ts foundationFor(id)): which look, and how far its hues turn (later variants). */
+export interface FoundationLook { kind: FoundationKind; turn: number }
 
 /** Visual slab thickness in blocks, measured down from the top surface pieces rest on. */
 export const SLAB_DEPTH = 0.6;
@@ -130,9 +134,22 @@ export interface BakedSlab {
   s: number;
 }
 
-/** Bake biome `bi`'s slab `widthBlocks` wide at `s` px per block. Origin: centre of the top surface. */
-export function bakeSlab(bi: number, widthBlocks: number, s: number): BakedSlab {
+/**
+ * Bake biome `bi`'s slab `widthBlocks` wide at `s` px per block, or in foundation style `style` (every
+ * biome alike). Origin: centre of the top surface.
+ */
+export function bakeSlab(bi: number, widthBlocks: number, s: number, style?: FoundationLook | null): BakedSlab {
   const pt = s / 32, w = widthBlocks * s, h = SLAB_DEPTH * s;
+  if (style) {
+    const bake = (): BakedSlab => {
+      const [padX, padTop, padBot] = foundationPad(style.kind, s);
+      const canvas = makeCanvas(w + padX * 2, h + padTop + padBot);
+      drawFoundation(ctx2d(canvas), padX, padTop, w, h, style.kind, pt);
+      turnCanvas(canvas, style.turn);
+      return { canvas, originX: (padX + w / 2) / canvas.width, originY: padTop / canvas.height, s };
+    };
+    return style.turn ? cpuBaked(bake) : bake();
+  }
   const padX = Math.ceil(bi === 5 ? h * 1.3 : s * 0.4), padTop = Math.ceil(bi === 4 ? h * 2.3 : s * 0.5), padBot = Math.ceil(bi === 2 ? h * 0.9 : s * 0.3);
   const canvas = makeCanvas(w + padX * 2, h + padTop + padBot), c = ctx2d(canvas);
   drawSlab(c, padX, padTop, w, h, bi, pt);
@@ -142,12 +159,17 @@ export function bakeSlab(bi: number, widthBlocks: number, s: number): BakedSlab 
 /** Pedestal height from its top surface to the grass, in blocks: place its top this far above the ground. */
 export const pedestalHeight = (legs = 1.6): number => SLAB_DEPTH + legs;
 
-/** Bake the Meadow's starting pedestal. Origin: centre of the top surface. */
-export function bakePedestal(widthBlocks: number, s: number, legs = 1.6): BakedSlab {
-  const pt = s / 32, w = widthBlocks * s, pad = Math.ceil(s * 0.4);
-  const canvas = makeCanvas(w + pad * 2, (SLAB_DEPTH + legs + 0.2) * s + pad * 2), c = ctx2d(canvas);
-  drawPedestal(c, pad, pad, w, s, legs, pt);
-  return { canvas, originX: (pad + w / 2) / canvas.width, originY: pad / canvas.height, s };
+/** Bake the Meadow's starting pedestal, or one in foundation style `style`. Origin: centre of the top surface. */
+export function bakePedestal(widthBlocks: number, s: number, legs = 1.6, style?: FoundationLook | null): BakedSlab {
+  const pt = s / 32, w = widthBlocks * s, pad = Math.ceil(s * (style ? 0.6 : 0.4));
+  const bake = (): BakedSlab => {
+    const canvas = makeCanvas(w + pad * 2, (SLAB_DEPTH + legs + 0.2) * s + pad * 2), c = ctx2d(canvas);
+    if (style) { drawFoundationPedestal(c, pad, pad, w, SLAB_DEPTH * s, s, legs, style.kind, pt); turnCanvas(canvas, style.turn); }
+    else drawPedestal(c, pad, pad, w, s, legs, pt);
+    return { canvas, originX: (pad + w / 2) / canvas.width, originY: pad / canvas.height, s };
+  };
+  // A variant reads its pixels back to turn them: bake it in CPU memory.
+  return style?.turn ? cpuBaked(bake) : bake();
 }
 
 export type Grade = 'S' | 'A' | 'B' | 'C';

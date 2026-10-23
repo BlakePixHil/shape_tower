@@ -7,6 +7,8 @@
 
 import { CHECKPOINT } from '../checkpoint.ts';
 import { SIGNAL } from '../config.ts';
+import { flagFor } from '../cosmetics.ts';
+import type { FlagLook } from '../flags.ts';
 import { TAU, clamp, hexNum, smooth } from '../util.ts';
 import type { ArtTextures, TexRef } from './textures.ts';
 import type { DisplayLike, ImageLike, TileSpriteLike } from './types.ts';
@@ -42,6 +44,7 @@ export class CheckpointLine {
   private label: ImageLike;
   private glint: ImageLike;
   private flag: ImageLike;
+  private flagStyle: FlagLook | null = null;
   private ticks: ImageLike[] = [];
   private pennants: Pennant[] = [];
   private l: CheckpointLayout = { y: 0, x0: 0, x1: 0 };
@@ -67,6 +70,9 @@ export class CheckpointLine {
     const tick = tex.holdTick();
     for (let i = 0; i < CHECKPOINT.holdTicks; i++) this.ticks.push(use(add.image(0, 0, tick.key, tick.frame), tick).setDepth(depth + 0.04).setVisible(false));
   }
+
+  /** The claimed flag's style: a cosmetic id ('flag_moon'), a look from flagFor, or null for the gold star flag. Purely visual. */
+  setFlagStyle(f: FlagLook | string | null): this { this.flagStyle = typeof f === 'string' ? flagFor(f) : f; return this; }
 
   get claimed(): boolean { return this.claimAt >= 0; }
 
@@ -172,7 +178,7 @@ export class CheckpointLine {
     // Flag: drops in, squashes on landing, then waves.
     if (this.claimed) {
       const fr = this.reduceMotion ? 0 : Math.floor(t * 8) % CHECKPOINT.flagFrames;
-      use(this.flag, tex.flag(fr));
+      use(this.flag, tex.flag(fr, this.flagStyle));
       let y = l.y, sx = 1, sy = 1;
       if (!this.reduceMotion) {
         if (claimT < DROP) { const e = claimT / DROP; y = l.y - (1 - e * e) * 2.5 * cell; sy = 1.1; sx = 0.92; }

@@ -6,6 +6,7 @@ import { ART, INK } from './config.ts';
 import { drawFace, type Expression } from './face.ts';
 import { faceAnchor, silhouette } from './geometry.ts';
 import { ART_SHAPES, pose, type Pose } from './shapes.ts';
+import { type SkinLook, drawSkin, skinColors } from './skins.ts';
 import { type Ctx, circ, ctx2d, hash, makeCanvas, rgba, rr, star4 } from './util.ts';
 
 /** Biome finishes (§4.6). Meadow and Treetops use wood; Cloudlands and Moon have none. */
@@ -23,6 +24,8 @@ export interface PieceStyle {
   detail?: boolean;
   /** Bake a whole face in (previews, icons). The game draws live faces as separate sprites. */
   face?: Expression | null;
+  /** A cosmetic skin (cosmetics.ts skinFor(id)), drawn instead of the finish. Stone ignores it. */
+  skin?: SkinLook | null;
 }
 
 function patternFor(c: Ctx, key: string, p: Pose, s: number): void {
@@ -112,9 +115,10 @@ function finish(c: Ctx, f: Finish | null | undefined, key: string, p: Pose, path
 
 /** Draw one piece body with its bounding box at the current origin. */
 export function drawPiece(c: Ctx, key: string, q: number, s: number, o: PieceStyle = {}): void {
-  const sh = ART_SHAPES[key], p = pose(key, q), path = silhouette(p, s);
-  const P = ART.piece, W = p.w * s + 4, H = p.h * s + 4;
-  const stone = !!o.stone, detail = o.detail ?? true;
+  const P = ART.piece, p = pose(key, q), path = silhouette(p, s), W = p.w * s + 4, H = p.h * s + 4;
+  const stone = !!o.stone, detail = o.detail ?? true, skin = stone ? null : o.skin ?? null;
+  // A skin may wash the shape's colors (same hue family); everything below draws in them.
+  const sh = skin ? { ...ART_SHAPES[key], ...skinColors(skin, ART_SHAPES[key]) } : ART_SHAPES[key];
   c.save();
   if ((o.shadow ?? true) && !stone) {
     c.save(); c.translate(s * P.shadow.x, s * P.shadow.y); c.fillStyle = rgba(INK, P.shadow.alpha); c.fill(path); c.restore();
@@ -134,8 +138,9 @@ export function drawPiece(c: Ctx, key: string, q: number, s: number, o: PieceSty
   c.restore(); c.restore();
   c.globalAlpha = 1;
   material(c, key, p, s, W, H);
+  if (skin) drawSkin(c, skin, p, path, s, W, H, sh);
   if (o.pattern) patternFor(c, key, p, s);
-  if (!stone) finish(c, o.finish, key, p, path, s, W, H);
+  if (!stone && !skin) finish(c, o.finish, key, p, path, s, W, H);
 
   // Seams between neighbouring cells.
   if (p.cells.length) {
