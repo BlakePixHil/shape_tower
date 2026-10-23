@@ -34,8 +34,9 @@ if [ -d "$R/game" ]; then
     # strip, tally and panel (#37), the Daily Tower's card, attempts and played day (#60), the loading
     # splash (#61), a checkpoint hold's grey, knock freeze and colour overshoot (#62), and the Daily ladder
     # against the ladder API run in memory on this machine, never the live one (#68), and the Workshop with the
-    # test store and a pretend ad network: prices only there, Second Wind, Purchases rows, ad pacing (monetisation).
-    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check ladder-check workshop-check; do
+    # test store and a pretend ad network: prices only there, Second Wind, Purchases rows, ad pacing (monetisation),
+    # and Your look with the level track: picks worn in a run, the Builder's Pass, refunds, the Supporter frame (stage 2).
+    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check ladder-check workshop-check look-check; do
       [ -f "$R/game/tests/$t.mjs" ] && run "game: $t" bash -c "cd game && node tests/$t.mjs"
     done
   fi
