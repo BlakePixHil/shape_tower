@@ -8,7 +8,10 @@ import {
   profilePanel, readAvatar, readNameCard, readSettings, rewardAt, setDailyCountdown, setDailyLadder, setDailyTab, setNameBusy, setNameHint, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type DailyTab, type LadderPanelData, type NameCardData, type SettingGroup, type SettingValue,
   PURCHASE_SETTINGS, setWorkshopItem, setWorkshopNote, setWorkshopRestoring, setWorkshopStore, testPurchaseSheet, workshopPanel, type WorkshopData, type WorkshopItem, type WorkshopStore,
+  levelRewards, levelTrack, lookPanel, lookPreviewUrl, readLook, type CosmeticOwner,
 } from '@art/index.ts';
+import { extraHats, lookOf, saveLook, wornLook } from './look.ts';
+import type { Entitlements } from '../meta/shop.ts';
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
 import type { Award, Profile } from './profile.ts';
@@ -26,7 +29,7 @@ export interface ScreenSounds {
 
 /** The sound each kit action makes; anything else is a plain tap. */
 const ACTION_SOUND: Record<string, UiSound> = {
-  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', name: 'open', done: 'tap2', achievements: 'open', stores: 'open',
+  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', name: 'open', done: 'tap2', achievements: 'open', stores: 'open', look: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap', scored: 'tap2', practice: 'start',
   tab: 'tab', join: 'open', edit: 'open', save: 'tap2', report: 'tap', reportYes: 'tap2', reportNo: 'back', forget: 'tap2', retry: 'tap',
   workshop: 'open', buy: 'tap2', confirm: 'tap2', cancel: 'back', restore: 'tap', clearTest: 'tap2',
@@ -91,6 +94,21 @@ export interface ProfileIdentity {
   onName(back: () => void): void;
 }
 
+/**
+ * The look's hooks (monetisation plan v2, cosmetics): what the player owns, and the Workshop for the
+ * items a purchase unlocks (`product`: builders_pass, a set id or the Supporter offer). `back` is
+ * where the Workshop's close goes; null from the run summary, which can't be gone back to.
+ */
+export interface LookHooks {
+  ent(): Entitlements;
+  owner(p: Profile): CosmeticOwner;
+  onWorkshop(product: string, back: (() => void) | null): void;
+  /** Reduce Motion: the look's animated previews hold still. */
+  still(): boolean;
+  /** A level-up's Builder's Pass card: its reward for owners, the one intro at level 10 (it marks itself shown), or none. */
+  levelPass(from: number, to: number): { pass: 'owned' | 'intro'; passWaiting?: number } | null;
+}
+
 // Only what the kit doesn't style: the container, the testing note, the build tag and QA's questions.
 const CSS = `
 .sc-root { display: none; }
@@ -104,6 +122,10 @@ const CSS = `
 .sc-ask .sc-face { font-size: 24px; padding: 2px 6px; min-width: 46px; }
 .sc-ask .sc-thanks { font: 600 14px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 0; }
 .sc-ladder { margin-top: 10px; text-align: left; }
+.sc-look { display: flex; align-items: center; gap: 12px; width: 100%; margin: 0 0 6px; padding: 8px 12px 8px 8px; text-align: left; }
+.sc-look img { width: 96px; height: 48px; border: 2px solid ${INK}; border-radius: 10px; flex: none; }
+.sc-look span { flex: 1; font: 700 14px/1.25 'Nunito', sans-serif; color: ${INK_SOFT}; }
+.sc-look b { display: block; font: 800 17px/1.2 'Fredoka', sans-serif; color: ${INK}; }
 .sc-ladder-msg { font: 700 13px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 2px 0; min-height: 1em; }
 `;
 
@@ -179,6 +201,8 @@ export class Screens {
   playerName = 'Builder';
   /** The phone's game service for the Achievements panel's button (game.ts): its name, or null for none. */
   stores: { label(): string | null; open(): void } | null = null;
+  /** The look's hooks; without them (the Wobble Lab) the profile has no look rows. */
+  looks: LookHooks | null = null;
   /** The Daily card's tab, kept between visits. */
   private dailyTab: DailyTab = 'ladder';
 
@@ -215,12 +239,22 @@ export class Screens {
   }
 
   private bind(el: HTMLElement, handlers: Record<string, (target: HTMLElement) => void>): () => void {
-    return onAction(el, (action, target) => {
+    const off = onAction(el, (action, target) => {
       const fn = handlers[action];
       if (!fn) return;
       this.sounds.ui(ACTION_SOUND[action] ?? 'tap');
       fn(target);
     });
+    // The greyed pass rewards (the level track, the XP tally) are .locked, which onAction skips, but they
+    // still open the Workshop.
+    const pass = (e: Event): void => {
+      const t = (e.target as HTMLElement | null)?.closest<HTMLElement>('.locked[data-action="workshop"]');
+      if (!t || !el.contains(t) || !handlers.workshop) return;
+      this.sounds.ui('tap');
+      handlers.workshop(t);
+    };
+    el.addEventListener('click', pass);
+    return () => { off(); el.removeEventListener('click', pass); };
   }
 
   // ---------------------------------------------------------------- main menu
@@ -459,7 +493,33 @@ export class Screens {
       achievements: achievementCount(p),
     });
     const back = () => this.profile(p, onBack, onSave, id);
-    this.open('profile', el, { close: onBack, avatar: () => this.avatar(p, back, onSave), name: () => id?.onName(back), achievements: () => this.achievements(p, back) });
+    const lk = this.looks;
+    if (lk) {
+      // Your look and the two-lane level track, under the XP bar (monetisation plan v2).
+      const owner = lk.owner(p), look = wornLook(p, lk.ent());
+      const rows = document.createElement('div');
+      rows.innerHTML = `<h2 class="ui-h2">Your look</h2><button type="button" class="ui-btn sc-look" data-action="look"><img alt="" src="${lookPreviewUrl(look, p.avatar.shape ?? 'O', 96, 48)}"><span><b>Your look</b>Shape skin, landing, foundation, flag and hat</span></button><h2 class="ui-h2">Level rewards</h2>`;
+      rows.appendChild(levelTrack({ level: p.level, pass: owner.pass }));
+      el.querySelector('.ui-xp')?.after(...rows.childNodes);
+    }
+    this.open('profile', el, {
+      close: onBack, avatar: () => this.avatar(p, back, onSave), name: () => id?.onName(back), achievements: () => this.achievements(p, back),
+      look: () => this.look(p, back, onSave),
+      workshop: t => lk?.onWorkshop(t.dataset.id ?? 'builders_pass', back),
+    });
+  }
+
+  /** "Your look": the five slots, owned items to pick, the rest saying what unlocks them (a purchase's open the Workshop). Done keeps the picks. */
+  private look(p: Profile, onBack: () => void, onSave: () => void): void {
+    const lk = this.looks;
+    if (!lk) return;
+    const el = lookPanel({ look: lookOf(p), owner: lk.owner(p), avatar: p.avatar, still: lk.still() });
+    const again = () => this.look(p, onBack, onSave);
+    this.open('look', el, {
+      close: onBack,
+      done: () => { saveLook(p, readLook(el)); onSave(); onBack(); },
+      workshop: t => lk.onWorkshop(t.dataset.id ?? 'builders_pass', again),
+    });
   }
 
   /** Every achievement by group: earned ones with their date, counted ones with progress. */
@@ -472,7 +532,7 @@ export class Screens {
 
   /** Art's avatar picker: shape, face and a hat (hats above the player's level stay locked). Done keeps the choice. */
   private avatar(p: Profile, onBack: () => void, onSave: () => void): void {
-    const el = avatarPanel({ avatar: p.avatar, level: p.level });
+    const el = avatarPanel({ avatar: p.avatar, level: p.level, hats: this.looks ? extraHats(this.looks.owner(p)) : undefined });
     this.open('avatar', el, {
       close: onBack,
       done: () => { p.avatar = readAvatar(el); onSave(); onBack(); },
@@ -499,7 +559,11 @@ export class Screens {
       const label = again && [...again.childNodes].find(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim());
       if (label) label.textContent = o.daily.again;
     }
-    this.open('summary', el, { again: o.onAgain, profile: o.onProfile, home: o.onHome });
+    this.open('summary', el, {
+      again: o.onAgain, profile: o.onProfile, home: o.onHome,
+      // A greyed pass reward in the tally (shown once it has counted up): the Workshop, then home.
+      workshop: t => this.looks?.onWorkshop(t.dataset.id ?? 'builders_pass', null),
+    });
     const extra = el.querySelector<HTMLElement>('.ui-sum-extra')!;
     if (o.achievements?.length) extra.appendChild(summaryStrip(o.achievements));
     for (const q of o.questions) extra.appendChild(this.ask(q, o.onAnswer));
@@ -537,6 +601,12 @@ export class Screens {
       level = a.after.level; into = a.after.xp; shown = a.gained;
       showAllXpLines(el);
       bar();
+      // What each level reached gave, with the pass's reward beside it (greyed without the pass).
+      const pass = !!this.looks?.ent().pass;
+      for (let lv = a.before.level + 1; lv <= a.after.level; lv++) {
+        const r = levelRewards(lv, { pass });
+        if (r) el.querySelector('.ui-sum-xp')?.appendChild(r);
+      }
       if (a.levelsGained > 0 && this.name === 'summary') this.levelUp(a.before.level, a.after.level, () => {});
     };
     if (o.reducedMotion || a.gained <= 0) { finish(); return; }
@@ -569,7 +639,7 @@ export class Screens {
    * confetti and the unlock card. "Nice!" removes it and calls done.
    */
   levelUp(from: number, to: number, done: () => void): void {
-    const el = levelUp({ level: to, from });
+    const el = levelUp({ level: to, from, ...this.looks?.levelPass(from, to) });
     this.root.appendChild(el);
     const keep = this.name;
     this.name = 'levelup';
@@ -577,6 +647,8 @@ export class Screens {
     if (rewardAt(to)) setTimeout(() => this.sounds.ui('unlock'), 700);
     const unbind = this.bind(el, {
       continue: () => { unbind(); el.remove(); this.name = keep; done(); },
+      // The level-10 card's "Take a look" (the pass's one mention): the Workshop, then home.
+      workshop: t => { unbind(); el.remove(); this.name = keep; this.looks?.onWorkshop(t.dataset.id ?? 'builders_pass', null); },
     });
   }
 }

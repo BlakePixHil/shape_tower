@@ -87,10 +87,12 @@ const ws = await page.evaluate(() => {
   const ids = [...root.querySelectorAll('[data-action="buy"]')].map(b => b.getAttribute('data-id'));
   return { ids, text: root.textContent.replace(/\s+/g, ' ').trim(), restore: !!root.querySelector('[data-action="restore"]') };
 });
-step('the Workshop sells what has art today: Remove Ads, Second Wind always ready and the six shop portraits',
-  ['remove_ads', 'second_wind_ready', 'portrait_bubblegum', 'portrait_checkers', 'portrait_retro', 'portrait_rainbow', 'portrait_lava_lamp', 'portrait_disco'].every(id => ws.ids.includes(id)), ws.ids.join(' '));
-step('nothing else is for sale yet (no pass, Supporter Pack or sets without their rewards)', !ws.ids.some(id => /pass|supporter|set_/.test(id)), ws.ids.join(' '));
-step('the plan\'s prices, in the Workshop only', /\$7\.99/.test(ws.text) && /\$1\.99/.test(ws.text) && /\$0\.99/.test(ws.text), ws.text.slice(0, 200));
+const SOLD = ['supporter_pack', 'builders_pass', 'remove_ads', 'second_wind_ready', 'set_candy', 'set_robot', 'set_dragon',
+  'portrait_bubblegum', 'portrait_checkers', 'portrait_retro', 'portrait_rainbow', 'portrait_lava_lamp', 'portrait_disco'];
+step('the Workshop sells the plan\'s products: the Supporter Pack, the Builder\'s Pass, Remove Ads, Second Wind always ready, three sets and six portraits',
+  SOLD.every(id => ws.ids.includes(id)), ws.ids.join(' '));
+step('and nothing else (one Supporter offer, no upgrade offers for a player who owns neither)', ws.ids.length === SOLD.length && ws.ids.every(id => SOLD.includes(id)), ws.ids.join(' '));
+step('the plan\'s prices, in the Workshop only', ['$12.99', '$4.99', '$7.99', '$1.99', '$2.99', '$0.99'].every(p => ws.text.includes(p)), ws.text.slice(0, 200));
 step('the test store says nothing is charged', /nothing is charged/i.test(ws.text));
 step('Restore purchases is in the Workshop', ws.restore);
 step('nothing sells hearts, bricks, power-ups, XP or achievements', !/(\bhearts?\b|bricks?|power-ups?|\bXP\b|achievement)[^.]*\$\d/i.test(ws.text));

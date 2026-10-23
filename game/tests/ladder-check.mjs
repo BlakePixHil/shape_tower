@@ -167,7 +167,7 @@ async function toSummary(page) {
   step('the name card: "Pick a name", Save locked while empty, no prices anywhere', n.title === 'Pick a name' && n.saveLocked && !n.priced && !n.forget, JSON.stringify({ title: n.title, saveLocked: n.saveLocked, priced: n.priced }));
   const pick = id => n.picks.find(p => p.id === id);
   step('portraits: level ones owned to level 6, the rest locked with what unlocks them', !pick('meadow').locked && !pick('sunset').locked && pick('nightsky').locked && pick('nightsky').label === 'Level 8'
-    && pick('disco').locked && pick('disco').label === 'Workshop' && pick('supporter').label === 'Supporter Pack · Soon' && pick('moonwalk').locked && !!pick('moonwalk').label
+    && pick('disco').locked && pick('disco').label === 'Workshop' && pick('supporter').label === 'Supporter Pack' && pick('moonwalk').locked && !!pick('moonwalk').label
     // Shop ones (only) say workshop when tapped, for the Workshop to open on them.
     && n.picks.filter(p => p.workshop).map(p => p.id).join() === 'bubblegum,checkers,retro,rainbow,lava_lamp,disco,supporter',
   JSON.stringify(n.picks.map(p => `${p.id}:${p.locked ? p.label : 'owned'}`)));

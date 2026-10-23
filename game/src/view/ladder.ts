@@ -183,7 +183,7 @@ export class DailyLadder {
       const lock = !def ? 'Locked'
         : def.source === 'level' ? `Level ${def.level}`
         : def.source === 'achievement' ? (BY_ID.get(def.achievement ?? '')?.name ?? 'An achievement')
-        : def.source === 'shop' ? 'Workshop' : 'Supporter Pack · Soon';
+        : def.source === 'shop' ? 'Workshop' : 'Supporter Pack';
       return { id: a.id, name: a.name, animated: a.animated, owned, lock: owned ? undefined : lock };
     });
   }
