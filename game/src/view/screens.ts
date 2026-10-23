@@ -7,6 +7,7 @@ import {
   FORGET_LABEL, MENU_MODES, armDailyScored, armForget, armReport, avatarPanel, dailyCard, dailyChip, dailyMenuDot, injectLadderCss, injectUiCss, levelUp, mainMenu, nameCard, onAction, pauseCard, prewarmUi,
   profilePanel, readAvatar, readNameCard, readSettings, rewardAt, setDailyCountdown, setDailyLadder, setDailyTab, setNameBusy, setNameHint, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type DailyTab, type LadderPanelData, type NameCardData, type SettingGroup, type SettingValue,
+  PURCHASE_SETTINGS, setWorkshopItem, setWorkshopNote, setWorkshopRestoring, setWorkshopStore, testPurchaseSheet, workshopPanel, type WorkshopData, type WorkshopItem, type WorkshopStore,
 } from '@art/index.ts';
 import type { Achievement } from '../meta/achievements.ts';
 import { levelStep } from '../sim/tuning.ts';
@@ -28,6 +29,7 @@ const ACTION_SOUND: Record<string, UiSound> = {
   play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', name: 'open', done: 'tap2', achievements: 'open', stores: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap', scored: 'tap2', practice: 'start',
   tab: 'tab', join: 'open', edit: 'open', save: 'tap2', report: 'tap', reportYes: 'tap2', reportNo: 'back', forget: 'tap2', retry: 'tap',
+  workshop: 'open', buy: 'tap2', confirm: 'tap2', cancel: 'back', restore: 'tap', clearTest: 'tap2',
 };
 
 /** How long the Daily's scored button (and the ladder's delete) stays armed after its first tap. */
@@ -43,6 +45,34 @@ export interface DailyLadderHooks {
   onReport(id: string): Promise<void>;
 }
 
+/**
+ * Settings' purchases rows, from the main menu only (never from pause): whether ads are on, a line that
+ * opens the Workshop (no buy button here), and Restore purchases. Each action resolves the line to show.
+ */
+export interface SettingsShop {
+  /** 'on' (the phone app, before Remove Ads), 'off' (Remove Ads is owned), 'none' (a web build: never any). */
+  ads: 'on' | 'off' | 'none';
+  onWorkshop(): void;
+  onRestore(): Promise<string>;
+  /** The test store only: forget its test purchases. */
+  onClearTest?(): Promise<string>;
+}
+
+/** An open Workshop: redraw a card, say how a buy went, and ask the test store's question. */
+export interface WorkshopHandle {
+  update(item: WorkshopItem): void;
+  /** A toast over the bottom; `stay` keeps it up (a payment still pending). */
+  note(text: string, tone?: 'good' | 'bad', stay?: boolean): void;
+  /** The footer line, when the store answers (or can't be reached). */
+  store(kind: WorkshopStore): void;
+  /** Restore purchases is asking the store. */
+  restoring(on: boolean): void;
+  /** The test store's sheet: resolves whether they tapped Buy (test). */
+  confirm(item: WorkshopItem): Promise<boolean>;
+  /** Still showing. */
+  readonly open: boolean;
+}
+
 /** The name card (the player's name and portrait): its data, the live hint, and saving or deleting (each resolves an error line, or null when done). */
 export interface NameCardHooks {
   data: NameCardData;
@@ -50,6 +80,8 @@ export interface NameCardHooks {
   onSave(name: string, portrait: string): Promise<string | null>;
   onForget(): Promise<string | null>;
   onClose(): void;
+  /** A locked shop portrait was tapped: open the Workshop on it (its portrait id). */
+  onWorkshop?(portrait: string): void;
 }
 
 /** The Profile's name and portrait (gameplay.md §10.3), the same ones the Daily ladder shows. */
@@ -94,6 +126,14 @@ const LAYOUT: SettingGroup[] = [
     { key: 'faces', kind: 'toggle', label: 'Block faces' },
   ] },
 ];
+
+/** Art's Purchases group for this build: what the ads line says, and the test store's reset. */
+function purchases(shop: SettingsShop): SettingGroup {
+  const sub = { on: 'Remove ads in the Workshop', off: 'Removed for good', none: 'Only ever in the phone app' }[shop.ads];
+  const items = PURCHASE_SETTINGS.items.map(it => (it.key === 'ads' && it.kind === 'action' ? { ...it, sub } : it));
+  if (shop.onClearTest) items.push({ key: 'clearTest', kind: 'action', label: 'Clear test purchases', icon: 'restart', action: 'clearTest', sub: 'Test store: nothing was ever charged' });
+  return { ...PURCHASE_SETTINGS, items };
+}
 
 const CAUSES: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit', zen: 'Nicely built!' };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -165,7 +205,7 @@ export class Screens {
   }
 
   /** Shows one kit screen and routes its data-action buttons, each with its sound. */
-  private open(name: string, el: HTMLElement, handlers: Record<string, () => void>): HTMLElement {
+  private open(name: string, el: HTMLElement, handlers: Record<string, (target: HTMLElement) => void>): HTMLElement {
     this.close();
     this.name = name;
     this.root.appendChild(el);
@@ -174,12 +214,12 @@ export class Screens {
     return el;
   }
 
-  private bind(el: HTMLElement, handlers: Record<string, () => void>): () => void {
-    return onAction(el, action => {
+  private bind(el: HTMLElement, handlers: Record<string, (target: HTMLElement) => void>): () => void {
+    return onAction(el, (action, target) => {
       const fn = handlers[action];
       if (!fn) return;
       this.sounds.ui(ACTION_SOUND[action] ?? 'tap');
-      fn();
+      fn(target);
     });
   }
 
@@ -194,19 +234,51 @@ export class Screens {
     /** Today's scored Daily try is still open: a "!" on the Daily button. */
     dailyDot?: boolean;
     onPlay(): void; onMode(id: 'daily' | 'zen'): void; onProfile(): void; onSettings(): void;
+    /** The Workshop button next to the profile (monetisation plan v2). */
+    onWorkshop?(): void;
   }): void {
     const p = o.profile;
     const modes = MENU_MODES.map(m => {
       const sub = o.subs?.[m.id as 'daily' | 'zen'];
       return sub && p.level >= (m.unlockAt ?? 0) ? { ...m, sub } : m;
     });
-    const el = mainMenu({ name: this.playerName, ...xpOf(p), avatar: p.avatar, modes, still: o.still });
+    const el = mainMenu({ name: this.playerName, ...xpOf(p), avatar: p.avatar, modes, still: o.still, workshop: !!o.onWorkshop });
     const bottom = el.querySelector('.ui-menu-bottom')!;
     if (o.note) bottom.insertAdjacentHTML('afterbegin', `<div class="sc-testing">${esc(o.note)}</div>`);
     bottom.insertAdjacentHTML('beforeend', `<div class="sc-build">build ${esc(o.build)}</div>`);
     const dailyBtn = el.querySelector('.ui-mode[data-action="daily"]:not(.locked)');
     if (o.dailyDot && dailyBtn) dailyBtn.appendChild(dailyMenuDot());
-    this.open('menu', el, { play: o.onPlay, daily: () => o.onMode('daily'), zen: () => o.onMode('zen'), profile: o.onProfile, settings: o.onSettings });
+    this.open('menu', el, { play: o.onPlay, daily: () => o.onMode('daily'), zen: () => o.onMode('zen'), profile: o.onProfile, settings: o.onSettings, workshop: () => o.onWorkshop?.() });
+  }
+
+  // ---------------------------------------------------------------- Workshop
+
+  /**
+   * The Workshop (monetisation plan v2): the only screen with buy buttons. Each card's button is
+   * data-action="buy" with its product id; `focus` scrolls one card into view.
+   */
+  workshop(o: { data: WorkshopData; focus?: string; onBuy(id: string): void; onRestore(): void; onClose(): void }): WorkshopHandle {
+    const el = workshopPanel(o.data);
+    this.open('workshop', el, { close: o.onClose, restore: o.onRestore, buy: t => { if (t.dataset.id) o.onBuy(t.dataset.id); } });
+    const unbind = this.unbind;
+    let sheet: { el: HTMLElement; done(ok: boolean): void } | null = null;
+    this.unbind = () => { sheet?.done(false); unbind?.(); };
+    if (o.focus) requestAnimationFrame(() => el.querySelector(`[data-id="${o.focus}"]`)?.scrollIntoView({ block: 'center' }));
+    return {
+      update: item => setWorkshopItem(el, item),
+      note: (text, tone, stay) => setWorkshopNote(el, text, tone, { stay }),
+      store: kind => setWorkshopStore(el, kind),
+      restoring: on => setWorkshopRestoring(el, on),
+      confirm: item => new Promise<boolean>(resolve => {
+        sheet?.done(false);
+        const s = testPurchaseSheet(item, { avatar: o.data.avatar, still: o.data.still });
+        this.root.appendChild(s);
+        const off = this.bind(s, { confirm: () => me.done(true), cancel: () => me.done(false) });
+        const me = { el: s, done: (ok: boolean) => { off(); s.remove(); if (sheet === me) sheet = null; resolve(ok); } };
+        sheet = me;
+      }),
+      get open() { return el.isConnected; },
+    };
   }
 
   // ---------------------------------------------------------------- pause
@@ -304,6 +376,7 @@ export class Screens {
     this.open('name', el, {
       close: o.onClose,
       save,
+      workshop: t => o.onWorkshop?.(t.dataset.id ?? ''),
       forget: () => {
         if (performance.now() - armedAt < ARM_MS) { clearTimeout(disarm); void busy(o.onForget); return; }
         armedAt = performance.now();
@@ -320,11 +393,18 @@ export class Screens {
 
   // ---------------------------------------------------------------- settings
 
-  /** Settings. `forgetLadder`: the player has a name, so a last row deletes it and their Daily scores (two taps). */
-  settings(s: PlayerSettings, onChange: (s: PlayerSettings) => void, onBack: () => void, forgetLadder?: () => Promise<string | null>): void {
-    const el = settingsPanel(s as unknown as Record<string, SettingValue>, LAYOUT);
+  /**
+   * Settings. `forgetLadder`: the player has a name, so a last row deletes it and their Daily scores (two taps).
+   * `shop`: the purchases rows (from the main menu only).
+   */
+  settings(s: PlayerSettings, onChange: (s: PlayerSettings) => void, onBack: () => void, forgetLadder?: () => Promise<string | null>, shop?: SettingsShop): void {
+    const values = s as unknown as Record<string, SettingValue>;
+    const el = settingsPanel(shop ? { ...values, ads: { on: 'On', off: 'Off', none: 'None' }[shop.ads] } : values, shop ? [...LAYOUT, purchases(shop)] : LAYOUT);
     let armedAt = 0;
     let disarm = 0;
+    // How Restore (or clearing the test store) went, under the Purchases rows.
+    if (shop) el.querySelector('[data-action="restore"]')?.closest('.ui-group')?.insertAdjacentHTML('afterend', '<p class="sc-ladder-msg sc-shop-msg" aria-live="polite"></p>');
+    const shopMsg = (text: string) => { const m = el.querySelector<HTMLElement>('.sc-shop-msg'); if (m) m.textContent = text; };
     if (forgetLadder) {
       injectLadderCss();
       el.querySelector('.ui-panel')?.insertAdjacentHTML('beforeend',
@@ -339,6 +419,9 @@ export class Screens {
     });
     this.open('settings', el, {
       close: onBack,
+      workshop: () => shop?.onWorkshop(),
+      restore: () => { shopMsg('Asking the store…'); void shop?.onRestore().then(shopMsg); },
+      clearTest: () => { void shop?.onClearTest?.().then(shopMsg); },
       forget: () => {
         if (!forgetLadder) return;
         if (performance.now() - armedAt < ARM_MS) {

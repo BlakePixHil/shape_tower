@@ -27,6 +27,10 @@ const REPORTED = 'Your name was reported, so the ladder shows a stand-in. Pick a
 
 export class DailyLadder {
   ladder: Ladder | null = null;
+  /** The shop portraits the player has bought (the Workshop's store). */
+  bought: () => string[] = () => [];
+  /** Opens the Workshop on a locked shop portrait; `back` is where the name card's close goes. */
+  shop: ((portrait: string, back: () => void) => void) | null = null;
   /** Resolves once the game knows which ladder it's on (the game page asks claude.ai first). */
   readonly ready: Promise<Ladder>;
 
@@ -157,6 +161,7 @@ export class DailyLadder {
         return e;
       },
       onClose: back,
+      onWorkshop: portrait => this.shop?.(portrait, back),
     };
   }
 
@@ -169,16 +174,16 @@ export class DailyLadder {
     return null;
   }
 
-  /** Every portrait: owned ones to pick, the rest with what unlocks them (the Workshop isn't open: no prices). */
+  /** Every portrait: owned ones to pick, the rest with what unlocks them (no prices here: those are in the Workshop). */
   private choices(): PortraitChoice[] {
-    const owner = { level: this.profile.level, achievements: this.profile.achievements, bought: [] as string[] };
+    const owner = { level: this.profile.level, achievements: this.profile.achievements, bought: this.bought() };
     return PORTRAIT_ART.map(a => {
       const def = portraitDef(a.id);
       const owned = !!def && portraitOwned(a.id, owner);
       const lock = !def ? 'Locked'
         : def.source === 'level' ? `Level ${def.level}`
         : def.source === 'achievement' ? (BY_ID.get(def.achievement ?? '')?.name ?? 'An achievement')
-        : def.source === 'shop' ? 'Workshop · Soon' : 'Supporter Pack · Soon';
+        : def.source === 'shop' ? 'Workshop' : 'Supporter Pack · Soon';
       return { id: a.id, name: a.name, animated: a.animated, owned, lock: owned ? undefined : lock };
     });
   }

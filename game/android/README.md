@@ -35,3 +35,18 @@ an upload key made when the Play developer account exists.
 - Achievements on Google Play Games come from the local plugin in `plugins/game-services` (see its README).
   It stays off, and Play Games never starts, until `npm run stores:ids` sets the Play Games project id.
 - Portrait only.
+- Purchases (monetisation plan v2): Google Play Billing through `@capgo/native-purchases`, driven by
+  `src/store/store.ts`. Test builds (the default, `ST_STORE=auto`) use Play when the Play Console lists
+  the game's products and the test store ("nothing is charged") otherwise; store releases are built
+  with `ST_STORE=play` and never fall back to it.
+- Ads between runs: AdMob through `@capacitor-community/admob` (`src/store/admob.ts`), interstitials only,
+  every request non-personalised, a G rating. The manifest drops the advertising ID and Android's ad
+  services permissions. Without `ST_ADMOB_APP_ID` (the app id, into the manifest) and
+  `ST_ADMOB_INTERSTITIAL` (the ad unit, into the web build) the app uses Google's test ids and only
+  ever shows test ads.
+
+A store release, once the Play Console and AdMob exist:
+
+```sh
+ST_STORE=play ST_ADMOB_APP_ID=ca-app-pub-…~… ST_ADMOB_INTERSTITIAL=ca-app-pub-…/… scripts/android-build.sh
+```
