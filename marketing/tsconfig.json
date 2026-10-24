@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": false,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "types": ["node"],
+    "paths": {
+      "@art/*": ["../art/src/*"],
+      "@audio": ["../audio/src/index.ts"],
+      "@audio/*": ["../audio/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "listing/**/*.ts", "../game/src/sim/engine/box2d-module.d.ts"]
+}
