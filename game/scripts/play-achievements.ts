@@ -7,6 +7,8 @@
 //   node --experimental-strip-types scripts/play-achievements.ts <projectId>            what it would send
 //   node --experimental-strip-types scripts/play-achievements.ts <projectId> --apply    sends it, writes the ids
 //   --key <file>   the key (default /mnt/project-files/android/play-service-account.json)
+//   --locales <a,b>   the languages each name and text go in (default en-AU,en-US: Play Console's default
+//                     language for the game is en-AU, and Play refuses text without the default language)
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { STORE_IDS } from '../src/meta/store-ids.ts';
@@ -14,6 +16,7 @@ import { storeRows, type StoreRow } from '../src/meta/stores.ts';
 import { projectIdResource, storeIdsSource } from './stores-ids.ts';
 
 const API = 'https://gamesconfiguration.googleapis.com/games/v1configuration';
+export const LOCALES = ['en-AU', 'en-US'];
 
 interface Strings { kind: 'gamesConfiguration#localizedStringBundle'; translations: { kind: 'gamesConfiguration#localizedString'; locale: string; value: string }[] }
 export interface PlayAchievement {
@@ -24,22 +27,22 @@ export interface PlayAchievement {
   stepsToUnlock?: number;
   draft: { kind: 'gamesConfiguration#achievementConfigurationDetail'; name: Strings; description: Strings; pointValue: number };
 }
-interface Key { client_email: string; private_key: string; token_uri?: string }
+export interface Key { client_email: string; private_key: string; token_uri?: string }
 
-const strings = (value: string): Strings => ({
+const strings = (value: string, locales: string[]): Strings => ({
   kind: 'gamesConfiguration#localizedStringBundle',
-  translations: [{ kind: 'gamesConfiguration#localizedString', locale: 'en-US', value }],
+  translations: locales.map(locale => ({ kind: 'gamesConfiguration#localizedString', locale, value })),
 });
-const english = (s: Strings | undefined): string => s?.translations.find(t => t.locale === 'en-US')?.value ?? s?.translations[0]?.value ?? '';
+const english = (s: Strings | undefined): string => s?.translations.find(t => t.locale.startsWith('en'))?.value ?? s?.translations[0]?.value ?? '';
 
 /** One row of the store table as the Publishing API takes it. */
-export function playAchievement(r: StoreRow): PlayAchievement {
+export function playAchievement(r: StoreRow, locales = LOCALES): PlayAchievement {
   return {
     kind: 'gamesConfiguration#achievementConfiguration',
     achievementType: r.steps ? 'INCREMENTAL' : 'STANDARD',
     initialState: r.hidden ? 'HIDDEN' : 'REVEALED',
     ...(r.steps ? { stepsToUnlock: r.steps } : {}),
-    draft: { kind: 'gamesConfiguration#achievementConfigurationDetail', name: strings(r.name), description: strings(r.text), pointValue: r.points },
+    draft: { kind: 'gamesConfiguration#achievementConfigurationDetail', name: strings(r.name, locales), description: strings(r.text, locales), pointValue: r.points },
   };
 }
 
@@ -65,7 +68,7 @@ const b64url = (bytes: Uint8Array | string): string =>
   btoa(typeof bytes === 'string' ? bytes : String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 /** An access token for the service account (a signed JWT traded at Google's token endpoint). */
-async function token(key: Key): Promise<string> {
+export async function token(key: Key): Promise<string> {
   const now = Math.floor(Date.now() / 1000), aud = key.token_uri ?? 'https://oauth2.googleapis.com/token';
   const body = `${b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${b64url(JSON.stringify({ iss: key.client_email, scope: 'https://www.googleapis.com/auth/androidpublisher', aud, iat: now, exp: now + 3600 }))}`;
   const der = Uint8Array.from(atob(key.private_key.replace(/-----[^-]+-----|\s/g, '')), c => c.charCodeAt(0));
@@ -89,10 +92,10 @@ if (process.argv[1]?.endsWith('play-achievements.ts')) {
   const flag = (name: string): string | undefined => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
   const projectId = args.find(a => /^\d+$/.test(a));
   if (!projectId) { console.error('usage: play-achievements.ts <Play Games project id> [--apply] [--key file]'); process.exit(1); }
-  const rows = storeRows();
+  const rows = storeRows(), locales = flag('--locales')?.split(',') ?? LOCALES;
   if (!args.includes('--apply')) {
     for (const r of rows) console.log(`${r.order}. ${r.name}  ${r.points} pts${r.steps ? `  ${r.steps} steps` : ''}${r.hidden ? '  hidden' : ''}`);
-    console.log(`\n${rows.length} achievements for Play Games project ${projectId}. Nothing sent: add --apply to make them.`);
+    console.log(`\n${rows.length} achievements for Play Games project ${projectId}, in ${locales.join(', ')}. Nothing sent: add --apply to make them.`);
   } else {
     const auth = await token(JSON.parse(readFileSync(flag('--key') ?? '/mnt/project-files/android/play-service-account.json', 'utf8')) as Key);
     const existing: PlayAchievement[] = [];
@@ -105,7 +108,7 @@ if (process.argv[1]?.endsWith('play-achievements.ts')) {
     } while (page);
     const plan = planPlay(rows, existing);
     for (const r of plan.create) {
-      const made = await call<PlayAchievement>(auth, 'POST', `${API}/applications/${projectId}/achievements`, playAchievement(r));
+      const made = await call<PlayAchievement>(auth, 'POST', `${API}/applications/${projectId}/achievements`, playAchievement(r, locales));
       plan.have[r.id] = made.id!;
       console.log(`made ${r.id}: ${made.id}`);
     }
