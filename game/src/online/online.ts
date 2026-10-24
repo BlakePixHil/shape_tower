@@ -167,6 +167,17 @@ export class Ladder {
 type ClaudeWindow = { claude?: { use?(name: string): Promise<unknown> } };
 
 /**
+ * Where the play stats go (online/stats.ts): our API from the phone apps only, never the game page or a
+ * browser on someone's laptop; QA's local server when set, so checks never reach the live one.
+ */
+export function statsUrl(native: boolean): string | null {
+  let override: string | null = null;
+  try { override = localStorage.getItem(API_OVERRIDE); } catch { /* no storage */ }
+  if (override) return `${override.replace(/\/$/, '')}/stats`;
+  return native ? `${API_URL}/stats` : null;
+}
+
+/**
  * Which ladder this copy plays on: the page's own inside claude.ai (it can't reach other sites), our API
  * everywhere else. QA's local server wins when set.
  */

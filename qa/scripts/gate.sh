@@ -20,9 +20,10 @@ if [ -d "$R/game" ]; then
   run "game: sim smoke" bash -c 'cd game && npm run -s sim:smoke'
   run "game: gesture check" bash -c 'cd game && npm run -s gesture:check'
   # Achievement rules, the Daily Tower's days, seeds, attempts and shape sets, the ladder's name filter, the
-  # achievements' Play Games / Game Center mapping and native bridge, and the shop's products, prices, Supporter
-  # offer and ad pacing, in Node (#37, #60, #68, #84, monetisation).
-  for c in achievements:check daily:check names:check stores:check shop:check; do
+  # achievements' Play Games / Game Center mapping and native bridge, the shop's products, prices, Supporter
+  # offer and ad pacing, and the share line, rating card rules and play stats batches, in Node (#37, #60, #68,
+  # #84, monetisation, marketing).
+  for c in achievements:check daily:check names:check stores:check shop:check share:check; do
     grep -q "\"$c\"" "$R/game/package.json" && run "game: ${c/:/ }" bash -c "cd game && npm run -s $c"
   done
   run "game: build" bash -c 'cd game && npm run -s build'
@@ -35,8 +36,9 @@ if [ -d "$R/game" ]; then
     # splash (#61), a checkpoint hold's grey, knock freeze and colour overshoot (#62), and the Daily ladder
     # against the ladder API run in memory on this machine, never the live one (#68), and the Workshop with the
     # test store and a pretend ad network: prices only there, Second Wind, Purchases rows, ad pacing (monetisation),
-    # and Your look with the level track: picks worn in a run, the Builder's Pass, refunds, the Supporter frame (stage 2).
-    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check ladder-check workshop-check look-check; do
+    # and Your look with the level track: picks worn in a run, the Builder's Pass, refunds, the Supporter frame (stage 2),
+    # and the summary's share button, the rating card and the play stats with their Settings switch (marketing).
+    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check ladder-check workshop-check look-check share-check; do
       [ -f "$R/game/tests/$t.mjs" ] && run "game: $t" bash -c "cd game && node tests/$t.mjs"
     done
   fi
@@ -52,14 +54,15 @@ if [ -d "$R/audio" ]; then
   run "audio: npm ci" bash -c 'cd audio && npm ci --no-audit --no-fund'
   run "audio: test" bash -c 'cd audio && npm test'
 fi
-# The Daily ladder's API (#68): its handler's rules against an in-memory store.
+# The Daily ladder's API (#68): its handler's rules against an in-memory store, and the play stats' tables.
 if [ -d "$R/online" ]; then
   run "online: npm ci" bash -c 'cd online && npm ci --no-audit --no-fund'
   run "online: typecheck" bash -c 'cd online && npm run -s typecheck'
   run "online: api check" bash -c 'cd online && npm run -s api:check'
 fi
 # The ladder server as Cloudflare runs it, from the repo root: wrangler dev (workerd with the Durable Object's
-# SQLite) answering the selftest and the game's calls, and keeping the ladder across a restart (#71).
+# SQLite) answering the selftest and the game's calls, and keeping the ladder across a restart (#71), plus the
+# share links' landing pages, /get, og.png and the play stats.
 if [ -f "$R/package.json" ] && grep -q '"ladder:check"' "$R/package.json"; then
   run "root: npm ci" npm ci --no-audit --no-fund
   run "root: ladder check" npm run -s ladder:check

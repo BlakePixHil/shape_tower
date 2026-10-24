@@ -20,7 +20,7 @@ import { ENDLESS, type RunMode } from './view/modes.ts';
 import { BUILD, startShell } from './view/shell.ts';
 import { TrophyToasts } from './view/trophies.ts';
 import { DailyLadder } from './view/ladder.ts';
-import { gameServices, setupNative } from './native.ts';
+import { gameServices, isNativeApp, nativePlatform, requestReview, setupNative } from './native.ts';
 import { ADS, addRunTime, adCheck, adShown, freshAds, loadAds, type AdState } from './meta/ads.ts';
 import { Store } from './store/store.ts';
 import { adNetwork } from './store/admob.ts';
@@ -29,6 +29,12 @@ import { PRODUCTS, supporterOffer } from './meta/shop.ts';
 import { ownerOf, runLook, wornLook } from './view/look.ts';
 import { badgeFrame, hatFor, passRewardAt, passRewardsBetween, setBadgeFrame } from '@art/index.ts';
 import { splashDone, splashFailed } from './view/splash.ts';
+import { sharePostmark, type ShareRun } from './meta/share.ts';
+import { loadReview, markAsked, shouldAskReview } from './meta/review.ts';
+import type { RunKind } from './meta/stats.ts';
+import { statsUrl } from './online/online.ts';
+import { Stats } from './online/stats.ts';
+import { canShare, shareNote, shareRun, towerOf } from './view/share.ts';
 
 /** Calls Sound adds in its next module version, made safe until then. */
 type Director = AudioDirector & { setJuice?(on: boolean): void; setZen?(on: boolean): void; screen?(name: 'menu' | 'profile' | 'none'): void };
@@ -41,6 +47,8 @@ const ZEN_BEST = 'shape-tower-best-zen';
 const ZEN_CARD_AFTER = 2600;
 /** The ad meter (meta/ads.ts), kept between visits. */
 const ADS_KEY = 'shape-tower-ads-v1';
+/** When the game last asked the store for a rating (meta/review.ts). */
+const REVIEW_KEY = 'shape-tower-review-v1';
 
 async function boot(): Promise<void> {
   const settings = loadSettings();
@@ -171,6 +179,20 @@ async function boot(): Promise<void> {
   // The Daily ladder (§12.3): the menu and profile show the player's name once they have one; it's their
   // ladder name too, picked from the Profile or the Daily card (§10.3).
   const ladder = new DailyLadder(profile, () => settings.reduceMotion, name => { sc.playerName = name ?? 'Builder'; });
+
+  // The anonymous play stats (launch marketing plan; PRIVACY.md): the phone apps only, under a switch in
+  // Settings. A player with runs from before the stats isn't counted as a new install.
+  const stats = new Stats({
+    url: statsUrl(isNativeApp()), key: () => ladder.ladder?.state.key ?? null, platform: nativePlatform(), build: BUILD.split(' ')[0],
+    on: () => settings.stats !== false,
+  });
+  sc.statsSetting = !!statsUrl(isNativeApp());
+  const newPlayer = profile.runs === 0;
+  void ladder.ready.then(() => stats.start(profile.level, newPlayer));
+  // The store's rating card, after a happy moment (meta/review.ts). QA's checks can stand in for the store.
+  const review = (() => { try { return loadReview(JSON.parse(localStorage.getItem(REVIEW_KEY) ?? 'null')); } catch { return loadReview(null); } })();
+  const reviewer = { available: isNativeApp(), ask: requestReview };
+  (window as unknown as { __wobble: Record<string, unknown> }).__wobble.marketing = { stats, review, reviewer };
   const saveLook = () => { saveProfile(profile); ladder.restyle(); applyLook(); };
   const identity: ProfileIdentity = {
     get: () => ({ ...ladder.identity(), still: settings.reduceMotion }),
@@ -349,8 +371,10 @@ async function boot(): Promise<void> {
   }
 
   /** Settings; from the main menu (`menu`) it has the purchases rows, never from pause. */
+  let statsWere = settings.stats;
   function openSettings(back: () => void, menu = false): void {
     sc.settings(settings, s => {
+      if (s.stats !== statsWere) { statsWere = s.stats; stats.setOn(s.stats); }
       saveSettings(s);
       state.view = viewFor(s, juice);
       scene.applyView(state.view);
@@ -415,7 +439,9 @@ async function boot(): Promise<void> {
   hud.onPower = slot => scene.usePower(slot);
   hud.onSecondWind = () => scene.useSecondWind();
   hud.onHold = () => scene.hold();
-  document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { pause(); stats.hidden(); } else stats.visible(profile.level);
+  });
   window.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p') pause(); });
   // Android's back button: a card's own way back, else pause a run; on the menu the app minimizes.
   setupNative({
@@ -462,6 +488,20 @@ async function boot(): Promise<void> {
     void stores.sync(profile);
     const earned = paid.ids.map(id => BY_ID.get(id)!);
     const a = award(profile, Number(p.xp ?? 0), { newBest: newBest && !zen, quit, mode: mode.id, extra: paid });
+    const bestShown = a.lines.some(l => l[0] === 'New best');
+    const kind: RunKind = mode.id === 'daily' ? (mode.scored ? 'daily' : 'practice') : mode.id;
+    stats.runEnd(kind, profile.level, sim.stats.checkpoints, height);
+    // The share button's card and text line (view/share.ts), from the tower as it stands now.
+    const shareRunData: ShareRun = {
+      mode: mode.id, height, checkpoints: sim.stats.checkpoints, newBest: bestShown,
+      daily: mode.id === 'daily' ? dailyNumber(mode.day!) : undefined, practice: mode.id === 'daily' && !mode.scored,
+    };
+    const card = {
+      height, biome: biome - 1, newBest: !zen && bestShown, name: ladder.ladder?.me?.name ?? undefined, level: profile.level,
+      score: Math.round(sim.score), tower: towerOf(sim, bestBefore), date: sharePostmark(shareRunData),
+    };
+    // The store's rating card waits for the tally (and any level-up) to finish, and only after a happy moment.
+    const moment = { mode: mode.id, scored: !!mode.scored, newBest: !zen && bestShown, checkpoints: sim.stats.checkpoints, quit, runs: profile.runs, level: profile.level };
     const rec = shell.record;
     rec?.finish(sim, { xp: a.gained, xpBase: Number(p.xp ?? 0), level: profile.level, runNumber: profile.runs, newBest: a.lines.some(l => l[0] === 'New best'), view: { ...state.view }, juiceRun, player: profile.player, achievements: paid.ids });
     // This run end gets one ad check, when the player taps on from the summary; a due ad loads meanwhile.
@@ -499,6 +539,22 @@ async function boot(): Promise<void> {
         onProfile: leave(() => { rec?.exit('menu'); audio()?.screen?.('profile'); sc.profile(profile, home, saveLook, identity); }),
         onHome: leave(() => { rec?.exit('menu'); home(); }),
         reducedMotion: settings.reduceMotion,
+        onShare: canShare() ? async () => {
+          const out = await shareRun(shareRunData, card);
+          stats.share(kind, out === 'shared' || out === 'copied');
+          return shareNote(out);
+        } : undefined,
+        onSettled: () => {
+          if (!reviewer.available || !shouldAskReview(review, moment)) return;
+          setTimeout(() => {
+            if (sc.current !== 'summary' || leaving) return;
+            markAsked(review);
+            try { localStorage.setItem(REVIEW_KEY, JSON.stringify(review)); } catch { /* asks again another day */ }
+            adAsked = true; // never an ad straight after the rating card: it stays due for the next run end
+            stats.review();
+            void reviewer.ask();
+          }, 700);
+        },
       });
       // One sting for the strip: the highest tier earned.
       if (earned.length) unlockSound(earned.reduce((b, x) => (TIER_RANK[x.tier] > TIER_RANK[b.tier] ? x : b)), false);

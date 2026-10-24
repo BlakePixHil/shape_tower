@@ -12,13 +12,17 @@
     "bindings": [{ "name": "LADDER", "class_name": "Ladder" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Ladder"] }],
-  "observability": { "enabled": true },
+  // Errors the code logs are kept; Cloudflare's per-request logs are off, since they hold each request's
+  // headers and PRIVACY.md says the server keeps no IP addresses.
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
+  // The share links' picture and icon (online/cloudflare/landing.ts): served as files, the Worker never runs for them.
+  "assets": { "directory": "./online/public" },
   // Pushes to other branches run Cloudflare's Preview build (wrangler preview), which needs this block.
   // Each Preview gets its own empty Durable Object, so a branch never touches the live ladder.
   "previews": {
     "durable_objects": {
       "bindings": [{ "name": "LADDER", "class_name": "Ladder" }]
     },
-    "observability": { "enabled": true }
+    "observability": { "enabled": true, "logs": { "invocation_logs": false } }
   }
 }

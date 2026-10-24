@@ -1,6 +1,6 @@
 # Shape Tower privacy policy
 
-Last updated: 23 October 2026
+Last updated: 24 October 2026
 
 Shape Tower is a free game. This page says what the game keeps, what it sends and to whom. It covers the
 Android and iPhone apps and the web version.
@@ -23,6 +23,36 @@ Everyone who plays sees the names, portraits and scores on the ladder. Names go 
 players can report a name; a reported name is hidden behind a stand-in. You can delete your name and
 all your Daily scores at any time, from Settings or the name card. The ladder doesn't store your IP
 address or any other details about your device.
+
+## Anonymous play stats (phone apps)
+
+To see whether players come back, where new players get stuck and how many Daily results get shared,
+the phone apps send our own server a few anonymous counts: that the game opened (and whether it's the
+first time), each run's mode, height, checkpoints and your level when it ends, when you share a result,
+and when the game asks the store for a rating. They go with:
+
+- a random id the game makes from your device's own random key, kept apart from your ladder id, so the
+  counts can't be matched to your ladder name,
+- the app's version, and whether it's the Android or iPhone app.
+
+That's all: no name, no advertising ID, no location and nothing else about your phone, and the server
+doesn't store your IP address. The server keeps only totals per day and one row per device (when it was
+first and last seen, which days it came back, and how far it got), deletes a device's row after 13 months
+without a visit, and shares none of it. To stop them, turn off **Send anonymous play stats** in Settings:
+the game then sends nothing more and the server deletes your device's row. Deleting your ladder name also
+starts a new random id. The web version sends no stats.
+
+## Sharing a result
+
+The share button hands a picture of your tower and a line of text to your phone's share sheet. Your
+phone sends it to the app you pick; the game doesn't see what you send or to whom. The link in it opens
+a page on our server that shows the result and links to the store. That page uses no cookies; the server
+counts visits per day and keeps nothing else about them.
+
+## Store ratings
+
+Now and then, after a good run, the game asks Google Play or the App Store to show their rating card.
+The store decides whether it shows, and your rating and review go to the store, never to us.
 
 ## Purchases
 
@@ -47,8 +77,9 @@ achievements you've earned. Signing in is optional, and that service's own priva
 
 ## What the game doesn't do
 
-No accounts or passwords, no analytics or tracking, no location, contacts, camera or microphone, and no
-selling or sharing of your information with anyone other than the services named above.
+No accounts or passwords, no third-party analytics or tracking (only the anonymous play stats above, on
+our own server), no location, contacts, camera or microphone, and no selling or sharing of your
+information with anyone other than the services named above.
 
 ## Changes and questions
 
