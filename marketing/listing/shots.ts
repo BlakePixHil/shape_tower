@@ -25,12 +25,12 @@ const lostAt = (r: RunResult) => r.events.find(e => e.name === 'piece_lost' && e
 const usedAt = (kind: string) => (r: RunResult) => r.events.find(e => e.name === 'power_used' && e.p.kind === kind && e.s > 9000)!.s;
 
 export const SHOTS: Shot[] = [
-  { name: '1-stack', lines: [{ text: 'Stack wobbly shapes' }, { text: 'with real physics', hi: true }], source: { run: 'endless', from: 6000, at: every(0, 9000, 1000), pick: 0 } },
-  { name: '2-timber', lines: [{ text: 'One sloppy drop…' }, { text: 'TIMBER!', hi: true }], source: { run: 'endless', from: lostAt, at: every(0, 2400, 300), pick: 0 } },
-  { name: '3-climb', lines: [{ text: 'Climb from the meadow' }, { text: 'to deep space', hi: true }], source: { run: 'zen', from: 73488, at: every(3000, 12000, 1000), pick: 0 } },
+  { name: '1-stack', lines: [{ text: 'Stack wobbly shapes' }, { text: 'with real physics', hi: true }], source: { run: 'endless', from: 6000, at: every(0, 9000, 1000), pick: 3 } },
+  { name: '2-timber', lines: [{ text: 'One sloppy drop…' }, { text: 'TIMBER!', hi: true }], source: { run: 'endless', from: lostAt, at: every(0, 2400, 300), pick: 5 } },
+  { name: '3-climb', lines: [{ text: 'Climb from the meadow' }, { text: 'to deep space', hi: true }], source: { run: 'zen', from: 73488, at: every(3000, 9000, 1000), pick: 2 } },
   { name: '4-daily', lines: [{ text: 'A new Daily Tower' }, { text: 'every day', hi: true }], source: { taps: ['daily', '[data-action="tab"][data-tab="best"]'] } },
-  { name: '5-powers', lines: [{ text: 'Power-ups' }, { text: 'save your tower', hi: true }], source: { run: 'endless', from: usedAt('slowmo'), at: every(0, 3000, 300), pick: 0 } },
-  { name: '6-zen', lines: [{ text: 'Relax in' }, { text: 'Zen mode', hi: true }], source: { run: 'zen', from: 12000, at: every(0, 9000, 1000), pick: 0 } },
+  { name: '5-powers', lines: [{ text: 'Power-ups' }, { text: 'save your tower', hi: true }], source: { run: 'endless', from: usedAt('slowmo'), at: every(0, 3000, 300), pick: 1 } },
+  { name: '6-zen', lines: [{ text: 'Relax in' }, { text: 'Zen mode', hi: true }], source: { run: 'zen', from: 12000, at: every(0, 9000, 1000), pick: 2 } },
   { name: '7-look', lines: [{ text: 'Dress up your' }, { text: 'Blocklings', hi: true }], source: { taps: ['profile', 'look'] } },
   { name: '8-achievements', lines: [{ text: `${ACHIEVEMENTS.length} achievements` }, { text: 'to earn', hi: true }], source: { taps: ['profile', 'achievements'] } },
 ];

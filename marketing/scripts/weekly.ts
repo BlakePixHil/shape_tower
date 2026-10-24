@@ -25,6 +25,8 @@ const out = flag('--out') ?? `/mnt/project-files/marketing/clips/${week}`;
 const only = flag('--only') ? Number(flag('--only')) : null;
 const dayOf = (i: number) => iso(Date.parse(`${week}T00:00:00Z`) + i * DAY_MS);
 const DOW = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+/** The share server's store redirect (online/cloudflare, #101): the one link every account's bio carries. */
+const BIO_LINK = 'https://shape-tower.shape-tower.workers.dev/get';
 
 /** The week's slots: which format goes out which day (the plan's formats; the solo-dev one is Blake's). */
 const SLOTS: Moment['kind'][] = ['collapse', 'clutch', 'daily', 'checkpoint', 'combo', 'climb', 'soclose'];
@@ -107,6 +109,8 @@ const lines = [
     '```',
     '',
   ]),
+  `Bio link for every account: ${BIO_LINK} (a phone goes straight to its store page; Play's page opens to everyone once pre-registration starts on 26 November).`,
+  '',
   `Daily #${dailyNumber(dailyDay)} is ${dailyDay}. Made by marketing/scripts/weekly.ts; plan.json has each clip's run and moment.`,
 ];
 if (only === null) {
