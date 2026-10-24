@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The Play Games project id (scripts/stores-ids.ts): turns plugins/game-services on. -->
+    <string name="game_services_project_id" translatable="false">642656344037</string>
+</resources>
