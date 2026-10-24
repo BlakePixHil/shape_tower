@@ -17,9 +17,9 @@ android {
         // scripts/android-build.sh passes the commit count and the short hash.
         versionCode((project.findProperty('versionCode') ?: '1') as int)
         versionName(project.findProperty('versionName') ?: '0.1-dev')
-        // AdMob's app id: the real one from ST_ADMOB_APP_ID (or -PadmobAppId) once Blake's AdMob exists,
-        // else Google's test app id, which only serves test ads.
-        manifestPlaceholders = [admobAppId: project.findProperty('admobAppId') ?: System.getenv('ST_ADMOB_APP_ID') ?: 'ca-app-pub-3940256099942544~3347511713']
+        // AdMob's app id: Blake's Shape Tower app (ST_ADMOB_APP_ID or -PadmobAppId to override). Which ads
+        // show is the web build's call (src/store/admob.ts): test ads unless built with ST_ADS=live.
+        manifestPlaceholders = [admobAppId: project.findProperty('admobAppId') ?: System.getenv('ST_ADMOB_APP_ID') ?: 'ca-app-pub-3936557050289022~1882366727']
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

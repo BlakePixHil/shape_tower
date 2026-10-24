@@ -17,8 +17,9 @@ export default defineConfig({
     // The store (src/store/store.ts): 'play' for store releases, 'auto' for test builds (Play when it
     // lists our products, else the test store). Web builds always use the test store.
     __STORE__: JSON.stringify(process.env.ST_STORE ?? 'auto'),
-    // The real AdMob interstitial unit once there is one; without it the apps load Google's test ads.
-    __ADMOB__: JSON.stringify(process.env.ST_ADMOB_INTERSTITIAL ?? ''),
+    // Real ads (src/store/admob.ts) only in the public release, built with ST_ADS=live; every other
+    // build shows Google's test ads.
+    __ADS_LIVE__: JSON.stringify(process.env.ST_ADS === 'live'),
   },
   resolve: {
     alias: [
