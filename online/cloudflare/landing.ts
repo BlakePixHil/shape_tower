@@ -125,7 +125,7 @@ main { width: 100%; max-width: 480px; padding: 16px 16px 8px; }
 .hero { display: block; width: 100%; height: auto; border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 6px 0 var(--ink); background: var(--sky); }
 .card { margin-top: 18px; background: var(--paper); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 6px 0 var(--ink); padding: 18px 18px 20px; text-align: center; }
 .kicker { margin: 0; font-weight: 800; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--soft); }
-h1 { margin: 6px 0 8px; font-size: 32px; line-height: 1.1; }
+h1 { margin: 6px 0 8px; font-size: 32px; line-height: 1.1; text-wrap: balance; }
 .lead { margin: 0 0 16px; font-size: 17px; line-height: 1.4; }
 .btn { display: block; margin: 10px auto 0; max-width: 320px; padding: 14px 18px; border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 4px 0 var(--ink);
   background: var(--gold); color: var(--ink); font-weight: 800; font-size: 19px; text-decoration: none; }
@@ -141,7 +141,7 @@ footer { padding: 8px 16px 20px; font-size: 13px; color: var(--soft); }
 <img class="hero" src="/og.png" width="1200" height="630" alt="Shape Tower">
 <div class="card">
 <p class="kicker">${esc(c.kicker)}</p>
-<h1>${esc(c.title)}</h1>
+<h1>${esc(c.title).replace(/(\d) m\b/g, '$1&nbsp;m')}</h1>
 <p class="lead">${esc(c.lead)}</p>
 ${stores}
 </div>
