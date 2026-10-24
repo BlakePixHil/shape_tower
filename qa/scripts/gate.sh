@@ -64,6 +64,13 @@ if [ -f "$R/package.json" ] && grep -q '"ladder:check"' "$R/package.json"; then
   run "root: npm ci" npm ci --no-audit --no-fund
   run "root: ladder check" npm run -s ladder:check
 fi
+# The marketing tools (clip renderer, store listing): they play the game's sim in Node, so a sim change that
+# breaks the clip bot or its replays shows here; the check also keeps trademarks out of the public words.
+if [ -d "$R/marketing" ]; then
+  run "marketing: npm ci" bash -c 'cd marketing && npm ci --no-audit --no-fund'
+  run "marketing: typecheck" bash -c 'cd marketing && npm run -s typecheck'
+  run "marketing: check" bash -c 'cd marketing && npm run -s check'
+fi
 if [ -d "$R/qa" ]; then
   run "qa: npm ci" bash -c 'cd qa && npm ci --no-audit --no-fund --legacy-peer-deps'
   run "qa: typecheck" bash -c 'cd qa && npm run -s typecheck'
