@@ -126,6 +126,7 @@ check('Android: the Google Play button, no App Store line', html.includes('Get i
 check('link preview tags with the picture', html.includes('og:image" content="https://shape-tower.example/og.png"') && html.includes('summary_large_image'));
 check('no scripts on the page, and a strict content policy', !/<script/i.test(html) && /default-src 'none'/.test(a?.response.headers.get('content-security-policy') ?? ''));
 check('public copy never names other games', !/tetris|jenga/i.test(html));
+check('the heading keeps the height and its unit on one line on a phone', html.includes('<h1>Can you beat 38.2&nbsp;m?</h1>'), html.match(/<h1>.*<\/h1>/)?.[0]);
 const ios = await get(`/d/${today}`, IPHONE)?.response.text() ?? '';
 check('iPhone: "coming soon", and a Google Play link for Android friends', ios.includes('Coming soon to iPhone') && ios.includes('On Android?'));
 const desk = await get('/?h=12.5', DESKTOP)?.response.text() ?? '';
