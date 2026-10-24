@@ -1,5 +1,6 @@
 package com.blakepixhil.shapetower.gameservices;
 
+import android.util.Log;
 import androidx.activity.result.ActivityResult;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -29,14 +30,20 @@ public class GameServicesPlugin extends Plugin {
 
     @Override
     public void load() {
-        String projectId = getContext().getString(R.string.game_services_project_id).trim();
-        int services = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(getContext());
-        if (!projectId.matches("\\d+") || services != ConnectionResult.SUCCESS) return;
-        PlayGamesSdk.initialize(getContext());
-        ready = true;
-        PlayGames.getGamesSignInClient(getActivity())
-            .isAuthenticated()
-            .addOnCompleteListener(t -> setSignedIn(t.isSuccessful() && t.getResult().isAuthenticated()));
+        // Runs as the app starts: anything unexpected in Play Games only turns achievements off, never the app.
+        try {
+            String projectId = getContext().getString(R.string.game_services_project_id).trim();
+            int services = GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(getContext());
+            if (!projectId.matches("\\d+") || services != ConnectionResult.SUCCESS) return;
+            PlayGamesSdk.initialize(getContext());
+            PlayGames.getGamesSignInClient(getActivity())
+                .isAuthenticated()
+                .addOnCompleteListener(t -> setSignedIn(t.isSuccessful() && t.getResult().isAuthenticated()));
+            ready = true;
+        } catch (Exception | LinkageError e) {
+            ready = false;
+            Log.w("GameServices", "Play Games is off: " + e);
+        }
     }
 
     private void setSignedIn(boolean now) {
