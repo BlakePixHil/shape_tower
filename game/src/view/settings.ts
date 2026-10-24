@@ -16,11 +16,13 @@ export interface PlayerSettings {
   sfx: number;
   voices: number;
   haptics: HapticsLevel;
+  /** Send the anonymous play stats (the phone apps only; PRIVACY.md). */
+  stats: boolean;
 }
 
 export const DEFAULT_SETTINGS: PlayerSettings = {
   splitTap: false, sensitivity: 1, guideOpacity: 1, shake: 'full', reduceMotion: false, faces: true,
-  music: 0.7, sfx: 1, voices: 0.8, haptics: 'full',
+  music: 0.7, sfx: 1, voices: 0.8, haptics: 'full', stats: true,
 };
 
 const KEY = 'shape-tower-settings-v1';
