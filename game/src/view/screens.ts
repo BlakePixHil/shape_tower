@@ -118,6 +118,9 @@ const CSS = `
 .sc-ask { padding: 8px 0 2px; border-top: 2px dashed rgba(34,24,58,0.25); text-align: center; }
 .sc-ask p { font: 700 15px 'Nunito', sans-serif; color: ${INK}; margin: 0 0 6px; }
 .sc-ask .sc-answers { display: flex; gap: 8px; justify-content: center; }
+.sc-share-note { font: 700 14px 'Nunito', sans-serif; color: ${INK}; text-align: center; margin: 0; min-height: 0; }
+.sc-share-note:empty { display: none; }
+.ui-summary [data-action="share"][aria-busy="true"] { opacity: 0.6; }
 .sc-ask .ui-btn { min-height: 40px; padding: 4px 18px; font-size: 16px; }
 .sc-ask .sc-face { font-size: 24px; padding: 2px 6px; min-width: 46px; }
 .sc-ask .sc-thanks { font: 600 14px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 0; }
@@ -148,6 +151,9 @@ const LAYOUT: SettingGroup[] = [
     { key: 'faces', kind: 'toggle', label: 'Block faces' },
   ] },
 ];
+
+/** The play stats' switch (PRIVACY.md, "Anonymous play stats"): the phone apps only. */
+const PRIVACY: SettingGroup = { title: 'Privacy', items: [{ key: 'stats', kind: 'toggle', label: 'Send anonymous play stats' }] };
 
 /** Art's Purchases group for this build: what the ads line says, and the test store's reset. */
 function purchases(shop: SettingsShop): SettingGroup {
@@ -191,6 +197,13 @@ export interface SummaryOptions {
   reducedMotion: boolean;
   /** A Daily Tower run: its chip under the height, and the again button's label ("Practice"). */
   daily?: { number: number; scored: boolean; again: string };
+  /**
+   * The share button (launch marketing plan): bakes the card and opens the share sheet, resolving a line to
+   * show under the buttons (or null for none). Without it, where nothing can share, the button stays out.
+   */
+  onShare?(): Promise<string | null>;
+  /** The tally has finished and any level-up has been closed: the summary is just sitting there. */
+  onSettled?(): void;
 }
 
 export class Screens {
@@ -205,6 +218,8 @@ export class Screens {
   looks: LookHooks | null = null;
   /** The Daily card's tab, kept between visits. */
   private dailyTab: DailyTab = 'ladder';
+  /** Settings shows the Privacy switch for the play stats (the phone apps: nothing else sends any). */
+  statsSetting = false;
 
   constructor(parent: HTMLElement, private sounds: ScreenSounds) {
     injectUiCss();
@@ -423,7 +438,8 @@ export class Screens {
    */
   settings(s: PlayerSettings, onChange: (s: PlayerSettings) => void, onBack: () => void, forgetLadder?: () => Promise<string | null>, shop?: SettingsShop): void {
     const values = s as unknown as Record<string, SettingValue>;
-    const el = settingsPanel(shop ? { ...values, ads: { on: 'On', off: 'Off', none: 'None' }[shop.ads] } : values, shop ? [...LAYOUT, purchases(shop)] : LAYOUT);
+    const layout = [...LAYOUT, ...(this.statsSetting ? [PRIVACY] : []), ...(shop ? [purchases(shop)] : [])];
+    const el = settingsPanel(shop ? { ...values, ads: { on: 'On', off: 'Off', none: 'None' }[shop.ads] } : values, layout);
     let armedAt = 0;
     let disarm = 0;
     // How Restore (or clearing the test store) went, under the Purchases rows.
@@ -539,8 +555,10 @@ export class Screens {
       checkpoints: s.checkpoints, perfects: s.perfects, rows: s.rows, clutches: s.clutches,
       xp: { level: a.before.level, into: a.before.xp, need: levelStep(a.before.level) }, lines: a.lines, gained: a.gained,
     });
-    // There's no share sheet yet, so the share button stays out.
-    el.querySelector('[data-action="share"]')?.remove();
+    // Sharing (the card and its text line) where this copy of the game can; elsewhere the button stays out.
+    if (!o.onShare) el.querySelector('[data-action="share"]')?.remove();
+    else el.querySelector('.ui-sum-actions')?.insertAdjacentHTML('beforeend', '<p class="sc-share-note" aria-live="polite"></p>');
+    let sharing = false;
     const chip = el.querySelector('.ui-best');
     if (chip && s.bestLabel) chip.lastChild!.textContent = s.bestLabel;
     if (o.daily) {
@@ -551,6 +569,18 @@ export class Screens {
     }
     this.open('summary', el, {
       again: o.onAgain, profile: o.onProfile, home: o.onHome,
+      share: t => {
+        if (sharing || !o.onShare) return;
+        sharing = true;
+        t.setAttribute('aria-busy', 'true');
+        const note = el.querySelector<HTMLElement>('.sc-share-note');
+        if (note) note.textContent = '';
+        void o.onShare().catch(() => 'Couldn\'t share that one. Try again?').then(line => {
+          sharing = false;
+          t.removeAttribute('aria-busy');
+          if (note) note.textContent = line ?? '';
+        });
+      },
       // A greyed pass reward in the tally (shown once it has counted up): the Workshop, then home.
       workshop: t => this.looks?.onWorkshop(t.dataset.id ?? 'builders_pass', null),
     });
@@ -597,7 +627,8 @@ export class Screens {
         const r = levelRewards(lv, { pass });
         if (r) el.querySelector('.ui-sum-xp')?.appendChild(r);
       }
-      if (a.levelsGained > 0 && this.name === 'summary') this.levelUp(a.before.level, a.after.level, () => {});
+      if (a.levelsGained > 0 && this.name === 'summary') this.levelUp(a.before.level, a.after.level, () => o.onSettled?.());
+      else o.onSettled?.();
     };
     if (o.reducedMotion || a.gained <= 0) { finish(); return; }
     const lineMs = 260, dur = Math.max(1200, lineCount * lineMs + 400);

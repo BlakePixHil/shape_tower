@@ -3,7 +3,7 @@
 // Racing phones included. Answers { pass, out: [[PASS|FAIL, check, detail on a failure]], ranAt }. It runs at
 // most once every 5 minutes; in between it answers the last run again, with cached: true.
 
-import { ladderOf, respond, type Env, type LadderRpc } from './worker.ts';
+import { ladderOf, respond, respondStats, sha256, type Env, type LadderRpc } from './worker.ts';
 import { dailyDay } from '../../game/src/meta/daily.ts';
 
 const key = (n: number) => n.toString(16).padStart(2, '0').repeat(32);
@@ -42,6 +42,19 @@ export async function selftest(env: Env): Promise<Response> {
     check('one of two racing claims wins', both.filter(x => x.me).length === 1 && both.filter(x => x.error === 'taken').length === 1, both);
     check('a rude name is refused', (await call({ op: 'name', key: key(222), name: 'shitstacker' })).error === 'blocked');
     check('a climb nobody could make is refused', (await call({ op: 'submit', key: key(200), sub: { day, height: 900, score: 1, checkpoints: 0, finished: false, startedAt: now - 60_000 } })).error === 'implausible');
+
+    // The play stats, on the scratch copy too: a phone's batch becomes counts, and the summary needs its key.
+    const SK = 'selftest-read-key', skHash = await sha256(SK), STATS = 'https://selftest.invalid/api/v1/stats';
+    const batch = { id: 'ab'.repeat(12), p: 'android', b: 'selftest', events: [
+      { e: 'first_open', t: now }, { e: 'session', t: now, lv: 1 }, { e: 'run_end', t: now, m: 'daily', lv: 2, cp: 2, h: 12.3 }, { e: 'share', t: now, m: 'daily', ok: 1 },
+    ] };
+    const taken = await respondStats(new Request(STATS, { method: 'POST', body: JSON.stringify(batch) }), scratch, skHash);
+    check('stats: a phone\'s batch is taken', taken.status === 200);
+    check('stats: a batch without a good id isn\'t', (await respondStats(new Request(STATS, { method: 'POST', body: JSON.stringify({ ...batch, id: 'nope' }) }), scratch, skHash)).status === 400);
+    check('stats: the summary needs its key', (await respondStats(new Request(`${STATS}?key=wrong`), scratch, skHash)).status === 403);
+    const sum = await (await respondStats(new Request(`${STATS}?key=${SK}&days=2`), scratch, skHash)).json() as { days?: { day: string; counts: Record<string, number> }[]; devices?: { android: number } };
+    const c = sum.days?.find(x => x.day === day)?.counts ?? {};
+    check('stats: one install, one active device, a Daily run and a share counted', c.installs === 1 && c.active === 1 && c['runs:daily'] === 1 && c['shared:daily'] === 1 && sum.devices?.android === 1, sum);
 
     // Leave the scratch copy empty.
     await scratch.wipe();
