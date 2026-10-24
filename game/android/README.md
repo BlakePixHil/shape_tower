@@ -41,12 +41,12 @@ an upload key made when the Play developer account exists.
   with `ST_STORE=play` and never fall back to it.
 - Ads between runs: AdMob through `@capacitor-community/admob` (`src/store/admob.ts`), interstitials only,
   every request non-personalised, a G rating. The manifest drops the advertising ID and Android's ad
-  services permissions. Without `ST_ADMOB_APP_ID` (the app id, into the manifest) and
-  `ST_ADMOB_INTERSTITIAL` (the ad unit, into the web build) the app uses Google's test ids and only
-  ever shows test ads.
+  services permissions. The manifest carries Blake's AdMob app id, and `src/store/admob.ts` his
+  interstitial unit, but every build shows Google's test ads (AdMob flags accounts whose own
+  devices see real ones) unless it's built with `ST_ADS=live`, which only the public release is.
 
-A store release, once the Play Console and AdMob exist:
+The public store release (real purchases only, real ads):
 
 ```sh
-ST_STORE=play ST_ADMOB_APP_ID=ca-app-pub-…~… ST_ADMOB_INTERSTITIAL=ca-app-pub-…/… scripts/android-build.sh
+ST_STORE=play ST_ADS=live ST_BUNDLE=1 scripts/android-build.sh
 ```

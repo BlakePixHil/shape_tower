@@ -2,11 +2,15 @@
 // @capacitor-community/admob, in the store apps only. Web builds (the game page, the Wobble Lab) never
 // load it. Every request is non-personalised and capped at a G rating, the app drops Android's
 // advertising-ID permission, and the only format is an interstitial. Google's consent form (UMP)
-// shows once where the law asks for it, never in a run. Until Blake's AdMob account exists, builds
-// use Google's published test ids, which only ever serve test ads.
+// shows once where the law asks for it, never in a run. Every build serves Google's test ads, so Blake's
+// own phone never sees (or taps) a real one, which AdMob counts against the account; only the public
+// release, built with ST_ADS=live, asks for real ads from Blake's unit.
 
 import { Capacitor } from '@capacitor/core';
 import { AdMob, AdmobConsentStatus, InterstitialAdPluginEvents, MaxAdContentRating } from '@capacitor-community/admob';
+
+/** Blake's interstitial unit ("Between runs" in AdMob). iOS has no AdMob app yet, so it stays on test ads. */
+const UNIT = { android: 'ca-app-pub-3936557050289022/1286636209', ios: '' };
 
 /** Google's test interstitial unit (developers.google.com/admob/android/test-ads). */
 const TEST_INTERSTITIAL = { android: 'ca-app-pub-3940256099942544/1033173712', ios: 'ca-app-pub-3940256099942544/4411468910' };
@@ -85,15 +89,14 @@ class AdMobNetwork implements AdNetwork {
 }
 
 /**
- * The build's ad network: AdMob in the store apps, none on the web. `__ADMOB__` (vite.config.ts, from
- * ST_ADMOB_INTERSTITIAL) is the real interstitial unit once Blake's AdMob exists; without it the
- * test unit loads Google's test ads.
+ * The build's ad network: AdMob in the store apps, none on the web. `__ADS_LIVE__` (vite.config.ts,
+ * true only with ST_ADS=live) switches from Google's test unit to Blake's.
  */
 export function adNetwork(): AdNetwork {
   if (!Capacitor.isNativePlatform()) return NO_ADS;
-  const real = typeof __ADMOB__ === 'string' ? __ADMOB__ : '';
   const platform = Capacitor.getPlatform() === 'ios' ? 'ios' : 'android';
-  return new AdMobNetwork(real || TEST_INTERSTITIAL[platform], !real);
+  const live = typeof __ADS_LIVE__ === 'boolean' && __ADS_LIVE__ && UNIT[platform] !== '';
+  return new AdMobNetwork(live ? UNIT[platform] : TEST_INTERSTITIAL[platform], !live);
 }
 
-declare const __ADMOB__: string | undefined;
+declare const __ADS_LIVE__: boolean | undefined;
