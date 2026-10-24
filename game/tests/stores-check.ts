@@ -189,9 +189,9 @@ ${ACHIEVEMENTS.map((a, i) => i % 2 ? `  <!--achievement ${a.name}-->\n  <string 
   const a = playAchievement(inc), b = playAchievement(secret), c = playAchievement(plain);
   check('API: a counted one is INCREMENTAL with its steps', a.achievementType === 'INCREMENTAL' && a.stepsToUnlock === inc.steps);
   check('API: a secret one starts HIDDEN, the rest REVEALED', b.initialState === 'HIDDEN' && c.initialState === 'REVEALED' && c.achievementType === 'STANDARD' && c.stepsToUnlock === undefined);
-  check('API: name and text in each language, default (en-AU) first, and the points', c.draft.name.translations.map(t => t.locale).join() === 'en-AU,en-US'
+  check('API: name and text in en-US (the Play Games project refuses en-AU), and the points', c.draft.name.translations.map(t => t.locale).join() === 'en-US'
     && c.draft.name.translations.every(t => t.value === plain.name) && c.draft.description.translations.every(t => t.value === plain.text) && c.draft.pointValue === plain.points);
-  check('API: --locales narrows the languages', playAchievement(plain, ['en-US']).draft.name.translations.map(t => t.locale).join() === 'en-US');
+  check('API: --locales sets the languages', playAchievement(plain, ['en-US', 'en-GB']).draft.name.translations.map(t => t.locale).join() === 'en-US,en-GB');
   const fresh = planPlay(rows, []);
   check('First run: makes all of them, in the game\'s order', fresh.create.map(r => r.id).join() === rows.map(r => r.id).join() && !Object.keys(fresh.have).length);
   const there = (r: typeof rows[number], id: string, over: Partial<PlayAchievement> = {}): PlayAchievement => ({ ...playAchievement(r), id, ...over });

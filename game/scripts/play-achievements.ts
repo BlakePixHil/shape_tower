@@ -7,8 +7,8 @@
 //   node --experimental-strip-types scripts/play-achievements.ts <projectId>            what it would send
 //   node --experimental-strip-types scripts/play-achievements.ts <projectId> --apply    sends it, writes the ids
 //   --key <file>   the key (default /mnt/project-files/android/play-service-account.json)
-//   --locales <a,b>   the languages each name and text go in (default en-AU,en-US: Play Console's default
-//                     language for the game is en-AU, and Play refuses text without the default language)
+//   --locales <a,b>   the languages each name and text go in (default en-US: Shape Tower's Play Games project
+//                     takes en-US only and refuses en-AU, although the app's store listing defaults to en-AU)
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { STORE_IDS } from '../src/meta/store-ids.ts';
@@ -16,7 +16,7 @@ import { storeRows, type StoreRow } from '../src/meta/stores.ts';
 import { projectIdResource, storeIdsSource } from './stores-ids.ts';
 
 const API = 'https://gamesconfiguration.googleapis.com/games/v1configuration';
-export const LOCALES = ['en-AU', 'en-US'];
+export const LOCALES = ['en-US'];
 
 interface Strings { kind: 'gamesConfiguration#localizedStringBundle'; translations: { kind: 'gamesConfiguration#localizedString'; locale: string; value: string }[] }
 export interface PlayAchievement {
