@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The launch screen, made by scripts/bake-native-assets.mjs: don't edit. Android's drawable/splash.xml and assets/splash/layout.css are its twins. -->
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="17132" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+    <device id="retina4_7" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="17105"/>
+        <capability name="documents saved in the Xcode 8 format" minToolsVersion="8.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="EHf-IW-A2E">
+            <objects>
+                <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="Lsv-Vw-sc1">
+                        <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <subviews>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleToFill" image="SplashSky" translatesAutoresizingMaskIntoConstraints="NO" id="L01-sp-Ln5">
+                                <rect key="frame" x="0" y="0" width="375" height="667"/>
+                            </imageView>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleToFill" image="SplashCloud" translatesAutoresizingMaskIntoConstraints="NO" id="L06-sp-Ln5">
+                                <rect key="frame" x="20" y="140" width="100" height="59.1"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="100" id="L07-sp-Ln5"/>
+                                    <constraint firstAttribute="height" constant="59.1" id="L08-sp-Ln5"/>
+                                </constraints>
+                            </imageView>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleToFill" image="SplashCloud" translatesAutoresizingMaskIntoConstraints="NO" id="L11-sp-Ln5">
+                                <rect key="frame" x="283" y="236" width="70" height="41.4"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="70" id="L12-sp-Ln5"/>
+                                    <constraint firstAttribute="height" constant="41.4" id="L13-sp-Ln5"/>
+                                </constraints>
+                            </imageView>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleToFill" image="SplashCloud" translatesAutoresizingMaskIntoConstraints="NO" id="L16-sp-Ln5">
+                                <rect key="frame" x="241" y="420.2" width="86" height="50.8"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="86" id="L17-sp-Ln5"/>
+                                    <constraint firstAttribute="height" constant="50.8" id="L18-sp-Ln5"/>
+                                </constraints>
+                            </imageView>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleToFill" image="SplashHills" translatesAutoresizingMaskIntoConstraints="NO" id="L21-sp-Ln5">
+                                <rect key="frame" x="0" y="517" width="375" height="150"/>
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="150" id="L22-sp-Ln5"/>
+                                </constraints>
+                            </imageView>
+                            <imageView userInteractionEnabled="NO" contentMode="scaleToFill" image="SplashLogo" translatesAutoresizingMaskIntoConstraints="NO" id="L26-sp-Ln5">
+                                <rect key="frame" x="24.5" y="212.5" width="326" height="130"/>
+                                <constraints>
+                                    <constraint firstAttribute="width" constant="326" id="L27-sp-Ln5"/>
+                                    <constraint firstAttribute="height" constant="130" id="L28-sp-Ln5"/>
+                                </constraints>
+                            </imageView>
+                        </subviews>
+                        <color key="backgroundColor" red="0.8941" green="0.9686" blue="1.0000" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="L01-sp-Ln5" firstAttribute="leading" secondItem="Lsv-Vw-sc1" secondAttribute="leading" id="L02-sp-Ln5"/>
+                            <constraint firstItem="L01-sp-Ln5" firstAttribute="trailing" secondItem="Lsv-Vw-sc1" secondAttribute="trailing" id="L03-sp-Ln5"/>
+                            <constraint firstItem="L01-sp-Ln5" firstAttribute="top" secondItem="Lsv-Vw-sc1" secondAttribute="top" id="L04-sp-Ln5"/>
+                            <constraint firstItem="L01-sp-Ln5" firstAttribute="bottom" secondItem="Lsv-Vw-sc1" secondAttribute="bottom" id="L05-sp-Ln5"/>
+                            <constraint firstItem="L06-sp-Ln5" firstAttribute="leading" secondItem="Lsv-Vw-sc1" secondAttribute="leading" constant="20" id="L09-sp-Ln5"/>
+                            <constraint firstItem="L06-sp-Ln5" firstAttribute="top" secondItem="Lsv-Vw-sc1" secondAttribute="top" constant="140" id="L10-sp-Ln5"/>
+                            <constraint firstItem="Lsv-Vw-sc1" firstAttribute="trailing" secondItem="L11-sp-Ln5" secondAttribute="trailing" constant="22" id="L14-sp-Ln5"/>
+                            <constraint firstItem="L11-sp-Ln5" firstAttribute="top" secondItem="Lsv-Vw-sc1" secondAttribute="top" constant="236" id="L15-sp-Ln5"/>
+                            <constraint firstItem="Lsv-Vw-sc1" firstAttribute="trailing" secondItem="L16-sp-Ln5" secondAttribute="trailing" constant="48" id="L19-sp-Ln5"/>
+                            <constraint firstItem="Lsv-Vw-sc1" firstAttribute="bottom" secondItem="L16-sp-Ln5" secondAttribute="bottom" constant="196" id="L20-sp-Ln5"/>
+                            <constraint firstItem="L21-sp-Ln5" firstAttribute="leading" secondItem="Lsv-Vw-sc1" secondAttribute="leading" id="L23-sp-Ln5"/>
+                            <constraint firstItem="L21-sp-Ln5" firstAttribute="trailing" secondItem="Lsv-Vw-sc1" secondAttribute="trailing" id="L24-sp-Ln5"/>
+                            <constraint firstItem="L21-sp-Ln5" firstAttribute="bottom" secondItem="Lsv-Vw-sc1" secondAttribute="bottom" id="L25-sp-Ln5"/>
+                            <constraint firstItem="L26-sp-Ln5" firstAttribute="centerX" secondItem="Lsv-Vw-sc1" secondAttribute="centerX" id="L29-sp-Ln5"/>
+                            <constraint firstItem="L26-sp-Ln5" firstAttribute="centerY" secondItem="Lsv-Vw-sc1" secondAttribute="centerY" constant="-56" id="L30-sp-Ln5"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="53" y="375"/>
+        </scene>
+    </scenes>
+    <resources>
+        <image name="SplashSky" width="4" height="1024"/>
+        <image name="SplashLogo" width="326" height="130"/>
+        <image name="SplashCloud" width="100" height="60"/>
+        <image name="SplashHills" width="360" height="150"/>
+    </resources>
+</document>

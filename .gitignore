@@ -10,6 +10,7 @@ playwright-report/
 # The phone app's web copy and APKs
 game/dist-app/
 game/dist-apk/
+game/dist-ios/
 
 # The ladder server run locally (wrangler dev)
 .wrangler/
