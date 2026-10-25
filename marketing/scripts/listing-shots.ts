@@ -92,9 +92,9 @@ body { background: linear-gradient(180deg, #6EC3FF 0%, #A9DCFF 45%, #DDF2FF 75%,
 <div class="shot"><img src="data:image/png;base64,${readFileSync(shot).toString('base64')}"></div>`;
 }
 
-/** Both stores want no alpha channel in screenshots. */
-function opaque(from: string, to: string): void {
-  const ff = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', from, '-pix_fmt', 'rgb24', to], { encoding: 'utf8' });
+/** Both stores want no alpha channel in screenshots; `size` scales it too ("1290:2796"). */
+function opaque(from: string, to: string, size?: string): void {
+  const ff = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', from, ...(size ? ['-vf', `scale=${size}:flags=lanczos`] : []), '-pix_fmt', 'rgb24', to], { encoding: 'utf8' });
   if (ff.status !== 0) throw new Error(`ffmpeg: ${ff.stderr}`);
 }
 
@@ -148,7 +148,8 @@ try {
     console.log('review-workshop: screen workshop');
     const raw = join(RAW, 'review-workshop.png');
     await screen(browser, ['workshop'], raw, {}); // nothing bought yet, so every product shows its price
-    opaque(raw, join(OUT, 'review-workshop.png'));
+    // Apple takes a review screenshot only at a screenshot size, so the 1075 x 2330 page goes up to 1290 x 2796.
+    opaque(raw, join(OUT, 'review-workshop.png'), `${FRAME.width}:${FRAME.height}`);
   }
 } finally {
   await browser.close();
