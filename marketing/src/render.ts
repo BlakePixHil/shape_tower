@@ -21,9 +21,11 @@ const CHROMIUM = process.env.CHROMIUM ?? '/opt/pw-browsers/chromium';
 export const FPS = 30;
 /** The page is a big phone (540 x 960 CSS px) drawn at 2x: the game's canvas is exactly 1080 x 1920. */
 export const VIEW = { width: 540, height: 960, dpr: 2 };
+/** Another phone shape for stills (the App Store's screenshots are an iPhone's taller screen). Clips stay 9:16. */
+export function setView(v: { width: number; height: number; dpr: number }): void { Object.assign(VIEW, v); }
 const FRAME_MS = 1000 / FPS;
 /** The whole page at device pixels (CDP captures CSS pixels unless the clip says otherwise). */
-const FULL = { x: 0, y: 0, width: VIEW.width, height: VIEW.height, scale: VIEW.dpr };
+const full = () => ({ x: 0, y: 0, width: VIEW.width, height: VIEW.height, scale: VIEW.dpr });
 /** Seconds of play the mix hears before the clip, so the band and the ambience are already going. */
 const PREROLL = 40;
 /** Frames drawn (not kept) before the first kept one, so the camera and the frame pacing settle. */
@@ -192,12 +194,12 @@ export async function renderClip(browser: Browser, job: ClipJob): Promise<ClipRe
       const due = stills.length && (stills[0].at !== undefined ? t >= stills[0].at : st.step >= stills[0].atStep!);
       const want = due ? stills.shift()! : null;
       if (!job.stillsOnly) {
-        const shot = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 94, clip: FULL });
+        const shot = await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 94, clip: full() });
         writeFileSync(join(tmp, `${String(f).padStart(5, '0')}.jpg`), Buffer.from(shot.data, 'base64'));
         if (job.cover && Math.abs(t - job.cover.at) < FRAME_MS / 2) writeFileSync(job.cover.path, Buffer.from(shot.data, 'base64'));
       }
       if (want) {
-        const png = await cdp.send('Page.captureScreenshot', { format: 'png', clip: FULL });
+        const png = await cdp.send('Page.captureScreenshot', { format: 'png', clip: full() });
         mkdirSync(dirname(want.path), { recursive: true });
         writeFileSync(want.path, Buffer.from(png.data, 'base64'));
         if (job.stillsOnly && !stills.length) { frames = f + 1; break; }
