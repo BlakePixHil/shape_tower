@@ -1,23 +1,32 @@
-// The Play listing's eight phone screenshots: frames of the real game (bot runs replayed in the built
-// app, and the app's own screens), each framed on the brand's sky under a caption. 1080 x 1920 PNGs,
-// no transparency, in the order the store shows them.
+// The store listings' eight phone screenshots: frames of the real game (bot runs replayed in the built
+// app, and the app's own screens), each framed on the brand's sky under a caption. PNGs with no
+// transparency, in the order the store shows them: 1080 x 1920 for Play, and with --appstore 1290 x 2796
+// for the App Store (an iPhone 6.9"/6.7" screen, the game filmed at an iPhone's taller shape), plus
+// review-workshop.png, the unframed Workshop that Apple's in-app purchase review asks for.
 //
-//   node --experimental-strip-types scripts/listing-shots.ts [--candidates] [--only stack] [--out <folder>] [--no-build]
+//   node --experimental-strip-types scripts/listing-shots.ts [--appstore] [--candidates] [--only stack] [--out <folder>] [--no-build]
 //
 // --candidates saves every candidate frame of each shot to <out>/raw/ so a better one can be picked
-// (each shot's `pick` in listing/shots.ts). Default folder: /mnt/project-files/marketing/listing/screenshots/.
+// (each shot's `pick` in listing/shots.ts). Default folder: /mnt/project-files/marketing/listing/screenshots/
+// (app-store/ with --appstore).
 
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser } from 'playwright';
 import { RUNS, SHOTS } from '../listing/shots.ts';
-import { ROOT, VIEW, launch, openGame, renderClip, type CaptionLine } from '../src/render.ts';
+import { ROOT, VIEW, launch, openGame, renderClip, setView, type CaptionLine } from '../src/render.ts';
 import type { RunResult } from '../src/runs.ts';
 
 const args = process.argv.slice(2);
 const flag = (name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
-const OUT = flag('--out') ?? '/mnt/project-files/marketing/listing/screenshots';
+const appstore = args.includes('--appstore');
+const OUT = flag('--out') ?? `/mnt/project-files/marketing/listing/${appstore ? 'app-store' : 'screenshots'}`;
+/** The picture and where the game sits in it: Play's 9:16 phone, or the App Store's iPhone 6.9"/6.7" (430 x 932 points). */
+const FRAME = appstore
+  ? { width: 1290, height: 2796, top: 96, size: 110, stroke: 19, shot: { left: 140, top: 452, width: 1010, height: 2189, radius: 66, border: 9 } }
+  : { width: 1080, height: 1920, top: 64, size: 92, stroke: 16, shot: { left: 112, top: 330, width: 856, height: 1522, radius: 56, border: 8 } };
+if (appstore) setView({ width: 430, height: 932, dpr: 2.5 });
 const RAW = join(OUT, 'raw');
 const candidates = args.includes('--candidates');
 const only = flag('--only');
@@ -42,8 +51,8 @@ const SEASONED = {
   achCounts: { bubbles: 40, powers: ['glue', 'slowmo', 'undo', 'quickset', 'clean'] },
 };
 
-async function screen(browser: Browser, taps: string[], path: string): Promise<void> {
-  const { ctx, page, problems } = await openGame(browser, { profile: SEASONED, storage: STORE });
+async function screen(browser: Browser, taps: string[], path: string, storage: Record<string, string> = STORE): Promise<void> {
+  const { ctx, page, problems } = await openGame(browser, { profile: SEASONED, storage });
   try {
     for (const t of taps) {
       await page.evaluate(sel => {
@@ -69,13 +78,13 @@ const esc = (s: string) => s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;'
 function frameHtml(shot: string, lines: CaptionLine[]): string {
   return `<!doctype html><meta charset="utf-8"><style>
 @font-face { font-family: Fredoka; src: url(data:font/woff2;base64,${font}) format('woff2'); font-weight: 300 700; }
-html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; }
+html, body { margin: 0; width: ${FRAME.width}px; height: ${FRAME.height}px; overflow: hidden; }
 body { background: linear-gradient(180deg, #6EC3FF 0%, #A9DCFF 45%, #DDF2FF 75%, #FFF7E8 100%); font-family: Fredoka, sans-serif; position: relative; }
 .sun { position: absolute; left: 50%; top: -420px; width: 1400px; height: 900px; transform: translateX(-50%); border-radius: 50%; background: radial-gradient(closest-side, rgba(255,255,255,.55), rgba(255,255,255,0)); }
-.cap { position: absolute; top: 64px; left: 40px; right: 40px; text-align: center; font-weight: 700; font-size: 92px; line-height: 1.04; color: #fff;
-  -webkit-text-stroke: 16px #2B2140; paint-order: stroke fill; letter-spacing: 0.5px; }
+.cap { position: absolute; top: ${FRAME.top}px; left: 40px; right: 40px; text-align: center; font-weight: 700; font-size: ${FRAME.size}px; line-height: 1.04; color: #fff;
+  -webkit-text-stroke: ${FRAME.stroke}px #2B2140; paint-order: stroke fill; letter-spacing: 0.5px; }
 .cap .hi { color: #FFD23F; }
-.shot { position: absolute; left: 112px; top: 330px; width: 856px; height: 1522px; border-radius: 56px; border: 8px solid #2B2140; overflow: hidden;
+.shot { position: absolute; left: ${FRAME.shot.left}px; top: ${FRAME.shot.top}px; width: ${FRAME.shot.width}px; height: ${FRAME.shot.height}px; border-radius: ${FRAME.shot.radius}px; border: ${FRAME.shot.border}px solid #2B2140; overflow: hidden;
   box-shadow: 0 22px 0 rgba(43,33,64,.22), 0 40px 80px rgba(43,33,64,.25); background: #2B2140; }
 .shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
 </style><div class="sun"></div>
@@ -83,16 +92,20 @@ body { background: linear-gradient(180deg, #6EC3FF 0%, #A9DCFF 45%, #DDF2FF 75%,
 <div class="shot"><img src="data:image/png;base64,${readFileSync(shot).toString('base64')}"></div>`;
 }
 
+/** Both stores want no alpha channel in screenshots. */
+function opaque(from: string, to: string): void {
+  const ff = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', from, '-pix_fmt', 'rgb24', to], { encoding: 'utf8' });
+  if (ff.status !== 0) throw new Error(`ffmpeg: ${ff.stderr}`);
+}
+
 async function compose(browser: Browser, shot: string, lines: CaptionLine[], out: string): Promise<void> {
-  const page = await browser.newPage({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 });
+  const page = await browser.newPage({ viewport: { width: FRAME.width, height: FRAME.height }, deviceScaleFactor: 1 });
   try {
     await page.setContent(frameHtml(shot, lines));
     await page.evaluate(() => document.fonts.ready);
     const tmp = `${out}.rgba.png`;
     await page.screenshot({ path: tmp });
-    // Play wants no alpha channel in screenshots.
-    const ff = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', tmp, '-pix_fmt', 'rgb24', out], { encoding: 'utf8' });
-    if (ff.status !== 0) throw new Error(`ffmpeg: ${ff.stderr}`);
+    opaque(tmp, out);
     rmSync(tmp);
   } finally {
     await page.close();
@@ -130,6 +143,12 @@ try {
       if (candidates) { console.log(`  candidates in ${RAW}`); copyFileSync(paths[src.pick], raw); }
     }
     await compose(browser, raw, s.lines, join(OUT, `${s.name}.png`));
+  }
+  if (appstore && !only) {
+    console.log('review-workshop: screen workshop');
+    const raw = join(RAW, 'review-workshop.png');
+    await screen(browser, ['workshop'], raw, {}); // nothing bought yet, so every product shows its price
+    opaque(raw, join(OUT, 'review-workshop.png'));
   }
 } finally {
   await browser.close();

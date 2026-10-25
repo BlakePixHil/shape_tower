@@ -9,6 +9,7 @@ the game itself. The launch plan these serve is the marketing plan doc (video an
 cd marketing && npm install          # once (Playwright uses the machine's Chromium, see below)
 node --experimental-strip-types scripts/weekly.ts          # next week's 7 clips
 node --experimental-strip-types scripts/listing-shots.ts   # the 8 store screenshots
+node --experimental-strip-types scripts/listing-shots.ts --appstore   # the same 8 at the App Store's iPhone size
 node --experimental-strip-types scripts/promo.ts           # the 30 s promo video
 node --experimental-strip-types scripts/play-listing.ts --dry   # check the listing upload, change nothing
 npm run typecheck
@@ -29,7 +30,7 @@ to skip that when `game/dist-app/index.html` is current. Chromium comes from `/o
 | `src/render.ts` | Films one clip: fast-forwards (nothing drawn) to the moment, captures 1080 x 1920 frames, mixes the audio offline (`src/mix.ts`: Sound's director in an OfflineAudioContext, fed the same calls with 40 s of run-up), and encodes H.264 + AAC with ffmpeg. |
 | `src/clips.ts` | Turns a moment into a clip: captions (burned in, since most people watch muted), how long it runs, and the post text and tags. |
 | `scripts/weekly.ts` | A week of clips: 20 bot runs (18 Endless, the week's Daily, a Zen climb), the best moment of each format, one clip a day from Monday, `posts.md` and `plan.json`. Writes to `/mnt/project-files/marketing/clips/<monday>/`. |
-| `scripts/listing-shots.ts` | The 8 store screenshots: run frames and app screens, framed on the brand's sky under a caption. `--candidates` saves every candidate frame to pick from. |
+| `scripts/listing-shots.ts` | The 8 store screenshots: run frames and app screens, framed on the brand's sky under a caption. `--candidates` saves every candidate frame to pick from. `--appstore` films the game at an iPhone's 430 x 932 points and frames it at 1290 x 2796 (the App Store's 6.9"/6.7" size), plus the unframed Workshop for Apple's in-app purchase review; copies live in `listing/app-store/` for the Mac that uploads them. |
 | `scripts/promo.ts` | The promo video: six beats of play (a tower falling first) and the logo. |
 | `listing/text.ts` | The store words for en-AU (default), en-GB and en-US, with Play's limits checked. |
 | `scripts/play-listing.ts` | Uploads the words, icon, feature graphic and screenshots to Play in one edit. |
