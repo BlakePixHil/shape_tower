@@ -51,9 +51,10 @@ so there's nothing to install by hand. The team id is in the Xcode project (`DEV
 - Purchases: StoreKit through `@capgo/native-purchases`, driven by `src/store/store.ts`. They need the
   products made in App Store Connect with the same ids as Play, and the Paid Apps Agreement; until then test
   builds use the test store ("nothing is charged").
-- Ads: AdMob through `@capacitor-community/admob`. `GADApplicationIdentifier` in `App/Info.plist` is Google's
-  sample iOS app id, and `src/store/admob.ts` has no iOS unit, so every build shows Google's test ads until
-  an iOS app exists in AdMob. Then its app id goes in `Info.plist` and its interstitial unit in `UNIT.ios`.
+- Ads: AdMob through `@capacitor-community/admob`. `GADApplicationIdentifier` in `App/Info.plist` is the
+  Shape Tower iOS app in Blake's AdMob, and its "Between runs" interstitial is `UNIT.ios` in
+  `src/store/admob.ts`. As on Android, builds show Google's test ads unless they're built with `ST_ADS=live`.
+  The app never asks for tracking (no `NSUserTrackingUsageDescription`), so the SDK never reads the IDFA.
 - Export compliance: the app only uses Apple's HTTPS, so `ITSAppUsesNonExemptEncryption` is false and
   TestFlight doesn't ask.
 - Portrait only, iPhone only (an iPad runs it as an iPhone app). Status bar hidden.

@@ -9,8 +9,8 @@
 import { Capacitor } from '@capacitor/core';
 import { AdMob, AdmobConsentStatus, InterstitialAdPluginEvents, MaxAdContentRating } from '@capacitor-community/admob';
 
-/** Blake's interstitial unit ("Between runs" in AdMob). iOS has no AdMob app yet, so it stays on test ads. */
-const UNIT = { android: 'ca-app-pub-3936557050289022/1286636209', ios: '' };
+/** Blake's interstitial units ("Between runs" in each platform's AdMob app). */
+const UNIT = { android: 'ca-app-pub-3936557050289022/1286636209', ios: 'ca-app-pub-3936557050289022/1025056951' };
 
 /** Google's test interstitial unit (developers.google.com/admob/android/test-ads). */
 const TEST_INTERSTITIAL = { android: 'ca-app-pub-3940256099942544/1033173712', ios: 'ca-app-pub-3940256099942544/4411468910' };
