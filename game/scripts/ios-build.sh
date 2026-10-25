@@ -25,6 +25,9 @@ archive="$out/shape-tower-${count}.xcarchive"
 npm run -s build:app
 npx cap sync ios
 rm -rf "$archive"
+# Release signs for the App Store straight away (manual signing, scripts/ios-signing.ts): Xcode's automatic
+# signing would want a development profile first, and that needs a registered iPhone.
+node --experimental-strip-types --no-warnings scripts/ios-signing.ts
 xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -destination generic/platform=iOS \
   -archivePath "$archive" "${auth[@]}" -quiet archive CURRENT_PROJECT_VERSION="$count"
 
@@ -38,7 +41,9 @@ cat > "$out/ExportOptions.plist" <<PLIST
 <dict>
 	<key>method</key><string>app-store-connect</string>
 	<key>destination</key><string>${destination}</string>
-	<key>signingStyle</key><string>automatic</string>
+	<key>signingStyle</key><string>manual</string>
+	<key>signingCertificate</key><string>Apple Distribution</string>
+	<key>provisioningProfiles</key><dict><key>com.blakepixhil.shapetower</key><string>Shape Tower App Store</string></dict>
 	<key>manageAppVersionAndBuildNumber</key><false/>
 	<key>uploadSymbols</key><true/>
 </dict>

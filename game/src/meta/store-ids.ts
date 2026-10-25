@@ -58,5 +58,5 @@ export const STORE_IDS = {
    * Game Center: ids are ours to pick, so they are fixed now (prefix + the game's id) and must match App Store
    * Connect exactly. `enabled` once they exist there.
    */
-  gameCenter: { enabled: false, prefix: 'shapetower.' },
+  gameCenter: { enabled: true, prefix: 'shapetower.' },
 };
