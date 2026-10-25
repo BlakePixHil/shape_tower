@@ -59,3 +59,24 @@ so there's nothing to install by hand. The team id is in the Xcode project (`DEV
 - Portrait only, iPhone only (an iPad runs it as an iPhone app). Status bar hidden.
 - `App/PrivacyInfo.xcprivacy` declares the file-timestamp and user-defaults APIs the plugins use; the
   plugins and Google's SDK carry their own manifests.
+
+## App Store release
+
+Version 1.0's store side is set up by two scripts (dry run without `--apply`, safe to run again):
+
+- `node --experimental-strip-types scripts/app-store-listing.ts --apply`: name, subtitle and privacy policy
+  (en-AU, the app's primary locale, plus en-GB and en-US), Games > Puzzle and Casual, no third-party
+  content, the age rating answers (ads and the Daily ladder's player names; everything else none), each
+  locale's description (from `marketing/listing/text.ts`), keywords, promotional text and links, the
+  copyright, a manual release, free, AU/NZ/CA only, Game Center on with the 49 achievements in a draft review
+  submission, and the 6.9"/6.7" screenshots from `marketing/listing/app-store/1-*.png`…`8-*.png`. The App
+  Review contact needs a phone number Apple won't go without: `--phone "+61 …"` (or `ST_REVIEW_PHONE`).
+- `node --experimental-strip-types scripts/app-store-products.ts --apply`: every product on sale in
+  `src/meta/shop.ts` as a non-consumable in-app purchase (same ids as Play), its App Store name and
+  description, its US price (Apple sets the rest), AU/NZ/CA, and `review-workshop.png` as its review
+  screenshot.
+
+Neither submits anything or attaches a build. Before submitting: the release build
+(`ST_STORE=play ST_ADS=live scripts/ios-build.sh`, after the AdMob iOS ids are in) attached to 1.0, the
+App Privacy answers, the Paid Apps Agreement, and the review contact's phone; then add the version and the
+in-app purchases to the draft submission and submit it in App Store Connect.
