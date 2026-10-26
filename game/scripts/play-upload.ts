@@ -4,10 +4,11 @@
 // the test key, which Play App Signing re-signs.
 // Needs the Play service account key Blake makes (store-setup.md, step 6), never kept in the repo.
 //   node --experimental-strip-types scripts/play-upload.ts dist-apk/shape-tower-0.1.300.aab --notes "…"
-//   --track <name>  internal (default), alpha (closed testing) or beta. Never production: that goes out by hand.
+//   --track <name>  internal (default), alpha (closed testing), beta, or production with --draft only:
+//                   a store release goes out by hand, under managed publishing, from Play Console.
 //   --draft         leave the release as a draft. Until the app's first production release Play calls it a
-//                   draft app and takes only draft releases outside internal testing, so Blake rolls a
-//                   closed test out from Play Console (Test and release > Closed testing).
+//                   draft app and takes only draft releases outside internal testing, so someone rolls it
+//                   out from Play Console (the track's Releases > Edit release, then send for review).
 //   --key <file>    the key (default /mnt/project-files/android/play-service-account.json)
 
 import { createSign } from 'node:crypto';
@@ -25,7 +26,7 @@ const track = flag('--track') ?? 'internal';
 const draft = args.includes('--draft');
 const keyFile = flag('--key') ?? '/mnt/project-files/android/play-service-account.json';
 if (!bundle?.endsWith('.aab')) throw new Error('usage: play-upload.ts <file.aab> [--notes "…"] [--track internal]');
-if (!['internal', 'alpha', 'beta'].includes(track)) throw new Error(`play-upload only sends to a testing track, not "${track}"`);
+if (!['internal', 'alpha', 'beta'].includes(track) && !(track === 'production' && draft)) throw new Error(`play-upload sends to a testing track, or production as a --draft, not "${track}"`);
 
 interface Key { client_email: string; private_key: string; token_uri?: string }
 
