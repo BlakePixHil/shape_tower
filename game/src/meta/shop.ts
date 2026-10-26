@@ -94,6 +94,10 @@ export function entitlements(owned: Iterable<string>): Entitlements {
   return e;
 }
 
+/** The products that give a portrait (a shop style's own, or every Supporter Pack for 'supporter'). */
+export const portraitProducts = (portrait: string): string[] =>
+  PRODUCTS.filter(p => entitlements([p.id]).portraits.includes(portrait)).map(p => p.id);
+
 /**
  * The one Supporter offer for what the player owns: the full pack, or the upgrade for the price
  * difference (never under $0.99, the lowest store price). Null once they're a supporter.

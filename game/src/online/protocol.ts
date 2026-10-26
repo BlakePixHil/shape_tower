@@ -9,6 +9,13 @@ export type Op = 'me' | 'name' | 'look' | 'submit' | 'ladder' | 'report' | 'forg
 /** How the player looks on the ladder. */
 export interface Look { portrait: string; avatar: LadderAvatar }
 
+/**
+ * A store's proof of a purchase, sent with a look whose portrait was bought: the server checks it with
+ * the store before others see that portrait. Play: the purchase token. App Store: the StoreKit 2
+ * transaction, signed by Apple.
+ */
+export type Receipt = { store: 'play'; product: string; token: string } | { store: 'appstore'; product: string; jws: string };
+
 export interface Me {
   id: string;
   /** Null until they make one: then they only have personal bests. */
@@ -29,6 +36,8 @@ export interface LadderRequest {
   key?: string;
   name?: string;
   look?: Look;
+  /** 'name' and 'look': the receipt for a bought portrait in `look`. */
+  receipt?: Receipt;
   sub?: Submission;
   /** 'ladder': the day, and whose row to pick out. */
   day?: string;

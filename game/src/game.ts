@@ -211,6 +211,7 @@ async function boot(): Promise<void> {
   const offerFor = (id: string | undefined): string | undefined => (id === 'supporter_pack' ? supporterOffer(store.list())?.id : id);
   // Bought portraits show in the picker, and a locked one opens the Workshop on it, then comes back to the card.
   ladder.bought = () => store.ent.portraits;
+  ladder.receipt = portrait => store.receiptFor(portrait);
   ladder.shop = (portrait, back) => openWorkshop(() => sc.ladderName(ladder.nameHooks(back)),
     portrait === 'supporter' ? offerFor('supporter_pack') : PRODUCTS.find(p => p.portrait === portrait && !p.soon)?.id);
 

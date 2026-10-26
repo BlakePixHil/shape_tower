@@ -28,7 +28,7 @@ export async function selftest(env: Env): Promise<Response> {
     check('says what it is', info.status === 200 && ((await info.json()) as { service?: string }).service === 'shape-tower-ladder');
     const pre = await respond(new Request(URL_, { method: 'OPTIONS' }), scratch);
     check('lets browsers call it', pre.status === 204 && pre.headers.get('access-control-allow-origin') === '*');
-    check('refuses a body too big', (await respond(new Request(URL_, { method: 'POST', body: 'x'.repeat(5000) }), scratch)).status === 413);
+    check('refuses a body too big', (await respond(new Request(URL_, { method: 'POST', body: 'x'.repeat(20_000) }), scratch)).status === 413);
     check('refuses a body that isn\'t JSON', (await respond(new Request(URL_, { method: 'POST', body: '{nope' }), scratch)).status === 400);
 
     const names = ['Ada', 'Bea', 'Cal', 'Dot', 'Eve', 'Fay'];
@@ -41,6 +41,8 @@ export async function selftest(env: Env): Promise<Response> {
     const both = await Promise.all([call({ op: 'name', key: key(220), name: 'Selftest Same' }), call({ op: 'name', key: key(221), name: 'Selftest Same' })]);
     check('one of two racing claims wins', both.filter(x => x.me).length === 1 && both.filter(x => x.error === 'taken').length === 1, both);
     check('a rude name is refused', (await call({ op: 'name', key: key(222), name: 'shitstacker' })).error === 'blocked');
+    const bought = await call({ op: 'look', key: key(201), look: { portrait: 'disco', avatar: {} }, receipt: { store: 'play', product: 'portrait_disco', token: 'selftest-not-a-real-purchase-token' } });
+    check('a bought portrait without a real receipt shows the free one', bought.me?.portrait === 'meadow', bought);
     check('a climb nobody could make is refused', (await call({ op: 'submit', key: key(200), sub: { day, height: 900, score: 1, checkpoints: 0, finished: false, startedAt: now - 60_000 } })).error === 'implausible');
 
     // The play stats, on the scratch copy too: a phone's batch becomes counts, and the summary needs its key.

@@ -11,7 +11,8 @@
 
 import { Capacitor } from '@capacitor/core';
 import { NativePurchases, PURCHASE_TYPE, type Transaction } from '@capgo/native-purchases';
-import { ON_SALE, entitlements, product, usd, type Entitlements } from '../meta/shop.ts';
+import { ON_SALE, entitlements, portraitProducts, product, usd, type Entitlements } from '../meta/shop.ts';
+import type { Receipt } from '../online/protocol.ts';
 
 export type StoreKind = 'play' | 'appstore' | 'test';
 export type BuyResult = 'bought' | 'pending' | 'cancelled' | 'failed' | 'unavailable';
@@ -22,8 +23,11 @@ export interface Backend {
   readonly kind: StoreKind;
   /** The store's price strings by product id. A product it doesn't list isn't for sale there. Throws when it can't answer. */
   prices(ids: string[]): Promise<Record<string, string>>;
-  /** What the store says the player owns, and what's waiting for payment. Throws when it can't answer: keep the cache. */
-  purchases(): Promise<{ owned: string[]; pending: string[] }>;
+  /**
+   * What the store says the player owns, what's waiting for payment, and the store's receipts for what's
+   * owned (the ladder checks them before showing a bought portrait). Throws when it can't answer: keep the cache.
+   */
+  purchases(): Promise<{ owned: string[]; pending: string[]; receipts?: Record<string, Receipt> }>;
   buy(id: string): Promise<BuyResult>;
   /** Asks the store again, finishing any purchase left half-done. */
   restore(): Promise<void>;
@@ -77,9 +81,10 @@ export class NativeBackend implements Backend {
     for (const p of products) if (ids.includes(p.identifier) && p.priceString) out[p.identifier] = p.priceString;
     return out;
   }
-  async purchases(): Promise<{ owned: string[]; pending: string[] }> {
+  async purchases(): Promise<{ owned: string[]; pending: string[]; receipts: Record<string, Receipt> }> {
     const { purchases } = await NativePurchases.getPurchases({ productType: PURCHASE_TYPE.INAPP, onlyCurrentEntitlements: true });
     const owned: string[] = [], pending: string[] = [];
+    const receipts: Record<string, Receipt> = {};
     for (const t of purchases) {
       const id = t.productIdentifier;
       if (!id) continue;
@@ -87,8 +92,10 @@ export class NativeBackend implements Backend {
       if (this.kind === 'play' && t.purchaseState !== undefined && String(t.purchaseState) !== '1') { if (String(t.purchaseState) === '0') pending.push(id); continue; }
       if (t.revocationDate) continue;
       owned.push(id);
+      if (this.kind === 'play' && t.purchaseToken) receipts[id] = { store: 'play', product: id, token: t.purchaseToken };
+      if (this.kind === 'appstore' && t.jwsRepresentation) receipts[id] = { store: 'appstore', product: id, jws: t.jwsRepresentation };
     }
-    return { owned, pending };
+    return { owned, pending, receipts };
   }
   async buy(id: string): Promise<BuyResult> {
     try {
@@ -111,6 +118,14 @@ export class NativeBackend implements Backend {
 
 const KIND_KEY = 'shape-tower-store-kind';
 const OWNED_KEY = (k: StoreKind) => `shape-tower-owned-v1:${k}`;
+const RECEIPTS_KEY = (k: StoreKind) => `shape-tower-receipts-v1:${k}`;
+
+function readReceipts(k: StoreKind): Record<string, Receipt> {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECEIPTS_KEY(k)) ?? '{}') as unknown;
+    return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, Receipt> : {};
+  } catch { return {}; }
+}
 
 /** How a build picks its store: 'play' (store releases), 'test' (web), 'auto' (Android test builds: Play when it lists our products). */
 export type StoreMode = 'play' | 'test' | 'auto';
@@ -119,6 +134,7 @@ export class Store {
   private backend: Backend;
   private owned: Set<string>;
   private pendingIds: Set<string>;
+  private receipts: Record<string, Receipt>;
   private priceOf: Record<string, string> = {};
   private fns = new Set<() => void>();
   private ents: Entitlements;
@@ -132,6 +148,7 @@ export class Store {
     const useNative = native && mode !== 'test' && (mode === 'play' || last !== 'test');
     this.backend = useNative ? new NativeBackend() : new TestBackend();
     this.owned = new Set(readList(OWNED_KEY(this.backend.kind)));
+    this.receipts = readReceipts(this.backend.kind);
     this.pendingIds = new Set();
     this.ents = entitlements(this.owned);
     this.ready = this.start(mode, native);
@@ -145,6 +162,11 @@ export class Store {
   list(): string[] { return [...this.owned]; }
   /** The store's price string, or null when it doesn't sell it (or hasn't said yet). */
   price(id: string): string | null { return this.priceOf[id] ?? null; }
+  /** The store's receipt for an owned product that gives this portrait (none from the test store). */
+  receiptFor(portrait: string): Receipt | null {
+    for (const id of portraitProducts(portrait)) if (this.owned.has(id) && this.receipts[id]) return this.receipts[id];
+    return null;
+  }
 
   onChange(fn: () => void): () => void { this.fns.add(fn); return () => this.fns.delete(fn); }
 
@@ -176,6 +198,7 @@ export class Store {
     if (b !== this.backend) {
       this.backend = b;
       this.owned = new Set(readList(OWNED_KEY(b.kind)));
+      this.receipts = readReceipts(b.kind);
       this.ents = entitlements(this.owned);
     }
     try { localStorage.setItem(KIND_KEY, b.kind); } catch { /* fine */ }
@@ -185,9 +208,9 @@ export class Store {
   /** Asks the store what's owned and what things cost. Offline keeps the cache. */
   async refresh(): Promise<void> {
     try {
-      const [{ owned, pending }, prices] = await Promise.all([this.backend.purchases(), Object.keys(this.priceOf).length ? Promise.resolve(this.priceOf) : this.backend.prices(ON_SALE.map(p => p.id))]);
+      const [{ owned, pending, receipts }, prices] = await Promise.all([this.backend.purchases(), Object.keys(this.priceOf).length ? Promise.resolve(this.priceOf) : this.backend.prices(ON_SALE.map(p => p.id))]);
       this.priceOf = prices;
-      this.setOwned(owned, pending);
+      this.setOwned(owned, pending, receipts);
       this.status = 'ready';
     } catch {
       this.status = 'offline';
@@ -195,11 +218,14 @@ export class Store {
     this.emit();
   }
 
-  private setOwned(owned: string[], pending: string[]): void {
+  private setOwned(owned: string[], pending: string[], receipts?: Record<string, Receipt>): void {
     this.owned = new Set(owned);
     this.pendingIds = new Set(pending.filter(id => !this.owned.has(id)));
     writeList(OWNED_KEY(this.backend.kind), [...this.owned]);
     this.ents = entitlements(this.owned);
+    // A store's answer replaces the receipts (a refunded product's goes); a buy keeps the ones there are.
+    this.receipts = Object.fromEntries(Object.entries({ ...(receipts ? {} : this.receipts), ...receipts }).filter(([id]) => this.owned.has(id)));
+    try { localStorage.setItem(RECEIPTS_KEY(this.backend.kind), JSON.stringify(this.receipts)); } catch { /* fine without it */ }
   }
 
   /** Buys one product. The test store's sheet has already asked. */

@@ -42,6 +42,8 @@ export const PORTRAITS: PortraitDef[] = [
 export const DEFAULT_PORTRAIT = 'meadow';
 const BY_ID = new Map(PORTRAITS.map(p => [p.id, p]));
 export const portraitDef = (id: string): PortraitDef | undefined => BY_ID.get(id);
+/** Bought in the Workshop (a shop style or the Supporter Pack's): the ladder shows it once a store receipt proves it. */
+export const portraitBought = (id: string): boolean => ['shop', 'pack'].includes(BY_ID.get(id)?.source ?? '');
 
 /** What unlocking needs from the player: their level, unlocked achievements, and bought portraits. */
 export interface PortraitOwner { level: number; achievements: Record<string, unknown>; bought: string[] }

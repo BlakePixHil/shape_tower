@@ -4,8 +4,8 @@
 // database (page.ts). Without either there's no ladder, only personal bests.
 
 import { submitProblem, type LadderView, type Submission } from '../meta/ladder.ts';
-import { DEFAULT_PORTRAIT } from '../meta/portraits.ts';
-import type { LadderError, LadderReply, LadderRequest, Look, Me } from './protocol.ts';
+import { DEFAULT_PORTRAIT, portraitBought } from '../meta/portraits.ts';
+import type { LadderError, LadderReply, LadderRequest, Look, Me, Receipt } from './protocol.ts';
 
 export const API_URL = 'https://shape-tower.shape-tower.workers.dev/api/v1';
 /** QA's checks point the game at a local server (online/scripts/dev-server.ts) with this key. */
@@ -80,6 +80,8 @@ export const errorOf = (r: LadderReply): LadderError | null => ('error' in r ? r
 export class Ladder {
   readonly state = loadOnline();
   private sending: Promise<void> | null = null;
+  /** The store's receipt for a bought portrait, sent with the look that shows it (the server checks it). */
+  receiptFor: (portrait: string) => Receipt | null = () => null;
 
   constructor(readonly backend: LadderBackend | null) { saveOnline(this.state); }
 
@@ -90,10 +92,20 @@ export class Ladder {
 
   private async call(req: Omit<LadderRequest, 'key'>): Promise<LadderReply> {
     if (!this.backend) return { error: 'offline' };
-    const r = await this.backend.call({ ...req, key: this.state.key });
-    if ('me' in r) { this.state.me = r.me; this.state.portrait = r.me.portrait; saveOnline(this.state); }
+    const receipt = req.look && portraitBought(req.look.portrait) ? this.receiptFor(req.look.portrait) : null;
+    const r = await this.backend.call({ ...req, ...(receipt ? { receipt } : {}), key: this.state.key });
+    if ('me' in r) {
+      this.state.me = r.me;
+      // A bought portrait the ladder doesn't show yet (its receipt isn't checked) stays their pick: it's
+      // sent again, and meanwhile others see the one the ladder answered.
+      if (!(portraitBought(this.state.portrait) && r.me.portrait !== this.state.portrait)) this.state.portrait = r.me.portrait;
+      saveOnline(this.state);
+    }
     return r;
   }
+
+  /** Their pick is a bought portrait the ladder isn't showing yet. */
+  get unproved(): boolean { return this.named && portraitBought(this.state.portrait) && this.state.me?.portrait !== this.state.portrait; }
 
   /** Who the ladder thinks they are (refreshes the cached answer). */
   refresh(): Promise<LadderReply> { return this.call({ op: 'me' }); }
