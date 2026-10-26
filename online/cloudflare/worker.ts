@@ -8,6 +8,7 @@
 
 import { DurableObject } from 'cloudflare:workers';
 import { handle } from '../src/handler.ts';
+import { playChecker, receiptChecker, type ReceiptCheck } from '../src/receipts.ts';
 import { SqlStore, type Sql } from '../src/sql.ts';
 import { StatsDb, type Metric, type StatsSummary } from '../src/stats.ts';
 import type { LadderReply, LadderRequest } from '../../game/src/online/protocol.ts';
@@ -19,6 +20,11 @@ export interface Env {
   LADDER: DurableObjectNamespace<Ladder>;
   /** Overrides STATS_READ_SHA256 (wrangler dev in the checks). */
   STATS_READ_SHA256?: string;
+  /**
+   * The read-only Play service account's JSON key (a Cloudflare secret, never in the repo), so the ladder
+   * can check Play receipts. Without it, bought portraits from Android show to others as the free one.
+   */
+  PLAY_KEY?: string;
 }
 
 /**
@@ -43,16 +49,18 @@ export class Ladder extends DurableObject<Env> implements LadderRpc {
   private store: SqlStore;
   private statsDb: StatsDb | null = null;
   private readonly sql: Sql;
+  private readonly check: ReceiptCheck;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const db = ctx.storage.sql;
     this.sql = (q, ...b) => db.exec(q, ...b).toArray();
     this.store = new SqlStore(this.sql);
+    this.check = receiptChecker(playChecker(env.PLAY_KEY));
   }
 
   async run(req: LadderRequest, now?: number): Promise<LadderReply> {
-    return handle(req, this.store, now);
+    return handle(req, this.store, now, this.check);
   }
 
   /** Empties this object. Only the selftest's scratch copy is ever wiped. */
@@ -123,7 +131,8 @@ export async function respond(request: Request, ladder: LadderRpc): Promise<Resp
   }
   if (request.method !== 'POST') return reply({ error: 'badop' }, 405);
   const text = await request.text();
-  if (text.length > 4096) return reply({ error: 'bad' }, 413);
+  // An App Store receipt (a signed transaction with its three certificates) is most of a call's size.
+  if (text.length > 16_384) return reply({ error: 'bad' }, 413);
   let body: LadderRequest;
   try { body = JSON.parse(text); } catch { return reply({ error: 'bad' }, 400); }
   return run(ladder, body);

@@ -10,7 +10,7 @@ import { shownName, type LadderRow, type LadderView } from '../meta/ladder.ts';
 import { NAME_HINT, nameProblem, tidyName } from '../meta/names/names.ts';
 import { portraitDef, portraitOwned } from '../meta/portraits.ts';
 import { Ladder, chooseBackend, errorOf } from '../online/online.ts';
-import { RENAME_MS, type LadderError, type Look } from '../online/protocol.ts';
+import { RENAME_MS, type LadderError, type Look, type Receipt } from '../online/protocol.ts';
 import type { DailyLadderHooks, NameCardHooks, ProfileIdentity } from './screens.ts';
 import type { Profile } from './profile.ts';
 
@@ -29,6 +29,8 @@ export class DailyLadder {
   ladder: Ladder | null = null;
   /** The shop portraits the player has bought (the Workshop's store). */
   bought: () => string[] = () => [];
+  /** The store's receipt for a bought portrait, which the ladder checks before others see it. */
+  receipt: (portrait: string) => Receipt | null = () => null;
   /** Opens the Workshop on a locked shop portrait; `back` is where the name card's close goes. */
   shop: ((portrait: string, back: () => void) => void) | null = null;
   /** Resolves once the game knows which ladder it's on (the game page asks claude.ai first). */
@@ -37,6 +39,7 @@ export class DailyLadder {
   constructor(private profile: Profile, private still: () => boolean, private onNamed: (name: string | null) => void) {
     this.ready = chooseBackend().catch(() => null).then(b => {
       const l = (this.ladder = new Ladder(b));
+      l.receiptFor = p => this.receipt(p);
       const had = l.me;
       this.onNamed(had?.name ?? null);
       if (l.available) void l.refresh().then(async () => {
@@ -45,6 +48,10 @@ export class DailyLadder {
         if (had?.name && !had.hidden && l.me && !l.named) {
           const r = await l.setName(had.name, { portrait: had.portrait, avatar: this.profile.avatar });
           if ('me' in r) this.submit(dailyDay());
+        } else if (l.unproved && this.receipt(l.state.portrait)) {
+          // A bought portrait the ladder hasn't shown yet: its receipt goes again (the store has one now, or
+          // the ladder couldn't reach the store last time).
+          await l.setLook(this.look());
         }
         this.onNamed(l.me?.name ?? null);
         void l.flush();

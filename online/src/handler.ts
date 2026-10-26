@@ -1,13 +1,16 @@
 // The ladder server's logic (gameplay.md §12.3), apart from HTTP and storage so tests run it directly.
-// Documents: players/<id> (name, look, reports, days played), names/<name key> (who holds a name),
-// ladder/<day>/<id> (a player's entry for a day). The rules themselves are the game's own (game/src/meta).
+// Documents: players/<id> (name, look, reports, days played, proved purchases), names/<name key> (who
+// holds a name), ladder/<day>/<id> (a player's entry for a day), receipts/<purchase hash> (which players a
+// purchase shows a bought portrait for). The rules themselves are the game's own (game/src/meta).
 
-import { DEFAULT_PORTRAIT } from '../../game/src/meta/portraits.ts';
+import { DEFAULT_PORTRAIT, portraitBought } from '../../game/src/meta/portraits.ts';
+import { portraitProducts } from '../../game/src/meta/shop.ts';
 import { KEY_RE, REPORTS_TO_HIDE, cleanLook, mergeEntry, playerId, rankLadder, submitProblem, type LadderAvatar, type LadderEntry } from '../../game/src/meta/ladder.ts';
 import { nameKey, nameProblem, nameShowable, tidyName } from '../../game/src/meta/names/names.ts';
 import { dailyDay } from '../../game/src/meta/daily.ts';
 import { RENAME_MS, type LadderError, type LadderReply, type LadderRequest, type Me } from '../../game/src/online/protocol.ts';
 import type { Store } from './store.ts';
+import type { ReceiptCheck } from './receipts.ts';
 
 interface PlayerDoc {
   id: string;
@@ -22,10 +25,19 @@ interface PlayerDoc {
   hidden: boolean;
   /** Days with an entry, so "delete me" can find them. */
   days: string[];
+  /** Products a store receipt proved they own: a bought portrait shows only then (monetisation stage 3). */
+  bought?: string[];
+  /** The receipts/ documents those purchases hold them in, so "delete me" lets go of them. */
+  receipts?: string[];
 }
+
+/** How many players (devices) one purchase can show its portrait for: a phone, a tablet, a reinstall or two. */
+export const RECEIPT_PLAYERS = 5;
 const fail = (error: LadderError): LadderReply => ({ error });
 const isDay = (d: unknown): d is string => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d);
 const entryPath = (day: string, id: string) => `ladder/${day}/${id}`;
+const hashOf = async (s: string): Promise<string> =>
+  [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, '0')).join('');
 
 /** Read, change and write back a document, retrying when someone else wrote it in between. */
 async function edit<T>(store: Store, path: string, change: (cur: T | null) => T | null | 'skip'): Promise<T | null | 'skip'> {
@@ -48,6 +60,33 @@ const freshPlayer = (id: string, now: number): PlayerDoc => ({
   id, name: null, nameKey: null, portrait: DEFAULT_PORTRAIT, avatar: { shape: 'O', face: 'idle', hat: 'party' }, created: now, renamedAt: 0, reports: [], hidden: false, days: [],
 });
 
+type Look = { portrait: string; avatar: LadderAvatar };
+const proved = (p: PlayerDoc, portrait: string): boolean => !portraitBought(portrait) || portraitProducts(portrait).some(x => p.bought?.includes(x));
+
+/**
+ * The look a player asked for, with a bought portrait only once a store receipt proves it: one they
+ * proved before, or this request's (checked with the store, and held for at most RECEIPT_PLAYERS players).
+ * Otherwise others see the portrait they had, or the free one. Returns the look and the player with any
+ * new proof added.
+ */
+async function prove(store: Store, p: PlayerDoc, want: Look, receipt: LadderRequest['receipt'], check: ReceiptCheck | undefined, now: number): Promise<{ look: Look; player: PlayerDoc }> {
+  if (proved(p, want.portrait)) return { look: want, player: p };
+  const fallback = { ...want, portrait: proved(p, p.portrait) ? p.portrait : DEFAULT_PORTRAIT };
+  if (!receipt || !check || !portraitProducts(want.portrait).includes(receipt.product)) return { look: fallback, player: p };
+  const c = await check(receipt, now);
+  if (!c.ok) return { look: fallback, player: p };
+  const ref = `receipts/${await hashOf(c.purchase)}`;
+  let held = false;
+  await edit<{ product: string; ids: string[] }>(store, ref, cur => {
+    const ids = cur?.ids ?? [];
+    held = ids.includes(p.id) || ids.length < RECEIPT_PLAYERS;
+    return held && !ids.includes(p.id) ? { product: receipt.product, ids: [...ids, p.id] } : 'skip';
+  });
+  if (!held) return { look: fallback, player: p };
+  const add = (xs: string[] | undefined, x: string) => [...(xs ?? []).filter(y => y !== x), x];
+  return { look: want, player: { ...p, bought: add(p.bought, receipt.product), receipts: add(p.receipts, ref) } };
+}
+
 /** Copies a player's name and look onto their entries for the days still on show (today and yesterday). */
 async function restyle(store: Store, p: PlayerDoc, now: number): Promise<void> {
   const today = dailyDay(new Date(now));
@@ -62,7 +101,8 @@ async function restyle(store: Store, p: PlayerDoc, now: number): Promise<void> {
   }
 }
 
-export async function handle(req: LadderRequest, store: Store, now = Date.now()): Promise<LadderReply> {
+/** One call. `check` asks the stores about receipts (without it, bought portraits never show to others). */
+export async function handle(req: LadderRequest, store: Store, now = Date.now(), check?: ReceiptCheck): Promise<LadderReply> {
   if (!req || typeof req !== 'object') return fail('badop');
   if (req.op === 'ladder') {
     if (!isDay(req.day)) return fail('bad');
@@ -94,10 +134,11 @@ export async function handle(req: LadderRequest, store: Store, now = Date.now())
           if (holder?.data.id !== id) return fail('taken');
         }
       }
-      const look = cleanLook(req.look, { portrait: before?.portrait ?? DEFAULT_PORTRAIT, avatar: before?.avatar ?? freshPlayer(id, now).avatar });
+      const was = before ?? freshPlayer(id, now);
+      const { look, player: proof } = await prove(store, was, cleanLook(req.look, was), req.receipt, check, now);
       const after = await edit<PlayerDoc>(store, path, cur => {
         const p = cur ?? freshPlayer(id, now);
-        return { ...p, name, nameKey: key, ...look, renamedAt: sameKey ? p.renamedAt : now, reports: sameKey ? p.reports : [], hidden: sameKey ? p.hidden : false };
+        return { ...p, bought: proof.bought, receipts: proof.receipts, name, nameKey: key, ...look, renamedAt: sameKey ? p.renamedAt : now, reports: sameKey ? p.reports : [], hidden: sameKey ? p.hidden : false };
       }) as PlayerDoc;
       if (before?.nameKey && !sameKey) {
         const old = await store.get<{ id: string }>(`names/${before.nameKey}`);
@@ -108,9 +149,11 @@ export async function handle(req: LadderRequest, store: Store, now = Date.now())
     }
 
     case 'look': {
+      const was = (await player()) ?? freshPlayer(id, now);
+      const { look, player: proof } = await prove(store, was, cleanLook(req.look, was), req.receipt, check, now);
       const after = await edit<PlayerDoc>(store, path, cur => {
         const p = cur ?? freshPlayer(id, now);
-        return { ...p, ...cleanLook(req.look, p) };
+        return { ...p, bought: proof.bought, receipts: proof.receipts, ...look };
       }) as PlayerDoc;
       await restyle(store, after, now);
       return { me: meOf(id, after) };
@@ -156,6 +199,13 @@ export async function handle(req: LadderRequest, store: Store, now = Date.now())
         if (p.nameKey) {
           const held = await store.get<{ id: string }>(`names/${p.nameKey}`);
           if (held?.data.id === id) await store.del(`names/${p.nameKey}`);
+        }
+        for (const ref of p.receipts ?? []) {
+          await edit<{ product: string; ids: string[] }>(store, ref, cur => {
+            if (!cur?.ids.includes(id)) return 'skip';
+            const ids = cur.ids.filter(x => x !== id);
+            return ids.length ? { ...cur, ids } : null;
+          });
         }
         await store.del(path);
       }

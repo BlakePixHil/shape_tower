@@ -17,7 +17,7 @@
     "store-kit": "node --experimental-strip-types --no-warnings scripts/store-kit.ts",
     "daily:check": "node --experimental-strip-types --no-warnings tests/daily-logic.ts",
     "names:check": "node --experimental-strip-types --no-warnings tests/names-check.ts",
-    "shop:check": "node --experimental-strip-types --no-warnings tests/shop-check.ts",
+    "shop:check": "node --experimental-strip-types --no-warnings tests/shop-check.ts && node --experimental-transform-types --no-warnings tests/receipt-client-check.ts",
     "share:check": "node --experimental-strip-types --no-warnings tests/share-logic.ts",
     "ladder:check": "ST_APP=game vite build && node tests/ladder-check.mjs",
     "postinstall": "node scripts/patch-phaser-box2d.mjs",

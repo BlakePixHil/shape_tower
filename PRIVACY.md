@@ -1,6 +1,6 @@
 # Shape Tower privacy policy
 
-Last updated: 24 October 2026
+Last updated: 26 October 2026
 
 Shape Tower is a free game. This page says what the game keeps, what it sends and to whom. It covers the
 Android and iPhone apps and the web version.
@@ -16,6 +16,7 @@ clearing the browser's site data removes them.
 The Daily ladder is optional. If you pick a name to join it, the game sends our ladder server:
 
 - the name you picked, your ladder portrait and your Blockling's look,
+- if your portrait is one you bought, the store's receipt for it (see Purchases),
 - a random player id the game made up on your device (it isn't linked to your phone, email or accounts),
 - your scored Daily tries: height, score, checkpoints, and when you played.
 
@@ -59,6 +60,12 @@ The store decides whether it shows, and your rating and review go to the store, 
 Purchases are optional and go through Google Play (Android) or the App Store (iPhone). They handle the
 payment; the game never sees your card or payment details. The game receives which product you bought
 and the store's receipt for it, so it can unlock what you paid for and restore it on a new device.
+
+If you show a bought portrait on the Daily ladder, the game sends our ladder server that purchase's
+receipt, and the server checks it with Google Play (or checks Apple's signature on it) before other
+players see the portrait. The server keeps which portrait purchases you've proved, plus a one-way
+fingerprint of each purchase (never the receipt itself), so one purchase can't show on more than a few
+players' rows. Deleting your ladder name deletes these too.
 
 ## Ads
 
