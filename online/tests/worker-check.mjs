@@ -91,6 +91,8 @@ check('a Daily link opens its page with the height to beat and the Google Play b
 const og = await fetch(`${BASE}/og.png`);
 check('the link preview picture is served as a PNG', og.status === 200 && og.headers.get('content-type') === 'image/png' && (await og.arrayBuffer()).byteLength > 10_000);
 check('and so is the icon', (await fetch(`${BASE}/icon.png`)).status === 200);
+const adsTxt = await fetch(`${BASE}/app-ads.txt`);
+check('app-ads.txt names Blake\'s AdMob account, for AdMob\'s seller check', adsTxt.status === 200 && (await adsTxt.text()).trim() === 'google.com, pub-3936557050289022, DIRECT, f08c47fec0942fa0');
 const go = await fetch(`${BASE}/get`, { headers: { 'user-agent': ANDROID }, redirect: 'manual' });
 check('/get sends Android to Google Play', go.status === 302 && go.headers.get('location')?.startsWith('https://play.google.com/'), String(go.headers.get('location')));
 await fetch(`${BASE}/d/${n}`, { headers: { 'user-agent': 'WhatsApp/2.23.20.0' } });

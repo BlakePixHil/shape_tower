@@ -3,7 +3,7 @@
 // /api/v1?day=YYYY-MM-DD&id=... reads a day. GET /selftest runs the live checks on a scratch copy.
 // It also keeps the app's anonymous play stats (POST /api/v1/stats, a StatBatch; GET with ?key= reads the
 // summary) in a second object of the same class, "stats", with its own database, and answers the share
-// links' landing pages (landing.ts; og.png and icon.png are static files in online/public).
+// links' landing pages (landing.ts; og.png, icon.png and AdMob's app-ads.txt are static files in online/public).
 // Cloudflare deploys it from the repo (wrangler.jsonc at the root) on every push to main.
 
 import { DurableObject } from 'cloudflare:workers';
