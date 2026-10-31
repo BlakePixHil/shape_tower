@@ -15,7 +15,8 @@
   // Errors the code logs are kept; Cloudflare's per-request logs are off, since they hold each request's
   // headers and PRIVACY.md says the server keeps no IP addresses.
   "observability": { "enabled": true, "logs": { "invocation_logs": false } },
-  // The share links' picture and icon (online/cloudflare/landing.ts): served as files, the Worker never runs for them.
+  // The share links' picture and icon (online/cloudflare/landing.ts), and app-ads.txt, which AdMob reads from the
+  // store listings' developer website (this one) to verify the apps: served as files, the Worker never runs for them.
   "assets": { "directory": "./online/public" },
   // Pushes to other branches run Cloudflare's Preview build (wrangler preview), which needs this block.
   // Each Preview gets its own empty Durable Object, so a branch never touches the live ladder.
