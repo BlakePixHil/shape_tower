@@ -50,8 +50,8 @@ const RELEASE: Record<Part, number> = { pad: 0.45, bass: 0.06, lead: 0.09, suppo
 
 const SCREEN_PARTS: Record<MusicScreen, Part[]> = {
   menu: ['pad', 'bass', 'support', 'lead'],
-  // the same theme, lighter
-  profile: ['pad', 'support', 'lead'],
+  // Blake (2026-11-01): the menus' music carries on unchanged from screen to screen; only a run changes it
+  profile: ['pad', 'bass', 'support', 'lead'],
   // a warm 8-bar loop under the XP tally, in the level-up fanfare's key
   results: ['pad', 'bass', 'support'],
 };
@@ -211,17 +211,43 @@ export class MusicEngine {
 
   // ------------------------------------------------------------ screens
 
-  /** Title, profile and results music: the Meadow theme as a lullaby. */
+  /**
+   * Title, profile and results music: the Meadow theme as a lullaby. Moving between screens keeps
+   * the lullaby going on its own clock (a part one screen leaves out fades, one it adds joins on the
+   * next bar line); it starts over only after a run or silence.
+   */
   showScreen(screen: MusicScreen, at: number): void {
     if (this._mode === screen) return;
+    const was = this._mode;
     this._mode = screen;
     this.target = undefined;
     const band = (this.lullaby ??= { id: 'lullaby', theme: new Theme(LULLABY, BIOMES[0].key, 1) });
     this.warm('lullaby', () => band.theme.notes());
+    if (was !== 'off' && was !== 'run' && this.band === band) {
+      this.rearrange(was, screen, at);
+      this.note(screen, at);
+      return;
+    }
     this.resetParts(at);
     this.fadeAll(at, 0.3);
     this.begin(band, at, 0);
     this.note(screen, at);
+  }
+
+  /** From one screen's arrangement to another's without stopping the lullaby. */
+  private rearrange(from: MusicScreen, to: MusicScreen, at: number): void {
+    const keep = new Set<Part>(SCREEN_PARTS[to]);
+    for (const v of this.voices) {
+      if (keep.has(v.part) || v.end <= at) continue;
+      this.fade(v, at, 0.25);
+    }
+    // the results loop plays the theme's first section over and over; the song carries on from
+    // where the loop is, so the next bar is the one the loop would have played
+    if (from === 'results' && to !== 'results') {
+      const n = this.bar % SECTION_BARS;
+      this.t0 += (this.bar - n) * BAR;
+      this.bar = n;
+    }
   }
 
   /** Silence (fades out over about a second). */
@@ -444,8 +470,14 @@ export class MusicEngine {
     v.end = t;
   }
 
+  /** Fades what is sounding at `at`; a note queued to start later never starts. */
   private fadeAll(at: number, tc: number): void {
-    for (const v of this.voices) if (v.end > at) this.release(v, at, tc);
+    for (const v of this.voices) if (v.end > at) this.fade(v, at, tc);
+  }
+
+  private fade(v: Voice, at: number, tc: number): void {
+    if (v.start >= at) this.stopAt(v, v.start);
+    else this.release(v, at, tc);
   }
 
   private resetParts(at: number): void {
