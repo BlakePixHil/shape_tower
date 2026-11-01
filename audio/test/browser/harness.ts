@@ -460,22 +460,54 @@ const scenarios = {
     }
   },
 
-  /** Title and profile screens play the lullaby; 'none' fades it out. */
+  /**
+   * Title and profile screens play the lullaby, and moving between them keeps it going on one
+   * clock; 'none' fades it out. Then the results loop hands over to the menu without starting over.
+   */
   async screens() {
     const { ctx, d } = await makeDirector(13);
     d.screen('menu', 0.1);
     await d.music.prewarm();
     const modes: string[] = [];
+    // the next bar each screen schedules, just before and after each switch
+    const bars: number[] = [];
     for (let i = 1; i <= 120; i++) {
       const t = i / 10;
+      if (i === 60 || i === 80) bars.push(d.music.state().bar);
       if (i === 60) d.screen('profile', t);
+      if (i === 80) d.screen('menu', t);
       if (i === 95) d.screen('none', t);
       d.tick(t);
+      if (i === 60 || i === 80) bars.push(d.music.state().bar);
       if (i % 30 === 0) modes.push(d.music.mode);
     }
+    const log = d.music.log.map((e) => e.what);
     const buf = await ctx.startRendering();
     const level = (a: number, b: number) => db(analyse(buf, a, b).rms);
-    return { modes, menuDb: level(1, 5.5), profileDb: level(6.5, 9), afterDb: level(11, 13), stats: d.music.state(), nonFinite: analyse(buf).nonFinite };
+
+    // results to menu: a fresh director, the loop well into its second pass
+    const r = await makeDirector(25);
+    r.d.music.showScreen('results', 0.1);
+    r.d.mixer.setBase('results', 0.1, 0.5);
+    await r.d.music.prewarm();
+    const handover: { before?: number; after?: number; bar?: number } = {};
+    for (let i = 1; i <= 240; i++) {
+      const t = i / 10;
+      if (i === 220) {
+        handover.before = r.d.music.state().bar;
+        r.d.screen('menu', t);
+        handover.after = r.d.music.state().bar;
+      }
+      r.d.tick(t);
+      if (i === 220) handover.bar = r.d.music.state().bar;
+    }
+    const rbuf = await r.ctx.startRendering();
+    const rlevel = (a: number, b: number) => db(analyse(rbuf, a, b).rms);
+    return {
+      modes, bars, log, menuDb: level(1, 5.5), profileDb: level(6.5, 7.9), backDb: level(8.1, 9.4), afterDb: level(11, 13),
+      stats: d.music.state(), nonFinite: analyse(buf).nonFinite + analyse(rbuf).nonFinite,
+      results: { ...handover, log: r.d.music.log.map((e) => e.what), beforeDb: rlevel(20, 21.9), afterDb: rlevel(22.1, 24.5), misses: r.d.music.state().misses },
+    };
   },
 
   /** Gate 1's juice switch: off keeps what-happened sounds and drops the flourishes; the band stops reacting. */

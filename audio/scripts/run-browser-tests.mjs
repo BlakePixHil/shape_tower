@@ -151,10 +151,22 @@ checks.music = (r) => {
 
 checks.screens = (r) => {
   assert.equal(r.nonFinite, 0, 'no NaN');
-  assert.deepEqual(r.modes, ['menu', 'profile', 'profile', 'off'], 'screens switch the music');
+  assert.deepEqual(r.modes, ['menu', 'profile', 'menu', 'off'], 'screens switch the music');
   assert.equal(r.stats.misses, 0, 'the lullaby was baked first');
-  assert.ok(r.menuDb > -45 && r.profileDb > -48, `menus play the lullaby (${r.menuDb} / ${r.profileDb} dB)`);
+  assert.ok(r.menuDb > -45 && r.profileDb > -45 && r.backDb > -45, `menus play the lullaby (${r.menuDb} / ${r.profileDb} / ${r.backDb} dB)`);
+  // Blake (2026-11-01): switching menus must not restart the music
+  const [b0, b1, b2, b3] = r.bars;
+  assert.ok(b0 > 2 && b1 >= b0 && b1 <= b0 + 1, `menu to profile carries on at bar ${b0} (then ${b1})`);
+  assert.ok(b2 > b1 && b3 >= b2 && b3 <= b2 + 1, `profile to menu carries on at bar ${b2} (then ${b3})`);
+  assert.equal(r.log.filter((w) => w === 'menu' || w === 'profile').length, 3, `each switch is logged once (${r.log.join(', ')})`);
   assert.ok(r.afterDb < -70, `'none' fades it out (${r.afterDb} dB)`);
+  const x = r.results;
+  assert.equal(x.misses, 0, 'the results loop was baked first');
+  assert.ok(x.before > 8, `the results loop is in its second pass (${x.before})`);
+  assert.equal(x.after, x.before % 8, `the menu carries on from where the results loop is (bar ${x.before} -> ${x.after})`);
+  assert.ok(x.bar <= x.after + 1, `and doesn't jump ahead (${x.bar})`);
+  assert.deepEqual(x.log, ['results', 'menu'], 'results then menu, no restart');
+  assert.ok(x.beforeDb > -45 && x.afterDb > -45, `music plays through the handover (${x.beforeDb} / ${x.afterDb} dB)`);
 };
 
 const FLOURISHES = ['shimmer', 'confetti', 'firework', 'kaching', 'swell', 'stonewave', 'foundation', 'phew', 'lockon', 'bond.tink', 'drumroll', 'entry.', 'voice.'];
@@ -278,7 +290,7 @@ function summary(name, r) {
   if (name === 'achievements') return `notes per tier ${['bronze', 'gold', 'platinum', 'strip'].map((k) => `${k} ${r.on.notes[k]}`).join(', ')}; bronze ${r.on.bronzeDb}, platinum ${r.on.platinumDb} against a hard landing ${r.on.landingDb} dB RMS; juice off: stamps only`;
   if (name === 'hold') return `music ${r.on.base} dB, hold ${r.on.start}, full ring ${r.on.full}, knock ${r.on.knock}, after ${r.on.after}; juice off full ring ${r.off.full}, Zen ${r.zen.full}`;
   if (name === 'music') return `levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v.rmsDb}`).join(', ')} dB; ${r.stats.notes} notes, ${r.stats.stolen} stolen, ${r.stats.dropped} dropped, peak ${r.stats.peakVoices} voices`;
-  if (name === 'screens') return `menu ${r.menuDb} dB, profile ${r.profileDb} dB, after ${r.afterDb} dB`;
+  if (name === 'screens') return `menu ${r.menuDb} dB, profile ${r.profileDb} dB, back ${r.backDb} dB, after ${r.afterDb} dB; bars ${r.bars.join('/')}; results ${r.results.before} -> menu ${r.results.after}`;
   if (name === 'loudness') return `${r.softDb} / ${r.midDb} / ${r.hardDb} dB, below-screen ${r.belowDb} dB`;
   return JSON.stringify(r).slice(0, 120);
 }
