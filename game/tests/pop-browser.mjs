@@ -7,11 +7,21 @@
 //   npm run build:game && node tests/pop-browser.mjs [outDir]
 
 import { chromium } from '@playwright/test';
-import { mkdirSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { mkdirSync, readFileSync } from 'node:fs';
 
 const out = process.argv[2] ?? 'test-results/pop';
 mkdirSync(out, { recursive: true });
-const url = new URL('../dist-game/game.html', import.meta.url).href;
+// Served over http, as daily-check is: on a file:// page Chromium sometimes hands a reloaded page an
+// empty localStorage (every key gone, not just the save), and this check reloads to stand in for an
+// app that was closed mid-run.
+const html = readFileSync(new URL('../dist-game/game.html', import.meta.url));
+const server = createServer((req, res) => {
+  if (req.url === '/' || req.url?.startsWith('/game.html')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(html); return; }
+  res.writeHead(req.url === '/favicon.ico' ? 204 : 404); res.end();
+});
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const url = `http://127.0.0.1:${server.address().port}/game.html`;
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM ?? '/opt/pw-browsers/chromium', args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'] });
 const steps = [];
 const step = (name, ok, info = '') => { steps.push({ name, ok, info }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info ? '  — ' + info : ''}`); };
@@ -150,7 +160,7 @@ const state = page => page.evaluate(() => {
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('shape-tower-pop-run-v1') ?? 'null'));
   const before = await state(page);
   step('the run is saved after every move', !!saved && saved.rec.moves.length === before.moves * 2, `${saved?.rec.moves.length} chars for ${before.moves} moves`);
-  await page.waitForTimeout(300); // let the last write reach the storage before the page goes
+  await page.waitForTimeout(300);
   await page.reload();
   await page.waitForSelector('.sc-root.show [data-action="pop"]', { timeout: 20000 });
   await page.waitForTimeout(500);
@@ -245,6 +255,7 @@ const state = page => page.evaluate(() => {
 }
 
 await browser.close();
+server.close();
 const failed = steps.filter(s => !s.ok);
 console.log(failed.length ? `\n${failed.length} check(s) FAILED` : '\nAll Pop browser checks passed');
 process.exit(failed.length ? 1 : 0);
