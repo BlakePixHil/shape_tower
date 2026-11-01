@@ -5,22 +5,38 @@
 // lands; everything here plays on top and never blocks the next pick-up.
 //
 // Canvas 2D over the shell's Phaser canvas (which sleeps while Pop is up), with a DOM top bar from the
-// art UI kit. Milestone 1's juice is a first pass: stamps, the pop wave, confetti, points, banners,
-// shake and the run-over tumble. The full pop sequence comes with milestone 2.
+// art UI kit. Board pieces sit flush in their cells. Milestone 2's juice (Pop plan §8): the stamp and
+// neighbours' jiggle, hitstop, the pop wave, cells swelling and bursting, faces flying up to the
+// checkpoint pill, the shockwave ring and zoom punch, the combo chip's glow, sparks and rainbow, the
+// All Clear (slow-mo, board bounce, cannons, the tray jumping), the filling board's red edge, and the
+// run over's slow-mo and tumble. Effects run on their own clock (`vt`), so slow-mo never touches input.
 
-import { BIOMES, INK, bakePostcard, uiIconUrl, type Expression } from '@art/index.ts';
+import { BIOMES, INK, bakePostcard, cellsPose, silhouette, uiIconUrl, type Expression } from '@art/index.ts';
 import { CELLS, LINE_CELLS } from '../sim/board.ts';
 import { BAG, type PopEvent, type PopIntent, type PopSim } from '../sim/pop.ts';
-import { POP_SHAPES, type Turn } from '../sim/shapes.ts';
+import { POP_KEYS, POP_SHAPES, type Turn } from '../sim/shapes.ts';
 import type { Slot } from '../sim/deal.ts';
-import { PopArt, bakeBagBox, bakeBoard, shapeColors } from './draw.ts';
+import { FLUSH, PopArt, bakeBagBox, bakeBoard, shapeColors } from './draw.ts';
 import { PopFx } from './fx.ts';
 import { PopFrames } from '../save.ts';
 
-/** The calls Pop makes into Sound's director (a subset of AudioDirector). */
+/**
+ * The calls Pop makes into Sound's director (a subset of AudioDirector). Once Sound's Pop score lands, the
+ * director has `setMode`: the view switches it to 'pop' and sends Pop's own events instead of the tower's
+ * stand-ins (Pop plan §10):
+ *   pop_run_start {biome, cp, fill} · pop_pickup {shape} · pop_ghost {lines} · pop_would_pop {count, 0 = stop}
+ *   pop_drop_back · pop_place {shape, cells, combo}
+ *   pop_lines {count, combo, cells, lines: cells per line, hitstop ms} (Sound plays the glissando from it:
+ *     the first note at once, then 39 ms steps from the end of the hitstop, like the wave)
+ *   pop_combo {combo} · pop_combo_end {combo} · pop_all_clear · pop_checkpoint {n} · biome_entered {id}
+ *   pop_tray {n} · pop_bag · pop_cant_fit {slot} · pop_fill {fill 0-1, after every move}
+ *   pop_no_room (the "No room!" moment) · pop_run_over {cause} (as the run ends: the tumble starts)
+ * Biome ids are the tower's, 1-based (1 Meadow … 10 Deep Cosmos); the sim's are 0-based.
+ */
 export interface PopAudio {
   handle(name: string, payload?: Record<string, unknown>): void;
   ui(kind: 'tap' | 'tap2' | 'back' | 'open' | 'close' | 'error' | 'start'): void;
+  setMode?(mode: 'pop' | 'tower'): void;
 }
 
 export interface PopHooks {
@@ -52,6 +68,20 @@ const CSS = `
 .pop-combo.on { transform: translate(-100%, -50%) scale(1); }
 .pop-combo i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #FFE08A; border: 2px solid var(--ink, ${INK}); }
 .pop-combo i.off { background: rgba(255,255,255,0.35); }
+.pop-combo.warm { box-shadow: 0 3px 0 var(--ink, ${INK}), 0 0 16px 5px rgba(255,170,60,0.85); }
+.pop-combo.sparks::after { content: ''; position: absolute; inset: -11px -7px; border-radius: 999px; pointer-events: none;
+  background: radial-gradient(circle at 50% 0, #FFF6B0 0 3px, transparent 4px), radial-gradient(circle at 50% 100%, #FFF6B0 0 3px, transparent 4px), radial-gradient(circle at 0 50%, #FFFFFF 0 2px, transparent 3px), radial-gradient(circle at 100% 50%, #FFFFFF 0 2px, transparent 3px);
+  animation: pop-orbit 1.1s linear infinite; }
+.pop-combo.rainbow { border-color: transparent; background: linear-gradient(#FF8A3D, #FF8A3D) padding-box, linear-gradient(90deg, #FF5E7E, #FFB547, #FFE45E, #6EE7A8, #5EC8FF, #B28BFF, #FF5E7E) 0 0 / 200% 100% border-box; animation: pop-rainbow 1.4s linear infinite; }
+.pop-combo.tick { animation: pop-tick 220ms ease-out; }
+.pop-combo.rainbow.tick { animation: pop-tick 220ms ease-out, pop-rainbow 1.4s linear infinite; }
+@keyframes pop-orbit { to { transform: rotate(360deg); } }
+@keyframes pop-rainbow { from { background-position: 0 0, 0 0; } to { background-position: 0 0, 200% 0; } }
+@keyframes pop-tick { 0% { scale: 1; } 40% { scale: 1.25; } 100% { scale: 1; } }
+.pop-score b.bump { animation: pop-bump 240ms cubic-bezier(.3,1.6,.5,1); }
+@keyframes pop-bump { 0% { transform: scale(1); } 35% { transform: scale(1.22); } 100% { transform: scale(1); } }
+.pop-cp.bump { animation: pop-bump 240ms cubic-bezier(.3,1.6,.5,1); }
+.pop-bg { transform-origin: 50% 100%; transition: opacity 1.2s ease, transform 1.4s cubic-bezier(.4,0,.2,1); }
 .pop-label { position: absolute; font: 800 11px/1 var(--body, Nunito, sans-serif); letter-spacing: 0.08em; color: var(--ink, ${INK}); opacity: 0.75; transform: translateX(-50%); pointer-events: none; text-transform: uppercase; }
 `;
 
@@ -60,6 +90,8 @@ interface Held { slot: number; px: number; py: number; t0: number; ghost: { x: n
 interface Spring { slot: number; x: number; y: number; scale: number; t0: number }
 interface Popping { cell: number; s: number; start: number; burst: boolean }
 interface Body { b: HTMLCanvasElement; x: number; y: number; vx: number; vy: number; rot: number; vr: number }
+/** A popped Blockling's face flying up to the checkpoint pill on an arc. */
+interface Flyer { s: number; x0: number; y0: number; t0: number; dur: number; lift: number }
 
 const now = () => performance.now();
 const backOut = (t: number) => { const c = 1.9; const u = t - 1; return 1 + (c + 1) * u * u * u + c * u * u; };
@@ -120,6 +152,22 @@ export class PopView {
   private overDone = false;
   private holdUntil = 0; // hitstop: effects wait until then
   private seenTray = 0;
+  /** The effects clock (ms): real time, slowed for the All Clear and the run over. */
+  private vt = 0;
+  private slowUntil = -1;
+  private slowK = 1;
+  /** Zoom punch: when and how much (1.02 for a line up to 1.1 for an All Clear). */
+  private punch = { t0: -1e9, z: 0 };
+  private bounceAt = -1e9;
+  private hopAt = -1e9;
+  private jiggles = new Map<number, number>(); // piece → when a neighbour landed
+  private flyers: Flyer[] = [];
+  private lean = 0;
+  private lastMove = { x: 0, t: 0, vx: 0 };
+  private trailAt = 0;
+  private lastCombo = 0;
+  private fitsWas = [true, true, true, true];
+  private wouldWas = 0;
 
   constructor(parent: HTMLElement, hooks: PopHooks) {
     this.hooks = hooks;
@@ -177,16 +225,27 @@ export class PopView {
     this.bodies = [];
     this.overAt = -1;
     this.overDone = false;
+    this.flyers = [];
+    this.jiggles.clear();
+    this.slowUntil = -1;
+    this.punch = { t0: -1e9, z: 0 };
+    this.bounceAt = -1e9;
+    this.hopAt = -1e9;
+    this.lean = 0;
+    this.lastCombo = sim.combo;
     this.seenTray = sim.trays;
     this.shownScore = sim.score;
     this.root.style.display = '';
     this.layout();
     this.fx.clear();
     this.rebuild();
-    this.trayIn = now();
+    this.trayIn = this.vt;
     sim.sink = { emit: (name, payload) => this.onEvent({ name, payload }) };
     this.hud();
-    this.hooks.audio()?.handle('run_start', {});
+    this.hooks.audio()?.setMode?.('pop');
+    this.say('pop_run_start', { biome: sim.biome + 1, cp: sim.cp, fill: sim.filled / CELLS }, a => a.handle('run_start', {}));
+    this.fitsWas = [true, true, true, true];
+    this.wouldWas = 0;
     this.last = now();
     this.lastRaw = this.last;
     cancelAnimationFrame(this.raf);
@@ -199,6 +258,7 @@ export class PopView {
     cancelAnimationFrame(this.raf);
     if (this.sim) this.sim.sink = null;
     this.held = null;
+    this.hooks.audio()?.setMode?.('tower');
   }
 
   setPaused(on: boolean): void {
@@ -239,12 +299,14 @@ export class PopView {
     this.bagCv = [bakeBagBox(bagS, false), bakeBagBox(bagS, true)];
     this.fx = new PopFx(k);
     this.comboEl.style.left = `${(this.bx + this.cell * 9 + this.pad * 0.6) / k}px`;
-    this.comboEl.style.top = `${(this.by - this.pad * 0.6) / k}px`;
+    // The combo chip sits just above the board's top-right corner, clear of its cells.
+    this.comboEl.style.top = `${Math.max(topC - 2, byC - padC - 20)}px`;
     this.nextLabel.style.left = `${(this.nextBox.x + this.nextBox.w / 2) / k}px`;
     this.nextLabel.style.top = `${(this.nextBox.y + this.nextBox.h + 4 * k) / k}px`;
     this.bagLabel.style.left = `${(this.bag.x + this.bag.s / 2) / k}px`;
     this.bagLabel.style.top = `${(this.bag.y + this.bag.s + 4 * k) / k}px`;
     this.backdrop(true);
+    this.skyStep();
   }
 
   /** The biome's sky behind it all (Art's postcard at screen size), cross-fading when the biome changes. */
@@ -305,19 +367,34 @@ export class PopView {
     const a = this.hooks.audio();
     const p = e.payload;
     const juice = this.hooks.juice();
-    const t = now();
+    const calm = this.hooks.reducedMotion();
+    const t = this.vt;
     switch (e.name) {
       case 'pop_placed': {
         this.rebuild();
         this.stamps.set(p.piece as number, t);
-        a?.handle('piece_landed', { impact: 0.35, shape: p.shape });
-        a?.handle('piece_settled', { grade: 'clean' });
+        this.say('pop_place', { shape: p.shape, cells: (p.cells as number[]).length, combo: this.sim!.combo }, au => {
+          au.handle('piece_landed', { impact: 0.35, shape: p.shape });
+          au.handle('piece_settled', { grade: 'clean' });
+        });
         if (juice) {
           const cells = p.cells as number[];
           const xs = cells.map(c => c % 9), ys = cells.map(c => (c / 9) | 0);
           const y1 = this.by + (Math.max(...ys) + 1) * this.cell;
           this.fx.dust(this.bx + Math.min(...xs) * this.cell, y1, this.cell);
           this.fx.dust(this.bx + (Math.max(...xs) + 1) * this.cell, y1, this.cell);
+          // Its neighbours jiggle.
+          const sim = this.sim!, near = new Set<number>();
+          for (const c of cells) {
+            const x = c % 9, y = (c / 9) | 0;
+            for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || ny < 0 || nx > 8 || ny > 8) continue;
+              const pc = sim.cellPiece[ny * 9 + nx];
+              if (pc >= 0 && pc !== p.piece && sim.cellShape[ny * 9 + nx] >= 0) near.add(pc);
+            }
+          }
+          for (const pc of near) this.jiggles.set(pc, t);
         }
         break;
       }
@@ -325,11 +402,12 @@ export class PopView {
         const n = p.count as number;
         const order = p.order as number[][];
         const cells = p.cells as number[], shapes = p.shapes as number[];
-        const stop = n >= 3 ? 80 : n === 2 ? 60 : 40;
-        this.holdUntil = t + (juice ? stop : 0);
+        const stop = juice ? (n >= 3 ? 80 : n === 2 ? 60 : 40) : 0;
+        const step = juice ? 39 : 0;
+        this.holdUntil = t + stop;
         const start = new Map<number, number>();
-        order.forEach(line => line.forEach((c, i) => { const d = i * (juice ? 39 : 0); if (!start.has(c) || d < start.get(c)!) start.set(c, d); }));
-        cells.forEach((c, i) => this.popping.push({ cell: c, s: shapes[i], start: t + (juice ? stop : 0) + (start.get(c) ?? 0), burst: false }));
+        order.forEach(line => line.forEach((c, i) => { const d = i * step; if (!start.has(c) || d < start.get(c)!) start.set(c, d); }));
+        cells.forEach((c, i) => this.popping.push({ cell: c, s: shapes[i], start: t + stop + (start.get(c) ?? 0), burst: false }));
         this.flashes.push({ cells, t0: t });
         // Points fly up from the middle of what popped.
         const cx = cells.reduce((s, c) => s + (c % 9), 0) / cells.length, cy = cells.reduce((s, c) => s + ((c / 9) | 0), 0) / cells.length;
@@ -337,43 +415,104 @@ export class PopView {
         this.fx.text(`+${(p.points as number).toLocaleString('en-US')}`, px, py, { size: 26, fill: '#FFE08A', rise: 50, life: 1000 });
         if (juice) {
           if (n >= 2) this.fx.text(BANNERS[Math.min(5, n)], this.bx + this.cell * 4.5, this.by + this.cell * 3.2, { size: n >= 4 ? 46 : 40, fill: n >= 4 ? '#FF8A3D' : '#FFFFFF', rise: 16, life: 1200, pop: true });
-          this.fx.kick(n >= 3 ? 0.55 : n === 2 ? 0.4 : 0.25);
+          if (!calm) {
+            this.fx.kick(n >= 3 ? 0.55 : n === 2 ? 0.4 : 0.25);
+            this.punch = { t0: t + stop, z: Math.min(0.08, 0.02 * n) };
+          }
+          // A soft shockwave from each line's middle once it has emptied (about 400 ms in).
+          for (const line of order) {
+            const mid = line[(line.length / 2) | 0];
+            const lx = this.bx + ((mid % 9) + 0.5) * this.cell, ly = this.by + (((mid / 9) | 0) + 0.5) * this.cell;
+            this.fx.ring(lx, ly, this.cell * 3.2, { delay: stop + step * line.length, life: 460, width: this.cell * 0.22 });
+          }
+          // Faces fly up to the checkpoint pill: one per piece that popped, six at most.
+          const seen = new Set<number>();
+          const pieces = p.pieces as number[] | undefined;
+          cells.forEach((c, i) => {
+            const key = pieces ? pieces[i] : c;
+            if (seen.has(key) || seen.size >= 6) return;
+            seen.add(key);
+            this.flyers.push({ s: shapes[i], x0: this.bx + ((c % 9) + 0.5) * this.cell, y0: this.by + (((c / 9) | 0) + 0.5) * this.cell, t0: t + stop + (start.get(c) ?? 0) + 60, dur: 620 + seen.size * 40, lift: this.cell * (1.6 + Math.random()) });
+          });
         }
-        a?.handle('row_solid', { count: n });
-        if ((p.combo as number) >= 3) a?.handle('perfect', { combo: p.combo });
+        this.say('pop_lines', { count: n, combo: p.combo, cells: cells.length, lines: order.map(l => l.length), hitstop: stop }, au => {
+          au.handle('row_solid', { count: n });
+          if ((p.combo as number) >= 3) au.handle('perfect', { combo: p.combo });
+        });
         break;
       }
+      case 'pop_score':
+        if (juice) bump(this.scoreEl);
+        break;
       case 'pop_all_clear':
         if (juice) {
-          this.fx.text('ALL CLEAR!', this.bx + this.cell * 4.5, this.by + this.cell * 4.6, { size: 50, fill: '#FFE08A', rise: 10, life: 1700, pop: true });
-          this.fx.kick(0.8);
+          this.fx.text('ALL CLEAR!', this.bx + this.cell * 4.5, this.by + this.cell * 4.6, { size: 50, fill: '#FFE08A', rise: 10, life: 1900, pop: true });
+          this.slowUntil = t + 300; this.slowK = 0.5;
+          this.fx.ring(this.bx + this.cell * 4.5, this.by + this.cell * 4.5, this.cell * 7.5, { delay: 120, life: 700, width: this.cell * 0.35 });
+          const cols = ['#FF5E7E', '#FFB547', '#FFE45E', '#6EE7A8', '#5EC8FF', '#B28BFF', '#FFFFFF'];
+          this.fx.cannon(0, this.H, -Math.PI / 3, this.cell, cols, 45);
+          this.fx.cannon(this.W, this.H, -Math.PI * 2 / 3, this.cell, cols, 45);
+          this.hopAt = t;
+          if (!calm) { this.fx.kick(0.8); this.punch = { t0: t, z: 0.1 }; this.bounceAt = t + 150; }
         }
-        a?.handle('pb_crossed', {});
+        this.say('pop_all_clear', {}, au => au.handle('pb_crossed', {}));
         break;
-      case 'pop_checkpoint':
-        if (juice) this.fx.text(`Checkpoint ${p.n}!`, this.bx + this.cell * 4.5, this.by - this.pad * 1.6, { size: 24, fill: '#A6F4C5', rise: 20, life: 1400, pop: true });
-        a?.handle('checkpoint_claimed', { n: p.n });
+      case 'pop_checkpoint': {
+        if (juice) {
+          this.fx.text(`Checkpoint ${p.n}!`, this.bx + this.cell * 4.5, this.by - this.pad * 1.6, { size: 24, fill: '#A6F4C5', rise: 20, life: 1400, pop: true });
+          const [fx0, fy0] = this.pillCentre();
+          for (let i = 0; i < 3; i++) this.fx.burst(fx0, fy0, this.cell, ['#A6F4C5', '#FFE08A', '#FFFFFF', '#5EC8FF'], 8);
+          bump(this.cpEl.parentElement!);
+        }
+        this.say('pop_checkpoint', { n: p.n }, au => au.handle('checkpoint_claimed', { n: p.n }));
+        this.skyStep();
         break;
+      }
       case 'biome_entered':
-        a?.handle('biome_entered', { id: p.id });
+        a?.handle('biome_entered', { id: (p.id as number) + 1 });
         this.art = new PopArt(this.cell, this.sim!.biome);
         setTimeout(() => this.backdrop(), 500);
         break;
       case 'pop_tray':
-        if ((p.n as number) > this.seenTray) { this.seenTray = p.n as number; this.trayIn = t; }
+        if ((p.n as number) > this.seenTray) { this.seenTray = p.n as number; this.trayIn = t; this.say('pop_tray', { n: p.n }); }
+        break;
+      case 'pop_combo':
+        this.say('pop_combo', { combo: p.combo });
+        break;
+      case 'pop_combo_end':
+        this.say('pop_combo_end', { combo: p.combo });
         break;
       case 'pop_bag':
-        a?.handle('hold_swap', {});
+        this.say('pop_bag', {}, au => au.handle('hold_swap', {}));
         break;
       case 'pop_no_room':
+        this.say('pop_no_room');
         if (juice) this.fx.text('No room!', this.bx + this.cell * 4.5, this.by + this.cell * 4.5, { size: 48, fill: '#FF8FA3', rise: 0, life: 1500, pop: true });
         break;
       case 'run_over':
-        a?.handle('run_over', { cause: p.cause });
         this.overAt = t;
+        // Sound's run over (tumble, tape stop, "nice try") plays as the run ends: with the tumble, or now.
+        if (!(juice && !calm && p.cause === 'noroom')) this.say('pop_run_over', { cause: p.cause }, au => au.handle('run_over', { cause: p.cause }));
+        // The last moment plays at half speed for 0.4 s.
+        if (juice && p.cause === 'noroom') { this.slowUntil = t + 200; this.slowK = 0.5; }
         break;
     }
     this.hud();
+  }
+
+  /** The checkpoint pill's centre in device px (where faces fly to). */
+  private pillCentre(): [number, number] {
+    const r = this.cpEl.parentElement!.getBoundingClientRect();
+    return [(r.left + r.width / 2) * this.k, (r.top + r.height / 2) * this.k];
+  }
+
+  /** The sky rises a step with every checkpoint inside a biome, and settles when the next biome arrives. */
+  private skyStep(): void {
+    const sim = this.sim;
+    if (!sim || !this.bg) return;
+    const pr = sim.cpProgress;
+    const into = Math.max(0, Math.min(1, pr.into / Math.max(1, pr.need)));
+    this.bg.style.transform = this.hooks.reducedMotion() ? '' : `translateY(${(into * 5).toFixed(2)}%) scale(1.06)`;
   }
 
   private hud(): void {
@@ -382,11 +521,18 @@ export class PopView {
     this.bestEl.textContent = `Best ${Math.max(this.hooks.best(), sim.score).toLocaleString('en-US')}`;
     const pr = sim.cpProgress;
     this.cpEl.textContent = `${BIOMES[sim.biome].name} ${pr.into}/${pr.need}`;
+    const el = this.comboEl, juice = this.hooks.juice();
     if (sim.combo >= 1) {
       const mult = Math.min(sim.tuning.comboMax, 1 + sim.tuning.comboStep * (sim.combo - 1));
-      this.comboEl.innerHTML = `×${mult}${Array.from({ length: sim.tuning.sparks }, (_, i) => `<i class="${i < sim.sparks ? '' : 'off'}"></i>`).join('')}`;
-      this.comboEl.classList.add('on');
-    } else this.comboEl.classList.remove('on');
+      el.innerHTML = `×${mult}${Array.from({ length: sim.tuning.sparks }, (_, i) => `<i class="${i < sim.sparks ? '' : 'off'}"></i>`).join('')}`;
+      el.classList.add('on');
+      // The chip warms from a combo of 3, grows orbiting sparks from 6 and a rainbow edge from 10.
+      el.classList.toggle('warm', juice && sim.combo >= 3);
+      el.classList.toggle('sparks', juice && sim.combo >= 6);
+      el.classList.toggle('rainbow', juice && sim.combo >= 10);
+      if (juice && sim.combo > this.lastCombo) { el.classList.remove('tick'); void el.offsetWidth; el.classList.add('tick'); }
+    } else el.classList.remove('on', 'warm', 'sparks', 'rainbow', 'tick');
+    this.lastCombo = sim.combo;
   }
 
   // ---------------------------------------------------------------- input
@@ -425,13 +571,18 @@ export class PopView {
     this.pointer = e.pointerId;
     try { this.cv.setPointerCapture(e.pointerId); } catch { /* fine */ }
     this.held = { slot, px: x, py: y, t0: now(), ghost: null, lines: [], id: e.pointerId };
+    this.lastMove = { x, t: now(), vx: 0 };
+    this.lean = 0;
     this.track();
-    this.hooks.audio()?.ui('tap');
+    this.say('pop_pickup', { shape: sim.slot(slot)!.s }, a => a.ui('tap'));
   }
 
   private move(e: PointerEvent): void {
     if (!this.held || e.pointerId !== this.pointer) return;
     const [x, y] = this.toDev(e);
+    const tn = now(), lm = this.lastMove, dtm = Math.max(4, tn - lm.t);
+    lm.vx = lm.vx * 0.5 + ((x - lm.x) / dtm) * 0.5;
+    lm.x = x; lm.t = tn;
     this.held.px = x; this.held.py = y;
     this.track();
   }
@@ -460,8 +611,8 @@ export class PopView {
     const t = this.sim?.turn(h.slot);
     if (!t) return;
     const [cx, cy] = this.heldCentre(h, t);
-    this.springs.push({ slot: h.slot, x: cx, y: cy, scale: this.heldScale(h), t0: now() });
-    this.hooks.audio()?.ui('back');
+    this.springs.push({ slot: h.slot, x: cx, y: cy, scale: this.heldScale(h), t0: this.vt });
+    this.say('pop_drop_back', {}, a => a.ui('back'));
   }
 
   /** The held shape's centre: over the finger, its bottom edge 1.1 cells above it (Pop plan §3). */
@@ -498,7 +649,16 @@ export class PopView {
     const moved = (best?.x !== prev?.x || best?.y !== prev?.y);
     h.ghost = best;
     h.lines = best ? sim.wouldPop(h.slot, best.x, best.y) : [];
-    if (moved && best) this.hooks.audio()?.handle('ghost_fit', { perfect: h.lines.length > 0 });
+    if (moved && best) this.say('pop_ghost', { lines: h.lines.length }, a => a.handle('ghost_fit', { perfect: h.lines.length > 0 }));
+    if (h.lines.length !== this.wouldWas) { this.wouldWas = h.lines.length; this.say('pop_would_pop', { count: h.lines.length }); }
+  }
+
+  /** Sends Pop's own sound event when Sound's Pop score is there, else the tower's stand-in (if any). */
+  private say(name: string, payload: Record<string, unknown> = {}, fallback?: (a: PopAudio) => void): void {
+    const a = this.hooks.audio();
+    if (!a) return;
+    if (a.setMode) a.handle(name, payload);
+    else fallback?.(a);
   }
 
   private intent(it: PopIntent): boolean {
@@ -506,6 +666,14 @@ export class PopView {
     if (!sim || !sim.apply(it)) return false;
     this.rebuild();
     this.hooks.onChange(sim);
+    if (this.wouldWas) { this.wouldWas = 0; this.say('pop_would_pop', { count: 0 }); }
+    this.say('pop_fill', { fill: sim.filled / CELLS });
+    // A tray shape that just stopped fitting says "uh" once.
+    for (let i = 0; i <= BAG; i++) {
+      const fits = !sim.slot(i) || sim.fitsAnywhere(i);
+      if (!fits && this.fitsWas[i] && !sim.over) this.say('pop_cant_fit', { slot: i });
+      this.fitsWas[i] = fits;
+    }
     return true;
   }
 
@@ -520,7 +688,22 @@ export class PopView {
     if (!this.paused && !sim.over && !document.hidden) { this.playMs += dt; this.frames.add(t - this.lastRaw); }
     this.lastRaw = t;
     const juice = this.hooks.juice();
-    if (t >= this.holdUntil) this.fx.step(dt);
+    // The effects clock: slow-mo for the All Clear and the run over, never for input.
+    const sdt = dt * (this.vt < this.slowUntil ? this.slowK : 1);
+    this.vt += sdt;
+    const vt = this.vt;
+    if (vt >= this.holdUntil) this.fx.step(sdt);
+    // The held shape leans up to 5° into its motion and leaves a faint stardust trail.
+    const lm = this.lastMove;
+    lm.vx *= Math.exp(-dt / 70);
+    const calm = this.hooks.reducedMotion();
+    const want = this.held && juice && !calm ? Math.max(-1, Math.min(1, lm.vx / (this.cell * 0.012))) * 0.087 : 0;
+    this.lean += (want - this.lean) * Math.min(1, dt / 70);
+    if (this.held && juice && Math.abs(lm.vx) > this.cell * 0.002 && t - this.trailAt > 45) {
+      this.trailAt = t;
+      const tt = sim.turn(this.held.slot);
+      if (tt) { const [hx, hy] = this.heldCentre(this.held, tt); this.fx.dust2(hx + (Math.random() - 0.5) * tt.w * this.cell * 0.6, hy + tt.h * this.cell * 0.4, this.cell); }
+    }
     // The score counts up to the sim's.
     if (this.shownScore !== sim.score) {
       this.shownScore += Math.max(1, Math.ceil((sim.score - this.shownScore) * Math.min(1, dt / 120)));
@@ -529,16 +712,19 @@ export class PopView {
     }
     // Run over: "No room!" for a beat, then everything tumbles off the board (or straight on, without juice).
     if (this.overAt >= 0 && !this.overDone) {
-      const since = t - this.overAt;
+      const since = vt - this.overAt;
       const tumble = juice && !this.hooks.reducedMotion() && sim.cause === 'noroom';
-      if (tumble && since > 600 && !this.bodies.length && this.comps.length) this.startTumble();
+      if (tumble && since > 600 && !this.bodies.length && this.comps.length) {
+        this.startTumble();
+        this.say('pop_run_over', { cause: sim.cause }, au => au.handle('run_over', { cause: sim.cause }));
+      }
       if (since > (sim.cause === 'noroom' ? (tumble ? 1900 : 900) : 250)) {
         this.overDone = true;
         this.hooks.onOver(sim);
       }
     }
-    for (const b of this.bodies) { b.vy += 0.0022 * this.k * dt; b.x += b.vx * dt; b.y += b.vy * dt; b.rot += b.vr * dt; }
-    this.draw(t, juice);
+    for (const b of this.bodies) { b.vy += 0.0022 * this.k * sdt; b.x += b.vx * sdt; b.y += b.vy * sdt; b.rot += b.vr * sdt; }
+    this.draw(vt, juice);
   }
 
   private startTumble(): void {
@@ -554,8 +740,22 @@ export class PopView {
     const c = this.c, sim = this.sim!;
     c.setTransform(1, 0, 0, 1, 0, 0);
     c.clearRect(0, 0, this.W, this.H);
-    const [ox, oy] = juice && !this.hooks.reducedMotion() ? this.fx.offset() : [0, 0];
+    const calm = this.hooks.reducedMotion();
+    const [ox, oy] = juice && !calm ? this.fx.offset() : [0, 0];
     c.translate(ox, oy);
+    // Zoom punch about the board's centre, and the All Clear's bounce about its foot.
+    const bcx = this.bx + this.cell * 4.5, bcy = this.by + this.cell * 4.5, bfoot = this.by + this.cell * 9 + this.pad;
+    if (juice && !calm) {
+      const u = (t - this.punch.t0) / 280;
+      const z = u >= 0 && u < 1 ? this.punch.z * (u < 0.15 ? u / 0.15 : (1 - (u - 0.15) / 0.85) ** 2) : 0;
+      if (z) { c.translate(bcx, bcy); c.scale(1 + z, 1 + z); c.translate(-bcx, -bcy); }
+      const v = (t - this.bounceAt) / 520;
+      if (v >= 0 && v < 1) {
+        const b = 0.045 * Math.exp(-v * 4) * Math.cos(v * 13);
+        c.translate(bcx, bfoot); c.scale(1 + b, 1 - b); c.translate(-bcx, -bfoot);
+      }
+    }
+    const boardT = c.getTransform();
     // The board.
     if (this.boardCv) c.drawImage(this.boardCv, this.bx - this.pad, this.by - this.pad);
     const fill = sim.filled / CELLS;
@@ -571,7 +771,18 @@ export class PopView {
       const face: Expression | null = cp.face ? (age < 160 ? 'squint' : lit ? 'proud' : mood) : null;
       const bk = this.art.cells(cp.s, cp.cells, face);
       const x = this.bx + cp.x * this.cell - pad, y = this.by + cp.y * this.cell - pad;
-      if (juice && age < 220) {
+      const jt = this.jiggles.get(cp.piece);
+      const ju = jt === undefined ? 1 : (t - jt) / 280;
+      if (juice && !calm && ju < 1 && age >= 220) {
+        // A neighbour landed: a little jiggle about its foot.
+        const j = 0.05 * Math.exp(-ju * 3) * Math.sin(ju * Math.PI * 4);
+        const w = bk.canvas.width, h = bk.canvas.height;
+        c.save();
+        c.translate(x + w / 2, y + h - pad);
+        c.scale(1 - j * 0.6, 1 + j);
+        c.drawImage(bk.canvas, -w / 2, -h + pad);
+        c.restore();
+      } else if (juice && age < 220) {
         // The stamp: 15% squash and an elastic bounce back.
         const u = age / 220, sq = 0.15 * Math.exp(-u * 4) * Math.cos(u * 9);
         const w = bk.canvas.width, h = bk.canvas.height;
@@ -613,18 +824,28 @@ export class PopView {
       for (const cc of f.cells) c.fillRect(this.bx + (cc % 9) * this.cell, this.by + ((cc / 9) | 0) * this.cell, this.cell, this.cell);
       return true;
     });
-    // The ghost.
+    // The ghost: the shape as it will sit, flush, at 35%, with a glowing outline.
     const h = this.held;
     if (h?.ghost) {
       const sl = sim.slot(h.slot)!;
-      const bk = this.art.shape(sl.s, sl.q, 1, null);
-      c.globalAlpha = 0.38;
-      c.drawImage(bk.canvas, this.bx + h.ghost.x * this.cell - pad, this.by + h.ghost.y * this.cell - pad);
-      c.globalAlpha = 1;
       const tt = sim.turn(h.slot)!;
+      const cells = tt.cells.map(([x, y]) => [x, y] as [number, number]);
+      const bk = this.art.cells(sl.s, cells, null);
+      const gx = this.bx + h.ghost.x * this.cell, gy = this.by + h.ghost.y * this.cell;
+      c.globalAlpha = 0.35;
+      c.drawImage(bk.canvas, gx - pad, gy - pad);
+      c.globalAlpha = 1;
+      const path = silhouette(cellsPose(POP_KEYS[sl.s], cells), this.cell, undefined, FLUSH);
+      c.save();
+      c.translate(gx, gy);
+      c.lineJoin = 'round';
+      if (juice) { c.shadowColor = 'rgba(255,246,200,0.95)'; c.shadowBlur = this.cell * 0.35; }
       c.strokeStyle = 'rgba(255,255,255,0.95)';
-      c.lineWidth = Math.max(2, this.cell * 0.07);
-      for (const [x, y] of tt.cells) c.strokeRect(this.bx + (h.ghost.x + x) * this.cell + c.lineWidth, this.by + (h.ghost.y + y) * this.cell + c.lineWidth, this.cell - c.lineWidth * 2, this.cell - c.lineWidth * 2);
+      c.lineWidth = Math.max(2, this.cell * 0.08);
+      c.stroke(path);
+      c.restore();
+      // Two lines or more: a faint preview of the banner above the board.
+      if (juice && h.lines.length >= 2) this.fx.label(c, BANNERS[Math.min(5, h.lines.length)], bcx, this.by - this.pad - this.cell * 0.55, 30, '#FFFFFF', 0.5 + 0.15 * Math.sin(t / 80));
     }
     // Tumbling blocks after No room.
     for (const b of this.bodies) {
@@ -635,11 +856,21 @@ export class PopView {
       c.restore();
     }
     c.setTransform(1, 0, 0, 1, 0, 0);
+    // The board filling up past 85%: a soft red edge, breathing.
+    if (juice && fill >= 0.85 && !sim.over) {
+      const a = 0.3 + 0.1 * Math.sin(t / 320);
+      const g = c.createRadialGradient(this.W / 2, this.H / 2, Math.min(this.W, this.H) * 0.3, this.W / 2, this.H / 2, Math.hypot(this.W, this.H) * 0.55);
+      g.addColorStop(0, 'rgba(255,60,90,0)');
+      g.addColorStop(1, `rgba(255,60,90,${a.toFixed(3)})`);
+      c.fillStyle = g;
+      c.fillRect(0, 0, this.W, this.H);
+    }
     // The tray, the next tray and the bag (never shaken).
     this.drawSlots(t, juice);
-    c.translate(ox, oy);
+    c.setTransform(boardT);
     this.fx.draw(c);
     c.setTransform(1, 0, 0, 1, 0, 0);
+    this.drawFlyers(t);
     // The held shape, over everything.
     if (h) {
       const sl = sim.slot(h.slot);
@@ -650,11 +881,40 @@ export class PopView {
         const [cx, cy] = this.heldCentre(h, tt);
         c.save();
         c.translate(cx, cy);
+        c.rotate(this.lean);
         c.scale(sc, sc);
         c.drawImage(bk.canvas, -bk.canvas.width * bk.originX, -bk.canvas.height * bk.originY);
         c.restore();
       }
     }
+  }
+
+  /** Popped faces flying up to the checkpoint pill on an arc, shrinking as they go. */
+  private drawFlyers(t: number): void {
+    if (!this.flyers.length) return;
+    const c = this.c;
+    const [tx, ty] = this.pillCentre();
+    let landed = false;
+    this.flyers = this.flyers.filter(f => {
+      const u = (t - f.t0) / f.dur;
+      if (u >= 1) { landed = true; return false; }
+      if (u < 0) return true;
+      const e = u * u * (3 - 2 * u);
+      const mx = (f.x0 + tx) / 2, my = Math.min(f.y0, ty) - f.lift;
+      const x = (1 - e) * (1 - e) * f.x0 + 2 * (1 - e) * e * mx + e * e * tx;
+      const y = (1 - e) * (1 - e) * f.y0 + 2 * (1 - e) * e * my + e * e * ty;
+      const bk = this.art.cells(f.s, [[0, 0]], 'proud');
+      const sc = 0.6 - 0.35 * e;
+      c.save();
+      c.globalAlpha = u > 0.85 ? (1 - u) / 0.15 : 1;
+      c.translate(x, y);
+      c.rotate(e * 2.4);
+      c.scale(sc, sc);
+      c.drawImage(bk.canvas, -bk.canvas.width / 2, -bk.canvas.height / 2);
+      c.restore();
+      return true;
+    });
+    if (landed) bump(this.cpEl.parentElement!);
   }
 
   private drawSlots(t: number, juice: boolean): void {
@@ -676,12 +936,16 @@ export class PopView {
         cx = sp.x + (cx - sp.x) * e; cy = sp.y + (cy - sp.y) * e; sc = sp.scale + (rest - sp.scale) * e;
         if (u >= 1) this.springs = this.springs.filter(s => s !== sp);
       } else if (i !== BAG && juice && !this.hooks.reducedMotion()) {
-        // A new tray flips in, one shape after another, 60 ms apart.
+        // A new tray flips in, one shape after another, 60 ms apart, then bobs gently.
         const u = (t - this.trayIn - i * 60) / 240;
         if (u < 1) sc = rest * (u <= 0 ? 0 : backOut(u));
+        cy += Math.sin(t / 650 + i * 1.9) * this.cell * 0.035;
+        // All Clear: the tray's Blocklings jump.
+        const v = (t - this.hopAt - i * 70) / 560;
+        if (v >= 0 && v < 1) cy -= Math.sin(v * Math.PI) * this.cell * 0.7;
       }
       if (sc <= 0.01) continue;
-      const face: Expression = !fits ? 'worried' : sp ? 'dizzy' : 'idle';
+      const face: Expression = !fits ? 'worried' : sp ? 'dizzy' : t - this.hopAt < 700 ? 'proud' : 'idle';
       const bk = this.art.shape(sl.s, sl.q, 1, face);
       const img = fits ? bk.canvas : this.art.grey(bk.canvas);
       c.save();
@@ -706,6 +970,13 @@ export class PopView {
     });
     c.globalAlpha = 1;
   }
+}
+
+/** Restarts an element's bump animation. */
+function bump(el: HTMLElement): void {
+  el.classList.remove('bump');
+  void el.offsetWidth;
+  el.classList.add('bump');
 }
 
 /** The safe-area insets in CSS px (notches, home bars), read from a probe. */

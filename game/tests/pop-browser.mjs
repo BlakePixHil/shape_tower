@@ -254,6 +254,96 @@ const state = page => page.evaluate(() => {
   await ctx.close();
 }
 
+// ---------------------------------------------------------------- flush pieces and milestone 2's juice
+
+/** Puts cells on the board ([cell, shape, piece] each) and a tray, as if the run had got there. */
+const stage = (page, filled, tray) => page.evaluate(([filled, tray]) => {
+  const v = window.__wobble.pop.view, sim = v.sim;
+  const m = [0, 0, 0];
+  sim.cellShape.fill(-1); sim.cellPiece.fill(0);
+  filled.forEach(([c, s, piece]) => { const y = Math.floor(c / 9), x = c % 9; m[Math.floor(y / 3)] |= 1 << ((y % 3) * 9 + x); sim.cellShape[c] = s; sim.cellPiece[c] = piece; });
+  sim.board = m;
+  sim.tray = tray;
+  sim.bag = null;
+  v.rebuild();
+}, [filled, tray]);
+
+{
+  const { ctx, page, errors } = await open({ width: 390, height: 844 });
+  await page.click('.sc-root.show [data-action="pop"]');
+  await page.waitForFunction(() => window.__wobble.pop?.view?.active, null, { timeout: 8000 });
+  await page.waitForTimeout(500);
+  // Blake's P1 note: pieces on the board sit flush in their cells. A baked board body leaves its padding
+  // empty (no outline or shadow past the cell edges), so neighbours never overlap.
+  const flush = await page.evaluate(() => {
+    const v = window.__wobble.pop.view, art = v.art;
+    const out = [];
+    for (const [s, cells] of [[4, [[0, 0], [1, 0], [0, 1], [1, 1]]], [6, [[0, 0], [0, 1], [0, 2], [1, 2]]], [16, [[1, 0], [0, 1], [1, 1], [2, 1], [1, 2]]]]) {
+      const b = art.cells(s, cells, 'idle'), cv = b.canvas, pad = Math.ceil(0.2 * art.s);
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let outside = 0;
+      for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+        const cx = Math.floor((x - pad) / art.s), cy = Math.floor((y - pad) / art.s);
+        const inCell = x >= pad && y >= pad && cells.some(([a, b2]) => a === cx && b2 === cy);
+        if (!inCell && d[(y * cv.width + x) * 4 + 3] > 8) outside++;
+      }
+      out.push(outside);
+    }
+    return out;
+  });
+  step('board pieces sit flush: nothing is drawn outside their own cells', flush.every(n => n === 0), JSON.stringify(flush));
+
+  // A Double: rows 7 and 8 full but for a 2 × 2 hole on the left, filled by an O.
+  const f = [];
+  for (const y of [7, 8]) for (let x = 2; x < 9; x++) f.push([y * 9 + x, [5, 8, 11, 9, 12, 6, 13][x - 2], 10 + y * 9 + x]);
+  await stage(page, f, [{ s: 4, q: 0 }, { s: 1, q: 0 }, { s: 5, q: 0 }]);
+  await page.waitForTimeout(300);
+  const p = await dragPlan(page, 0, 0, 7);
+  await page.mouse.move(p.from[0], p.from[1]);
+  await page.mouse.down();
+  await page.mouse.move(p.to[0], p.to[1] + 30, { steps: 4 });
+  await page.mouse.move(p.to[0], p.to[1], { steps: 4 });
+  await page.waitForTimeout(150);
+  const held = await page.evaluate(() => { const v = window.__wobble.pop.view; return { ghost: v.held?.ghost, lines: v.held?.lines.length }; });
+  step('the ghost snaps where the shape will sit and knows it would pop two lines', held.ghost?.x === 0 && held.ghost?.y === 7 && held.lines === 2, JSON.stringify(held));
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+  const mid = await page.evaluate(() => { const v = window.__wobble.pop.view; return { flyers: v.flyers.length, punch: v.punch.z, lines: v.sim.lines, combo: document.querySelector('.pop-combo')?.className }; });
+  step('a pop punches the board and sends its faces flying up to the checkpoint pill', mid.flyers > 0 && mid.punch > 0.03 && mid.lines === 2, JSON.stringify(mid));
+  // Headless frames are slow and the effects clock steps at most 50 ms a frame, so wait for it.
+  await page.waitForFunction(() => window.__wobble.pop.view.flyers.length === 0, null, { timeout: 15000 }).catch(() => {});
+  const after = await page.evaluate(() => { const v = window.__wobble.pop.view; return { flyers: v.flyers.length, popping: v.popping.length, pill: document.querySelector('.pop-cp')?.className }; });
+  step('the faces land on the pill, which bumps, and the pop is done', after.flyers === 0 && after.popping === 0 && /bump/.test(after.pill), JSON.stringify(after));
+  await page.screenshot({ path: `${out}/08-after-double.png` });
+
+  // The combo chip warms at 3, grows sparks at 6 and a rainbow edge at 10.
+  const chip = await page.evaluate(() => {
+    const v = window.__wobble.pop.view, sim = v.sim, el = document.querySelector('.pop-combo');
+    const at = n => { sim.combo = n; v.hud(); return ['warm', 'sparks', 'rainbow'].filter(c => el.classList.contains(c)).join(' '); };
+    const r = { 2: at(2), 3: at(3), 6: at(6), 10: at(10) };
+    sim.combo = 0; v.hud();
+    r.off = el.className;
+    return r;
+  });
+  step('the combo chip warms from 3, grows sparks from 6 and a rainbow edge from 10', chip[2] === '' && chip[3] === 'warm' && chip[6] === 'warm sparks' && chip[10] === 'warm sparks rainbow' && !/on/.test(chip.off), JSON.stringify(chip));
+
+  // An All Clear: one Domino short of an empty board.
+  const g = [];
+  for (let x = 2; x < 9; x++) g.push([72 + x, 8 + x, 300 + x]);
+  const clearsBefore = await page.evaluate(() => window.__wobble.pop.view.sim.clears);
+  await stage(page, g, [{ s: 1, q: 0 }, { s: 4, q: 0 }, { s: 5, q: 0 }]);
+  await page.waitForTimeout(300);
+  const d = await dragPlan(page, 0, 0, 8);
+  await drag(page, d.from, d.to);
+  await page.waitForTimeout(150);
+  const ac = await page.evaluate(() => { const v = window.__wobble.pop.view; return { clears: v.sim.clears, slow: v.slowUntil > v.vt - 400, hop: v.hopAt > 0, filled: v.sim.filled }; });
+  step('an All Clear slows time, bounces the board and makes the tray jump', ac.clears === clearsBefore + 1 && ac.filled === 0 && ac.slow && ac.hop, JSON.stringify(ac));
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${out}/09-all-clear.png` });
+  step('no page errors in the juice checks', errors.length === 0, errors.slice(0, 3).join(' | '));
+  await ctx.close();
+}
+
 await browser.close();
 server.close();
 const failed = steps.filter(s => !s.ok);

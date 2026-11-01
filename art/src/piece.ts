@@ -26,6 +26,11 @@ export interface PieceStyle {
   face?: Expression | null;
   /** A cosmetic skin (cosmetics.ts skinFor(id)), drawn instead of the finish. Stone ignores it. */
   skin?: SkinLook | null;
+  /**
+   * Pull the body this many blocks inside its cells (Blockling Pop: half the outline, so the Ink stroke's
+   * outer edge sits on the cell edge and neighbouring pieces sit flush instead of overlapping).
+   */
+  inset?: number;
 }
 
 function patternFor(c: Ctx, key: string, p: Pose, s: number): void {
@@ -134,7 +139,7 @@ export function cellsPose(key: string, cells: [number, number][]): Pose {
 }
 
 function drawPose(c: Ctx, key: string, p: Pose, s: number, o: PieceStyle): void {
-  const P = ART.piece, path = silhouette(p, s), W = p.w * s + 4, H = p.h * s + 4;
+  const P = ART.piece, path = silhouette(p, s, undefined, o.inset ?? 0), W = p.w * s + 4, H = p.h * s + 4;
   const stone = !!o.stone, detail = o.detail ?? true, skin = stone ? null : o.skin ?? null;
   // A skin may wash the shape's colors (same hue family); everything below draws in them.
   const sh = skin ? { ...ART_SHAPES[key], ...skinColors(skin, ART_SHAPES[key]) } : ART_SHAPES[key];
