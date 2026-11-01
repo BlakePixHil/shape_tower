@@ -29,6 +29,18 @@ export interface Profile {
   achievements: Record<string, AchievementState>; // earned achievements by id: the local date, and whether its XP is paid (§18)
   achCounts: AchievementCounts; // the counts achievements need that the stats don't keep: bubbles, powers used
   daily: DailyState;    // the Daily Tower: scored tries by seed day (kept forever) and recent practice (meta/daily.ts)
+  pop: PopRecords;      // Blockling Pop's own records, separate from the tower's (Pop plan §5)
+}
+
+/** Blockling Pop's records (Pop plan §5): its bests never mix with the tower's. */
+export interface PopRecords {
+  runs: number;        // Pop runs finished (deal rule 2 keeps whole trays fitting for the first few)
+  best: number;        // best score in one run
+  lines: number;       // most lines in one run
+  combo: number;       // longest combo
+  biome: number;       // highest biome reached, 1 to 10
+  clears: number;      // All Clears, ever
+  totalLines: number;  // lines popped, ever
 }
 
 export interface ProfileStats {
@@ -67,9 +79,10 @@ export interface SavedLook { skin: string; landing: string; foundation: string; 
 /** Art's DEFAULT_LOOK, written out so the Node checks that load profiles don't load the art kit (look-check.mjs compares them). */
 export const freshLook = (): SavedLook => ({ skin: 'skin_classic', landing: 'landing_classic', foundation: 'foundation_classic', flag: 'flag_classic' });
 
+export const freshPop = (): PopRecords => ({ runs: 0, best: 0, lines: 0, combo: 0, biome: 1, clears: 0, totalLines: 0 });
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], seenBrittle: false, postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, look: freshLook(), passIntro: false, achievements: {}, achCounts: freshCounts(), daily: freshDaily() });
+const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], seenBrittle: false, postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, look: freshLook(), passIntro: false, achievements: {}, achCounts: freshCounts(), daily: freshDaily(), pop: freshPop() });
 
 export function loadProfile(): Profile {
   try {
@@ -85,6 +98,7 @@ export function loadProfile(): Profile {
       p.achCounts = { ...freshCounts(), ...p.achCounts };
       if (!Array.isArray(p.achCounts.powers)) p.achCounts.powers = [];
       p.daily = loadDaily(p.daily);
+      p.pop = { ...freshPop(), ...(p.pop && typeof p.pop === 'object' ? p.pop : {}) };
       if (!p.player) { p.player = newPlayer(); saveProfile(p); }
       return p;
     }
@@ -123,12 +137,12 @@ export function updateStreak(p: Profile, now = new Date()): void {
  * streak +5% per consecutive day after the first, up to +25%. `extra` (achievements, §18) is added
  * flat after the boosts. The first run always reaches level 2.
  */
-export function award(p: Profile, base: number, opts: { newBest: boolean; quit: boolean; mode?: ModeId; now?: Date; extra?: { lines: [string, string][]; xp: number } }): Award {
+export function award(p: Profile, base: number, opts: { newBest: boolean; quit: boolean; mode?: ModeId | 'pop'; now?: Date; extra?: { lines: [string, string][]; xp: number } }): Award {
   const now = opts.now ?? new Date();
   const today = day(now);
   const before = { level: p.level, xp: p.xp };
   // Zen's run line says why it's small: the sim already paid it at half (gameplay.md §12).
-  const lines: [string, string][] = [[opts.mode === 'zen' ? 'Zen run (half XP)' : 'Run', `+${base}`]];
+  const lines: [string, string][] = [[opts.mode === 'zen' ? 'Zen run (half XP)' : opts.mode === 'pop' ? 'Pop run' : 'Run', `+${base}`]];
   let xp = base;
   if (opts.newBest) {
     const b = opts.quit ? 25 : 50;

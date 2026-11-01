@@ -173,6 +173,7 @@ export function uiCss(): string {
   padding: 7px 10px; font: inherit; color: inherit; text-align: left; cursor: pointer; transition: transform 300ms cubic-bezier(.3,2.2,.5,1), box-shadow 300ms cubic-bezier(.3,2.2,.5,1); }
 .ui-mode:active { transform: translateY(4px) scale(0.97); box-shadow: 0 0 0 var(--ink); transition-duration: 50ms; }
 .ui-mode > img { width: 34px; height: 34px; flex: none; }
+.ui-mode.wide { grid-column: 1 / -1; }
 .ui-mode b { display: block; font: 700 16px/1.1 var(--display); }
 .ui-mode span { display: block; font: 700 11px/1.2 var(--body); color: var(--ink-soft); }
 .ui-mode.locked { background: var(--paper-2); border-color: var(--ink-soft); box-shadow: 0 4px 0 var(--ink-soft); cursor: default; }

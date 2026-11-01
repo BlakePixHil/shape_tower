@@ -6,14 +6,15 @@
 import type { SecondWindMode, Sim } from '../sim/sim.ts';
 import type { Tuning } from '../sim/tuning.ts';
 
-interface DocRef { set(d: Record<string, unknown>): Promise<void>; update(d: Record<string, unknown>): Promise<void> }
+export interface DocRef { set(d: Record<string, unknown>): Promise<void>; update(d: Record<string, unknown>): Promise<void> }
 interface Db { collection(path: string): { doc(id?: string): DocRef } }
 type ClaudeWindow = { claude?: { use?(name: string): Promise<unknown> } };
 
 const MAX_DOC = 240_000; // the store's limit is 256 KiB per document
 
 let dbPromise: Promise<Db | null> | null = null;
-function db(): Promise<Db | null> {
+/** The game page's own database (claude.ai), or null anywhere else. */
+export function db(): Promise<Db | null> {
   if (!dbPromise) {
     const c = (window as unknown as ClaudeWindow).claude;
     dbPromise = c?.use ? c.use('db').then(d => (d as Db | null) ?? null, () => null) : Promise.resolve(null);

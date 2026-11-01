@@ -115,7 +115,26 @@ function finish(c: Ctx, f: Finish | null | undefined, key: string, p: Pose, path
 
 /** Draw one piece body with its bounding box at the current origin. */
 export function drawPiece(c: Ctx, key: string, q: number, s: number, o: PieceStyle = {}): void {
-  const P = ART.piece, p = pose(key, q), path = silhouette(p, s), W = p.w * s + 4, H = p.h * s + 4;
+  drawPose(c, key, pose(key, q), s, o);
+}
+
+/**
+ * Any connected set of cells (y down, bounding box at 0,0) drawn as a body in `key`'s colours and
+ * material: Blockling Pop's fragments, the cells left of a shape after a line pops through it.
+ */
+export function drawCells(c: Ctx, key: string, cells: [number, number][], s: number, o: PieceStyle = {}): void {
+  drawPose(c, key, cellsPose(key, cells), s, o);
+}
+
+/** A pose for a set of cells, moved so its bounding box sits at (0,0). */
+export function cellsPose(key: string, cells: [number, number][]): Pose {
+  const x0 = Math.min(...cells.map(v => v[0])), y0 = Math.min(...cells.map(v => v[1]));
+  const cs = cells.map(([x, y]) => [x - x0, y - y0] as [number, number]);
+  return { key, q: 0, w: Math.max(...cs.map(v => v[0])) + 1, h: Math.max(...cs.map(v => v[1])) + 1, cells: cs };
+}
+
+function drawPose(c: Ctx, key: string, p: Pose, s: number, o: PieceStyle): void {
+  const P = ART.piece, path = silhouette(p, s), W = p.w * s + 4, H = p.h * s + 4;
   const stone = !!o.stone, detail = o.detail ?? true, skin = stone ? null : o.skin ?? null;
   // A skin may wash the shape's colors (same hue family); everything below draws in them.
   const sh = skin ? { ...ART_SHAPES[key], ...skinColors(skin, ART_SHAPES[key]) } : ART_SHAPES[key];
@@ -196,6 +215,15 @@ export function bakePiece(key: string, q: number, s: number, o: PieceStyle = {})
   const canvas = makeCanvas(p.w * s + pad * 2, p.h * s + pad * 2), c = ctx2d(canvas);
   c.translate(pad, pad);
   drawPiece(c, key, q, s, o);
+  return { canvas, originX: (pad + p.w * s / 2) / canvas.width, originY: (pad + p.h * s / 2) / canvas.height, s };
+}
+
+/** drawCells baked, padded like bakePiece; the pivot is the centre of the cells' bounding box. */
+export function bakeCells(key: string, cells: [number, number][], s: number, o: PieceStyle = {}): Baked {
+  const p = cellsPose(key, cells), pad = Math.ceil(PIECE_PAD * s);
+  const canvas = makeCanvas(p.w * s + pad * 2, p.h * s + pad * 2), c = ctx2d(canvas);
+  c.translate(pad, pad);
+  drawPose(c, key, p, s, o);
   return { canvas, originX: (pad + p.w * s / 2) / canvas.width, originY: (pad + p.h * s / 2) / canvas.height, s };
 }
 

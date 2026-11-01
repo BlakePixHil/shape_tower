@@ -8,7 +8,7 @@ import {
   profilePanel, readAvatar, readNameCard, readSettings, rewardAt, setDailyCountdown, setDailyLadder, setDailyTab, setNameBusy, setNameHint, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type DailyTab, type LadderPanelData, type NameCardData, type SettingGroup, type SettingValue,
   PURCHASE_SETTINGS, setWorkshopItem, setWorkshopNote, setWorkshopRestoring, setWorkshopStore, testPurchaseSheet, workshopPanel, type WorkshopData, type WorkshopItem, type WorkshopStore,
-  levelRewards, levelTrack, lookPanel, lookPreviewUrl, readLook, type CosmeticOwner,
+  levelRewards, levelTrack, lookPanel, lookPreviewUrl, readLook, type CosmeticOwner, type UiIcon,
 } from '@art/index.ts';
 import { extraHats, lookOf, saveLook, wornLook } from './look.ts';
 import type { Entitlements } from '../meta/shop.ts';
@@ -29,7 +29,7 @@ export interface ScreenSounds {
 
 /** The sound each kit action makes; anything else is a plain tap. */
 const ACTION_SOUND: Record<string, UiSound> = {
-  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', settings: 'open', share: 'open', avatar: 'open', name: 'open', done: 'tap2', achievements: 'open', stores: 'open', look: 'open',
+  play: 'start', again: 'start', resume: 'resume', profile: 'open', daily: 'open', zen: 'start', pop: 'start', settings: 'open', share: 'open', avatar: 'open', name: 'open', done: 'tap2', achievements: 'open', stores: 'open', look: 'open',
   close: 'back', home: 'back', quit: 'back', continue: 'tap', scored: 'tap2', practice: 'start',
   tab: 'tab', join: 'open', edit: 'open', save: 'tap2', report: 'tap', reportYes: 'tap2', reportNo: 'back', forget: 'tap2', retry: 'tap',
   workshop: 'open', buy: 'tap2', confirm: 'tap2', cancel: 'back', restore: 'tap', clearTest: 'tap2',
@@ -163,7 +163,7 @@ function purchases(shop: SettingsShop): SettingGroup {
   return { ...PURCHASE_SETTINGS, items };
 }
 
-const CAUSES: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit', zen: 'Nicely built!' };
+const CAUSES: Record<string, string> = { bricks: 'Out of shapes!', hearts: 'Out of hearts!', quit: 'You quit', zen: 'Nicely built!', noroom: 'Out of room!', end: 'Run ended' };
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const xpOf = (p: Profile) => ({ level: p.level, into: p.xp, need: levelStep(p.level) });
 
@@ -204,6 +204,19 @@ export interface SummaryOptions {
   onShare?(): Promise<string | null>;
   /** The tally has finished and any level-up has been closed: the summary is just sitting there. */
   onSettled?(): void;
+  /** A Blockling Pop run (Pop plan §10): the score is the headline, with lines, best combo and All Clears. */
+  pop?: { lines: number; combo: number; clears: number };
+}
+
+/** The summary card made over for Blockling Pop: the score as the headline, then lines, best combo and All Clears. */
+function popSummary(el: HTMLElement, score: number, p: { lines: number; combo: number; clears: number }): void {
+  const n = (v: number) => Math.round(v).toLocaleString('en-US');
+  const big = el.querySelector('.ui-height');
+  if (big) big.innerHTML = `${n(score)}<small>pts</small>`;
+  const right = el.querySelector('.ui-sum-right');
+  const stat = (ic: UiIcon, v: number, label: string) => `<div class="ui-stat"><img alt="" src="${uiIconUrl(ic, 26)}"><div><b>${n(v)}</b><span>${label}</span></div></div>`;
+  if (right) right.innerHTML = `<div class="ui-stats">${stat('row', p.lines, 'Lines')}${stat('combo', p.combo, 'Best combo')}${stat('star', p.clears, 'All Clears')}</div>`;
+  el.querySelector('[aria-label="Run summary"]')?.setAttribute('aria-label', 'Pop run summary');
 }
 
 export class Screens {
@@ -269,16 +282,16 @@ export class Screens {
    * (gameplay.md §10.3, §12). `subs` replaces a mode's second line (the Daily's state today).
    */
   menu(o: {
-    profile: Profile; build: string; note?: string; still?: boolean; subs?: Partial<Record<'daily' | 'zen', string>>;
+    profile: Profile; build: string; note?: string; still?: boolean; subs?: Partial<Record<'daily' | 'zen' | 'pop', string>>;
     /** Today's scored Daily try is still open: a "!" on the Daily button. */
     dailyDot?: boolean;
-    onPlay(): void; onMode(id: 'daily' | 'zen'): void; onProfile(): void; onSettings(): void;
+    onPlay(): void; onMode(id: 'daily' | 'zen' | 'pop'): void; onProfile(): void; onSettings(): void;
     /** The Workshop button next to the profile (monetisation plan v2). */
     onWorkshop?(): void;
   }): void {
     const p = o.profile;
     const modes = MENU_MODES.map(m => {
-      const sub = o.subs?.[m.id as 'daily' | 'zen'];
+      const sub = o.subs?.[m.id as 'daily' | 'zen' | 'pop'];
       return sub && p.level >= (m.unlockAt ?? 0) ? { ...m, sub } : m;
     });
     const el = mainMenu({ name: this.playerName, ...xpOf(p), avatar: p.avatar, modes, still: o.still, workshop: !!o.onWorkshop });
@@ -287,7 +300,7 @@ export class Screens {
     bottom.insertAdjacentHTML('beforeend', `<div class="sc-build">build ${esc(o.build)}</div>`);
     const dailyBtn = el.querySelector('.ui-mode[data-action="daily"]:not(.locked)');
     if (o.dailyDot && dailyBtn) dailyBtn.appendChild(dailyMenuDot());
-    this.open('menu', el, { play: o.onPlay, daily: () => o.onMode('daily'), zen: () => o.onMode('zen'), profile: o.onProfile, settings: o.onSettings, workshop: () => o.onWorkshop?.() });
+    this.open('menu', el, { play: o.onPlay, daily: () => o.onMode('daily'), zen: () => o.onMode('zen'), pop: () => o.onMode('pop'), profile: o.onProfile, settings: o.onSettings, workshop: () => o.onWorkshop?.() });
   }
 
   // ---------------------------------------------------------------- Workshop
@@ -326,12 +339,18 @@ export class Screens {
    * The pause card. In Zen, Quit is Finish: it's how a Zen run ends, and it doesn't halve XP (gameplay.md §12).
    * `restart: false` takes Restart off (a scored Daily try can't be restarted).
    */
-  pause(o: { zen?: boolean; restart?: boolean; onResume(): void; onRestart(): void; onSettings(): void; onQuit(): void }): void {
-    const el = pauseCard({ quitHalves: !o.zen });
+  pause(o: { zen?: boolean; pop?: boolean; restart?: boolean; onResume(): void; onRestart(): void; onSettings(): void; onQuit(): void }): void {
+    const el = pauseCard({ quitHalves: !o.zen && !o.pop });
     if (o.zen) {
       const quit = el.querySelector('[data-action="quit"]')!;
       quit.innerHTML = `<img alt="" src="${uiIconUrl('flag', 24)}">Finish`;
       quit.insertAdjacentHTML('afterend', `<p class="ui-note"><img alt="" src="${uiIconUrl('zen', 16)}">Finish to see your tower and bank its XP</p>`);
+    }
+    // Blockling Pop: ending a run banks its XP in full, since Pop's XP only counts what the run did (Pop plan §10).
+    if (o.pop) {
+      const quit = el.querySelector('[data-action="quit"]')!;
+      quit.innerHTML = `<img alt="" src="${uiIconUrl('flag', 24)}">End run`;
+      quit.insertAdjacentHTML('afterend', `<p class="ui-note"><img alt="" src="${uiIconUrl('xp', 16)}">Your run is saved. Ending it banks its XP.</p>`);
     }
     if (o.restart === false) el.querySelector('[data-action="restart"]')?.remove();
     this.open('pause', el, { resume: o.onResume, restart: o.onRestart, settings: o.onSettings, quit: o.onQuit });
@@ -561,6 +580,7 @@ export class Screens {
     let sharing = false;
     const chip = el.querySelector('.ui-best');
     if (chip && s.bestLabel) chip.lastChild!.textContent = s.bestLabel;
+    if (o.pop) popSummary(el, Math.round(s.score), o.pop);
     if (o.daily) {
       el.querySelector('.ui-sum-head')?.appendChild(dailyChip(o.daily.number, o.daily.scored));
       const again = el.querySelector('[data-action="again"]');

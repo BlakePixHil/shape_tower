@@ -5,7 +5,7 @@ export * from './config.ts';
 export { ART_SHAPES, BOULDER_DIAMETER, pose, type ArtShape, type Material, type Pose } from './shapes.ts';
 export { faceAnchor, faceAt, outlineCorners, silhouette } from './geometry.ts';
 export { EXPRESSIONS, FACE, PUPILS, drawFace, pupilTravel, type Expression } from './face.ts';
-export { PIECE_PAD, bakePiece, bakeRim, bakeSilhouette, drawPiece, type Baked, type Finish, type PieceStyle } from './piece.ts';
+export { PIECE_PAD, bakeCells, bakePiece, bakeRim, bakeSilhouette, cellsPose, drawCells, drawPiece, type Baked, type Finish, type PieceStyle } from './piece.ts';
 export { bakeBeamFill, bakeChevron, bakeContactDot, bakeContactRing, bakeGhostEdge, bakeGlyph, drawGlyph, edgeColor, type EdgeState, type GlyphState } from './guide.ts';
 export { BIOMES, SkyClock, biomeForCheckpoint, presence, rimAmount, skyColors, starAmount, type Biome } from './biomes.ts';
 export { SLAB_DEPTH, bakeGradeStamp, bakePedestal, bakeSlab, drawPedestal, drawSlab, pedestalHeight, type BakedSlab, type FoundationLook, type Grade } from './slab.ts';

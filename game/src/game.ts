@@ -2,6 +2,7 @@
 // settings, on the same shell as the Wobble Lab. Tuning is gameplay.md §14's defaults; the only
 // per-player changes are the level unlocks (§10.3), gentle first runs (§8.4) and Settings.
 // Modes (§12): Endless from Play, the Daily Tower's card from its button (level 3), and Zen (level 8).
+// Blockling Pop (the Pop plan, level 2) is a mode of its own on the same profile: game/src/pop/.
 
 import type { AudioDirector } from '@audio';
 import { BY_ID, RunTracker, grantDaily, grantHistory, grantStreaks, payAchievements, type Achievement } from './meta/achievements.ts';
@@ -35,6 +36,11 @@ import type { RunKind } from './meta/stats.ts';
 import { statsUrl } from './online/online.ts';
 import { Stats } from './online/stats.ts';
 import { canShare, shareNote, shareRun, towerOf } from './view/share.ts';
+import { PopSim } from './pop/sim/pop.ts';
+import { replay } from './pop/sim/record.ts';
+import { POP_TUNING } from './pop/sim/tuning.ts';
+import { PopView } from './pop/view/popview.ts';
+import { PopRunRecord, loadPopSave, writePopSave } from './pop/save.ts';
 
 /** Calls Sound adds in its next module version, made safe until then. */
 type Director = AudioDirector & { setJuice?(on: boolean): void; setZen?(on: boolean): void; screen?(name: 'menu' | 'profile' | 'none'): void };
@@ -174,6 +180,8 @@ async function boot(): Promise<void> {
     const now = performance.now(), dt = Math.min(2000, now - meterAt);
     meterAt = now;
     if (runSim && scene.sim === runSim && runSim.state === 'playing' && scene.started && !scene.paused && !sc.current && !document.hidden) addRunTime(adState, dt, profile.level);
+    // Blockling Pop shares the ad meter (Pop plan §13): its active run time counts the same.
+    else if (pop?.active && pop.sim && !pop.sim.over && !pop.paused && !sc.current && !document.hidden) addRunTime(adState, dt, profile.level);
   }, 1000);
 
   // The Daily ladder (§12.3): the menu and profile show the player's name once they have one; it's their
@@ -265,13 +273,17 @@ async function boot(): Promise<void> {
     if (ads.live && profile.level >= ADS.minLevel && !store.ent.noAds) void ads.consent();
     const today = dailyDay();
     const done = scoredUsed(profile.daily, today);
+    const popSaved = loadPopSave();
     sc.menu({
       profile, build: BUILD,
       still: menuShown || settings.reduceMotion, // the logo drops in once per visit
-      subs: { daily: done ? `Done today · new in ${countdown(msToNextDaily())}` : `#${dailyNumber(today)} is ready` },
+      subs: {
+        daily: done ? `Done today · new in ${countdown(msToNextDaily())}` : `#${dailyNumber(today)} is ready`,
+        pop: popSaved ? 'Continue your run' : profile.pop.best > 0 ? `Best ${profile.pop.best.toLocaleString('en-US')}` : 'Fit shapes, pop lines',
+      },
       dailyDot: !done,
       onPlay: () => play(),
-      onMode: id => { if (id === 'zen') play({ id: 'zen' }); else openDaily(); },
+      onMode: id => { if (id === 'zen') play({ id: 'zen' }); else if (id === 'pop') openPop(); else openDaily(); },
       onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, saveLook, identity); },
       onSettings: () => { audio()?.screen?.('profile'); openSettings(home, true); },
       onWorkshop: () => openWorkshop(home),
@@ -415,6 +427,7 @@ async function boot(): Promise<void> {
   }
 
   function pause(): void {
+    if (pop?.active) { popPause(); return; }
     if (sc.current || !scene.started || !scene.sim || scene.sim.state !== 'playing') return;
     scene.paused = true;
     audio()?.handle('pause', {});
@@ -463,6 +476,121 @@ async function boot(): Promise<void> {
     if (skipTap) document.removeEventListener('pointerdown', skipTap);
     skipTap = null;
   }
+
+  // ------------------------------------------------------------------ Blockling Pop (the Pop plan)
+
+  let pop: PopView | null = null;
+  let popStarted = Date.now();
+  let popRecord: PopRunRecord | null = null;
+  const popView = (): PopView => pop ??= new PopView(document.body, {
+    audio: () => audio(),
+    reducedMotion: () => settings.reduceMotion,
+    juice: () => true, // Gate 1's juice test is the tower's; Pop's runs keep their effects
+    best: () => profile.pop.best,
+    onPause: () => popPause(),
+    onChange: sim => writePopSave(sim, pop?.playMs ?? 0, popStarted),
+    onOver: sim => popOver(sim),
+  });
+
+  /** Into Pop: the saved run if there is one (replayed from its moves), else a new run. */
+  function openPop(fresh = false): void {
+    stopSkip();
+    shell.unlockAudio();
+    sc.close();
+    toasts.clear();
+    showHud(false);
+    tracker = null;
+    trackNext = false;
+    runSim = null;
+    const saved = fresh ? null : loadPopSave();
+    let sim = saved ? replay(saved.rec) : null;
+    if (!sim || sim.over) {
+      sim = new PopSim({ seed: (Math.random() * 2 ** 32) >>> 0, newPlayer: profile.pop.runs < POP_TUNING.mercyRuns });
+      popStarted = Date.now();
+      writePopSave(sim, 0, popStarted);
+    } else popStarted = saved!.startedAt;
+    popRecord = new PopRunRecord();
+    audio()?.setJuice?.(true);
+    audio()?.setZen?.(false);
+    audio()?.screen?.('none');
+    // The tower's scene sleeps under Pop: no frames drawn behind an opaque screen.
+    shell.game.loop.sleep();
+    popView().start(sim, saved && !fresh ? saved.playMs : 0);
+  }
+
+  /** Out of Pop to another screen: the tower's scene wakes for the menu. */
+  function leavePop(): void {
+    pop?.hide();
+    shell.game.loop.wake();
+  }
+
+  function popPause(): void {
+    const sim = pop?.sim;
+    if (!pop?.active || !sim || sim.over || sc.current) return;
+    pop.setPaused(true);
+    audio()?.handle('pause', {});
+    writePopSave(sim, pop.playMs, popStarted); // the app may not come back
+    saveAds();
+    const resume = () => { sc.close(); pop!.setPaused(false); audio()?.handle('resume', {}); };
+    sc.pause({
+      pop: true,
+      onResume: resume,
+      // Restart drops this run, as the tower's does (no XP), and deals a new one.
+      onRestart: () => { audio()?.handle('resume', {}); writePopSave(null); openPop(true); },
+      onSettings: () => openSettings(() => { sc.close(); popPause(); }),
+      // End run banks the XP in full: Pop's XP only counts what the run did (Pop plan §10).
+      onQuit: () => { sc.close(); pop!.setPaused(false); audio()?.handle('resume', {}); sim.apply({ t: 'end' }); },
+    });
+  }
+
+  /** A Pop run is over: records, XP into the one profile, then the results card. */
+  function popOver(sim: PopSim): void {
+    writePopSave(null);
+    const P = profile.pop;
+    const newBest = P.best > 0 && sim.score > P.best;
+    P.runs++;
+    P.best = Math.max(P.best, sim.score);
+    P.lines = Math.max(P.lines, sim.lines);
+    P.combo = Math.max(P.combo, sim.bestCombo);
+    P.biome = Math.max(P.biome, sim.biome + 1);
+    P.clears += sim.clears;
+    P.totalLines += sim.lines;
+    updateStreak(profile);
+    grantStreaks(profile);
+    const paid = payAchievements(profile);
+    void stores.sync(profile);
+    const earned = paid.ids.map(id => BY_ID.get(id)!);
+    const playMs = pop?.playMs ?? 0;
+    // The floor: 5 XP for a run of 30 s or more (Pop plan §12).
+    const base = Math.max(sim.xp, playMs >= 30_000 ? 5 : 0);
+    const a = award(profile, base, { newBest, quit: false, mode: 'pop', extra: paid });
+    const rec = popRecord;
+    rec?.finish(sim, { build: BUILD, playMs, startedAt: popStarted, frames: pop?.frames.summary() ?? {}, player: profile.player, level: profile.level, xp: a.gained, newBest });
+    adAsked = false;
+    saveAds();
+    if (ads.live && adCheck(adState, { level: profile.level, noAds: store.ent.noAds }) === 'due') ads.prepare();
+    let leaving = false;
+    const leave = (fn: () => void) => () => { if (leaving) return; leaving = true; void adBreak().then(fn); };
+    sc.summary({
+      stats: { cause: sim.cause ?? 'end', height: 0, newBest, biome: sim.biome, checkpoints: sim.cp, perfects: 0, rows: sim.lines, clutches: 0, score: sim.score },
+      pop: { lines: sim.lines, combo: sim.bestCombo, clears: sim.clears },
+      award: a,
+      achievements: earned,
+      // Playtest P1 (Pop plan §16): the board's size, the drag and the snap, and fairness.
+      questions: [
+        { id: 'pop_feel', text: 'How did that run feel?', kind: 'faces' },
+        { id: 'pop_drag', text: 'Did dragging and dropping feel right?' },
+        { id: 'pop_unfair', text: 'Was it unfair?' },
+      ],
+      onAnswer: (id, answer) => rec?.answer(id, answer),
+      onAgain: leave(() => { rec?.exit('again'); openPop(true); }),
+      onProfile: leave(() => { rec?.exit('menu'); leavePop(); audio()?.screen?.('profile'); sc.profile(profile, home, saveLook, identity); }),
+      onHome: leave(() => { rec?.exit('menu'); leavePop(); home(); }),
+      reducedMotion: settings.reduceMotion,
+    });
+    if (earned.length) unlockSound(earned.reduce((b, x) => (TIER_RANK[x.tier] > TIER_RANK[b.tier] ? x : b)), false);
+  }
+  (window as unknown as { __wobble: Record<string, unknown> }).__wobble.pop = { get view() { return pop; }, open: openPop };
 
   function runOver(sim: Sim, p: Record<string, unknown>): void {
     const height = Number(p.height ?? 0) - sim.foundations[0].top;
