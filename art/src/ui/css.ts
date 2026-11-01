@@ -179,6 +179,13 @@ export function uiCss(): string {
 .ui-mode.locked { background: var(--paper-2); border-color: var(--ink-soft); box-shadow: 0 4px 0 var(--ink-soft); cursor: default; }
 .ui-mode.locked > img { filter: grayscale(1); opacity: 0.5; }
 .ui-mode.locked b { color: var(--ink-soft); }
+/* A mode with its own logo (Blockling Pop): the logo across the card, the sub line under it */
+.ui-mode.art { flex-direction: column; justify-content: center; gap: 0; padding: 2px 10px 6px; text-align: center; }
+.ui-mode.art .ui-poplogo { width: min(250px, 100%) !important; margin-top: -2px; }
+.ui-mode.art span { margin-top: -1px; }
+.ui-mode.locked .ui-poplogo { filter: grayscale(1); opacity: 0.45; }
+/* Read out but not shown (clipped, not overflow-hidden, so it never counts as cut-off text) */
+.ui-hide { position: absolute !important; left: 0; top: 0; width: 1px; height: 1px; clip-path: inset(50%); white-space: nowrap; pointer-events: none; }
 .ui-lock { position: absolute; top: -10px; right: -8px; display: flex; align-items: center; gap: 2px; font: 700 12px/1 var(--display); background: var(--gold); border: 3px solid var(--ink); border-radius: 10px; padding: 2px 6px 2px 3px; box-shadow: 0 2px 0 var(--ink); }
 .ui-lock img { width: 16px; height: 16px; }
 
