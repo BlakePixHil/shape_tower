@@ -158,7 +158,7 @@ Current numbers (headless Chromium in the cloud container):
 
 - Peak decoded audio for sound effects is 24.8 MB in any biome (budget 25 MB). With ambience beds and the note cache (the landing ladder plus two biomes' bands) a whole run peaks at about 44 MB (budget 60 MB: effects 25, instruments 20, ambience 15).
 - The band schedules 1,600 to 1,700 notes over a 2.5-minute bot session with none missed, and never uses more than 16 voices. It sits at about -23 dB RMS with every layer in, under the effects.
-- Baking the bank takes about 1.6 s. With the worker, the main thread never stalls for more than one frame.
+- Baking the bank takes about 1.6 s. With the worker, the main thread's worst stall is about 20 ms (about 2 s without it). The worker check bakes three times and reads the median worst stall against 60 ms, or 2% of baking in place on a loaded machine, so one GC pause can't fail it while baking on the main thread still does.
 - Handling one event costs about 0.03 ms.
 - Blockling Pop holds 17.5 MB of effects and up to 32 MB of notes (two families' bands with the board's notes). A 2.5-minute Pop bot session (a head-start power, Spin and Second Wind, two biomes and a run over) peaks at about 51 MB, plays about 1,500 band notes with none missed, and an event costs about 0.2 ms on average.
 - A 150-hit collapse peaks at 0.88 of full scale, never clips, and stays within the voice caps (8 impacts, 32 total).
