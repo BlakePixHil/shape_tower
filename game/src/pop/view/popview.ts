@@ -14,9 +14,10 @@
 // bottom left (the tower's two taps), aiming Sweep and Meteor on the board, Spin's taps on the tray,
 // each power's animation, and No room waiting with End run while a power could help.
 
-import { BIOMES, INK, bakePostcard, cellsPose, silhouette, uiIconUrl, type Expression } from '@art/index.ts';
+import { BIOMES, INK, cellsPose, silhouette, uiIconUrl, type Expression } from '@art/index.ts';
 import { CELLS, LINE_CELLS } from '../sim/board.ts';
 import { BAG, type PopEvent, type PopIntent, type PopPower, type PopSim } from '../sim/pop.ts';
+import { PopSky, SKY_ARRIVE_MS, SKY_CSS } from './sky.ts';
 import { POP_POWER_COLORS, POP_POWER_NAMES, POP_POWER_TAGS, bakePopBubble, bakePopIcon, drawPopIcon, popIconUrl } from './icons.ts';
 import { POP_KEYS, POP_SHAPES, type Turn } from '../sim/shapes.ts';
 import type { Slot } from '../sim/deal.ts';
@@ -183,8 +184,10 @@ export class PopView {
   private hooks: PopHooks;
   private cv: HTMLCanvasElement;
   private c: CanvasRenderingContext2D;
-  private bg: HTMLCanvasElement | null = null;
-  private bgBiome = -1;
+  /** The area's sky behind it all (sky.ts), and the one it is climbing away from. */
+  private bg: PopSky | null = null;
+  private bgOld: PopSky[] = [];
+  private bgKey = '';
   private scoreEl: HTMLElement;
   private bestEl: HTMLElement;
   private topEl: HTMLElement;
@@ -285,7 +288,7 @@ export class PopView {
     if (!document.getElementById('pop-css')) {
       const st = document.createElement('style');
       st.id = 'pop-css';
-      st.textContent = CSS;
+      st.textContent = CSS + SKY_CSS;
       document.head.appendChild(st);
     }
     this.root = document.createElement('div');
@@ -499,23 +502,32 @@ export class PopView {
     this.skyStep();
   }
 
-  /** The biome's sky behind it all (Art's postcard at screen size), cross-fading when the biome changes. */
+  /**
+   * The area's sky behind it all (sky.ts): Art's props alive, as in the tower, or the still postcard under
+   * Reduce motion. A new area climbs in over the old one; a resize or a Reduce motion change rebuilds it.
+   */
   private backdrop(force = false): void {
-    const b = this.sim?.biome ?? 0;
-    if (!force && b === this.bgBiome) return;
-    this.bgBiome = b;
-    const Wc = window.innerWidth, Hc = window.innerHeight;
-    let cv: HTMLCanvasElement;
-    try { cv = bakePostcard(b, Wc, Hc, Math.min(1.5, this.k)); } catch { return; }
-    cv.className = 'pop-bg';
-    cv.style.opacity = force || !this.bg ? '1' : '0';
-    this.root.insertBefore(cv, this.cv);
+    const b = this.sim?.biome ?? 0, still = this.hooks.reducedMotion();
+    const Wc = window.innerWidth, Hc = window.innerHeight, key = `${b}|${still}|${Wc}x${Hc}`;
+    if (!force && key === this.bgKey) return;
+    const climb = !force && !!this.bg && this.bg.biome !== b && this.bg.still === still;
+    this.bgKey = key;
+    let sky: PopSky;
+    try { sky = new PopSky(b, Wc, Hc, Math.min(1.5, this.k), still, climb); } catch { return; }
+    this.root.insertBefore(sky.el, this.cv);
     const old = this.bg;
-    this.bg = cv;
-    if (old && !force) {
-      requestAnimationFrame(() => { cv.style.opacity = '1'; });
-      setTimeout(() => old.remove(), 1400);
-    } else old?.remove();
+    this.bg = sky;
+    if (old && climb) {
+      sky.arrive();
+      old.leave();
+      this.bgOld.push(old);
+      setTimeout(() => { old.el.remove(); this.bgOld = this.bgOld.filter(o => o !== old); }, SKY_ARRIVE_MS + 150);
+    } else {
+      old?.el.remove();
+      for (const o of this.bgOld) o.el.remove();
+      this.bgOld = [];
+    }
+    this.skyStep();
   }
 
   // ---------------------------------------------------------------- the board's pieces
@@ -643,9 +655,10 @@ export class PopView {
       }
       case 'pop_merge': {
         // Split pieces snap together into whole shapes (rules 3, Blake's playtest 2026-11-01): once the
-        // pop around them has played, they take the new shape's look with a stamp and a white flash.
+        // pop around them has played, they take the new shape's look with a stamp and a white flash. A placed
+        // shape merging with its neighbours (rules 4) snaps as soon as it has landed.
         const merges = p.merges as { cells: number[]; piece: number; wasShape: number[]; wasPiece: number[] }[];
-        const at = t + (juice ? 360 : 0);
+        const at = t + (juice ? (p.why === 'place' ? 170 : 360) : 0);
         for (const m of merges) {
           m.cells.forEach((c, i) => this.merging.set(c, { s: m.wasShape[i], piece: m.wasPiece[i], now: m.piece }));
           this.stamps.set(m.piece, at);
@@ -673,7 +686,9 @@ export class PopView {
         break;
       case 'pop_checkpoint': {
         if (juice) {
-          this.fx.text(`Checkpoint ${p.n}!`, this.bx + this.cell * 4.5, this.by - this.pad * 1.6, { size: 24, fill: '#A6F4C5', rise: 20, life: 1400, pop: true });
+          // A checkpoint that opens a new area (every one under rules 4) names the area it climbs into.
+          const area = p.biome as number, fresh = this.sim!.areaOf((p.n as number) - 1) !== area;
+          this.fx.text(fresh ? `${BIOMES[area].name}!` : `Checkpoint ${p.n}!`, this.bx + this.cell * 4.5, this.by - this.pad * 1.6, { size: 24, fill: '#A6F4C5', rise: 20, life: 1400, pop: true });
           const [fx0, fy0] = this.pillCentre();
           for (let i = 0; i < 3; i++) this.fx.burst(fx0, fy0, this.cell, ['#A6F4C5', '#FFE08A', '#FFFFFF', '#5EC8FF'], 8);
           bump(this.pillEl);
@@ -890,7 +905,7 @@ export class PopView {
     if (!sim || !this.bg) return;
     const pr = sim.cpProgress;
     const into = Math.max(0, Math.min(1, pr.into / Math.max(1, pr.need)));
-    this.bg.style.transform = this.hooks.reducedMotion() ? '' : `translateY(${(into * 5).toFixed(2)}%) scale(1.06)`;
+    this.bg.el.style.transform = this.hooks.reducedMotion() ? '' : `translateY(${(into * 5).toFixed(2)}%) scale(1.06)`;
   }
 
   private hud(): void {
@@ -1416,6 +1431,10 @@ export class PopView {
     if (this.held?.tap && !this.vs.tap) this.cancelHeld();
     if (!this.paused && !sim.over && !document.hidden) { this.playMs += dt; this.frames.add(t - this.lastRaw); }
     this.lastRaw = t;
+    // The sky's props move (sky.ts); Reduce motion switched mid-run swaps it for the still postcard.
+    if (this.bg && this.bg.still !== this.hooks.reducedMotion()) this.backdrop(true);
+    this.bg?.update(dt);
+    for (const o of this.bgOld) o.update(dt);
     const juice = this.hooks.juice();
     // The effects clock: slow-mo for the All Clear and the run over, never for input.
     const sdt = dt * (this.vt < this.slowUntil ? this.slowK : 1);

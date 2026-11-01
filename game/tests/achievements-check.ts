@@ -347,7 +347,7 @@ function climb(to: number, from = 1): [string, Record<string, unknown>?][] {
   check('...not after a power-up, nor after Second Wind, nor in a continued run that used one', !has(popPlay([[['pop_power', { kind: 'undo' }]], [['pop_score', {}]]], { sim: fake({ score: 21000 }) }), 'pop_bare')
     && !has(popPlay([[['pop_second_wind', {}]], [['pop_score', {}]]], { sim: fake({ score: 21000 }) }), 'pop_bare')
     && !has(popPlay([[['pop_score', {}]]], { sim: fake({ score: 21000, powersUsed: 1 }) }), 'pop_bare'));
-  check('Pop to the Moon on biome 6 (the sim counts from 0: 100 lines); 5 no', has(popPlay([[['biome_entered', { id: 6 }]]]), 'pop_moon') && !has(popPlay([[['biome_entered', { id: 5 }]]]), 'pop_moon'));
+  check('Pop to the Moon on biome 6 (the sim counts from 0: 45 lines); 5 no', has(popPlay([[['biome_entered', { id: 6 }]]]), 'pop_moon') && !has(popPlay([[['biome_entered', { id: 5 }]]]), 'pop_moon'));
   check('Pop Star on Deep Cosmos (biome 9), with the Moon', ['pop_moon', 'pop_cosmos'].every(id => has(popPlay([[['biome_entered', { id: 9 }]]]), id)));
   check('Line Dancer when lifetime lines reach 1,000 mid-run', has(popPlay([[lines(1)]], { p: pp({ totalLines: 990 }), sim: fake({ lines: 10 }) }), 'pop_lines_1k') && !has(popPlay([[lines(1)]], { p: pp({ totalLines: 990 }), sim: fake({ lines: 9 }) }), 'pop_lines_1k'));
   check('Neat Freak at the 10th All Clear ever', has(popPlay([[['pop_all_clear', {}]]], { p: pp({ clears: 9 }), sim: fake({ clears: 1 }) }), 'pop_clears_10') && !has(popPlay([[['pop_all_clear', {}]]], { p: pp({ clears: 8 }), sim: fake({ clears: 1 }) }), 'pop_clears_10'));

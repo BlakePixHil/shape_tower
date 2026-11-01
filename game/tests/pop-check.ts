@@ -13,7 +13,7 @@ import { type Slot, dealTray, slotFits, wholeTrayFits } from '../src/pop/sim/dea
 import { BAG, POP_POWERS, PopSim, type PopIntent, type PopPower, decodeIntent, encodeIntent, popBiome, shapeOfCells } from '../src/pop/sim/pop.ts';
 import { decodeMoves, encodeMoves, recordOf, replay } from '../src/pop/sim/record.ts';
 import { POP_KEYS, POP_SHAPES, SHAPE_BY_KEY } from '../src/pop/sim/shapes.ts';
-import { POP_RULES, POP_TUNING, POP_TUNING_V1, POP_TUNING_V2, comboMult, linePoints, shapeWeight } from '../src/pop/sim/tuning.ts';
+import { POP_RULES, POP_TUNING, POP_TUNING_V1, POP_TUNING_V2, POP_TUNING_V3, comboMult, linePoints, shapeWeight } from '../src/pop/sim/tuning.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -144,24 +144,39 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
 {
   check('biomes follow the tower\'s schedule: Treetops at CP 2, Orbit at 10, Moon at 13, Deep Cosmos from 22', popBiome(0) === 0 && popBiome(1) === 0 && popBiome(2) === 1 && popBiome(4) === 2
     && popBiome(10) === 5 && popBiome(13) === 6 && popBiome(22) === 9 && popBiome(60) === 9);
-  // Rules 3 (Blake's playtest, 2026-11-01): the target grows by one line an area, from 5 in Meadow.
-  const g = new PopSim({ seed: 1 });
+  // Rules 4 (Blake's playtest, 2026-11-01 evening: "I got to 5/5 meadow and it didn't take me to the
+  // next background"): every checkpoint is an area, 5 lines to leave the Meadow, 6 to leave Treetops ...
+  const g4 = new PopSim({ seed: 1 });
+  const needs4 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 40].map(cp => g4.needFor(cp)), areas4 = [0, 1, 2, 6, 9, 10, 40].map(cp => g4.areaOf(cp));
+  check('rules 4: every checkpoint is a new area (Meadow 0, Treetops 1 ... Deep Cosmos from 9)', g4.rules === 4 && areas4.join() === '0,1,2,6,9,9,9', areas4.join());
+  check('rules 4: 5 lines leave the Meadow, 6 leave Treetops, one more each area, 14 a checkpoint in Deep Cosmos', needs4.join() === '5,6,7,8,9,10,11,12,13,14,14,14', needs4.join());
+  check('rules 4: Treetops at 5 lines, the Moon at 45, Deep Cosmos at 81', g4.linesTo(1) === 5 && g4.linesTo(6) === 45 && g4.linesTo(9) === 81, `${g4.linesTo(1)} ${g4.linesTo(6)} ${g4.linesTo(9)}`);
+  const s4 = staged(row(0, [8]), [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')]);
+  s4.lines = 4;
+  check('the area pill reads 4 of 5 in the Meadow before the 5th line', s4.cpProgress.into === 4 && s4.cpProgress.need === 5 && s4.biome === 0, JSON.stringify(s4.cpProgress));
+  s4.apply({ t: 'place', slot: 0, x: 8, y: 0 });
+  check('the 5th line claims checkpoint 1 and enters Treetops, where the pill reads 0 of 6', s4.cp === 1 && s4.biome === 1 && s4.events.some(e => e.name === 'pop_checkpoint' && e.payload.n === 1 && e.payload.biome === 1)
+    && s4.events.some(e => e.name === 'biome_entered' && e.payload.id === 1) && s4.cpProgress.into === 0 && s4.cpProgress.need === 6, JSON.stringify({ cp: s4.cp, pr: s4.cpProgress }));
+  // Rules 3 (Blake's playtest, 2026-11-01): the target grows by one line an area, from 5 in Meadow, on the tower's checkpoints.
+  const g = new PopSim({ seed: 1, rules: 3 });
   const needs = [0, 1, 2, 3, 4, 5, 10, 13, 22, 40].map(cp => g.needFor(cp));
   check('rules 3: a checkpoint takes 5 lines in Meadow, 6 in Treetops, one more each area, 14 in Deep Cosmos', needs.join() === '5,5,6,6,7,7,10,11,14,14', needs.join());
   check('rules 3: the Moon at 100 lines and Deep Cosmos at 208', g.linesTo(2) === 10 && g.linesTo(13) === 100 && g.linesTo(22) === 208, `${g.linesTo(2)} ${g.linesTo(13)} ${g.linesTo(22)}`);
-  const sim = staged(row(0, [8]), [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')]);
+  const sim = staged(row(0, [8]), [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')], { rules: 3 });
   sim.lines = 9;
   sim.cp = 1;
-  check('the area pill reads 4 of 5 before the 10th line', sim.cpProgress.into === 4 && sim.cpProgress.need === 5, JSON.stringify(sim.cpProgress));
+  check('rules 3: the area pill reads 4 of 5 before the 10th line', sim.cpProgress.into === 4 && sim.cpProgress.need === 5, JSON.stringify(sim.cpProgress));
   sim.apply({ t: 'place', slot: 0, x: 8, y: 0 });
-  check('the 10th line claims checkpoint 2 and enters Treetops, where the pill reads 0 of 6', sim.cp === 2 && sim.events.some(e => e.name === 'pop_checkpoint' && e.payload.n === 2) && sim.events.some(e => e.name === 'biome_entered' && e.payload.id === 1)
+  check('rules 3: the 10th line claims checkpoint 2 and enters Treetops, where the pill reads 0 of 6', sim.cp === 2 && sim.events.some(e => e.name === 'pop_checkpoint' && e.payload.n === 2) && sim.events.some(e => e.name === 'biome_entered' && e.payload.id === 1)
     && sim.cpProgress.into === 0 && sim.cpProgress.need === 6, JSON.stringify({ cp: sim.cp, pr: sim.cpProgress }));
   const v2 = staged(row(0, [8]), [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')], { rules: 2 });
   v2.lines = 15; v2.cp = 1;
   v2.apply({ t: 'place', slot: 0, x: 8, y: 0 });
   check('rules 2 runs keep 8 lines a checkpoint: the 16th line claims checkpoint 2', v2.cp === 2 && v2.cpProgress.need === 8 && v2.cpProgress.into === 0, JSON.stringify({ cp: v2.cp, pr: v2.cpProgress }));
-  check('shapes open by checkpoint: S, Z and Plank at 2, P/U/V at 3, Arch and Plus at 4 (rules 3)', shapeWeight(POP_TUNING, 'S', 1) === 0 && shapeWeight(POP_TUNING, 'S', 2) > 0
-    && shapeWeight(POP_TUNING, 'Plank', 1) === 0 && shapeWeight(POP_TUNING, 'Plank', 2) > 0 && shapeWeight(POP_TUNING, 'U', 2) === 0 && shapeWeight(POP_TUNING, 'U', 3) > 0 && shapeWeight(POP_TUNING, 'Plus', 3) === 0 && shapeWeight(POP_TUNING, 'Plus', 4) > 0);
+  for (const [T, name] of [[POP_TUNING, 'rules 4: Treetops, Cloudlands, Storm Belt'], [POP_TUNING_V3, 'rules 3']] as const) {
+    check(`shapes open by checkpoint: S, Z and Plank at 2, P/U/V at 3, Arch and Plus at 4 (${name})`, shapeWeight(T, 'S', 1) === 0 && shapeWeight(T, 'S', 2) > 0
+      && shapeWeight(T, 'Plank', 1) === 0 && shapeWeight(T, 'Plank', 2) > 0 && shapeWeight(T, 'U', 2) === 0 && shapeWeight(T, 'U', 3) > 0 && shapeWeight(T, 'Plus', 3) === 0 && shapeWeight(T, 'Plus', 4) > 0);
+  }
   check('rules 2 keeps its schedule: S, Z and Plank at 1, P/U/V at 2, Arch and Plus at 3', shapeWeight(POP_TUNING_V2, 'S', 0) === 0 && shapeWeight(POP_TUNING_V2, 'S', 1) > 0
     && shapeWeight(POP_TUNING_V2, 'Plank', 0) === 0 && shapeWeight(POP_TUNING_V2, 'Plank', 1) > 0 && shapeWeight(POP_TUNING_V2, 'U', 1) === 0 && shapeWeight(POP_TUNING_V2, 'U', 2) > 0 && shapeWeight(POP_TUNING_V2, 'Plus', 2) === 0 && shapeWeight(POP_TUNING_V2, 'Plus', 3) > 0);
   check('rules 1 keeps milestone 1\'s schedule: S and Z at 2, Plank at 4, P/U/V at 6, Arch and Plus at 10', shapeWeight(POP_TUNING_V1, 'S', 1) === 0 && shapeWeight(POP_TUNING_V1, 'S', 2) > 0
@@ -333,11 +348,11 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
 
   // Checkpoint 2 earns Second Wind; when it's already ready, a power instead. Every checkpoint drops a bubble.
   const cp2 = staged([...row(0, [8]), 20, 30], [slotOf('Pip'), slotOf('Pip'), slotOf('O')]);
-  cp2.lines = 9; cp2.cp = 1;
+  cp2.lines = 10; cp2.cp = 1;
   cp2.apply({ t: 'place', slot: 0, x: 8, y: 0 });
   check('checkpoint 2 earns Second Wind and drops a bubble', cp2.wind === 'ready' && cp2.events.some(e => e.name === 'pop_wind_ready') && cp2.events.some(e => e.name === 'pop_bubble' && e.payload.why === 'cp'));
   const cp2b = staged([...row(0, [8]), 20, 30], [slotOf('Pip'), slotOf('Pip'), slotOf('O')]);
-  cp2b.lines = 9; cp2b.cp = 1; cp2b.wind = 'ready';
+  cp2b.lines = 10; cp2b.cp = 1; cp2b.wind = 'ready';
   cp2b.apply({ t: 'place', slot: 0, x: 8, y: 0 });
   check('checkpoint 2 with Second Wind already ready gives a power instead', cp2b.events.some(e => e.name === 'pop_power_got' && e.payload.why === 'cp'));
 
@@ -538,16 +553,16 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
     ...[3, 4, 5, 6, 7].map(x => ['Pip', [at(x, 8)]] as [string, number[]]),
     ['Pip', [at(1, 6)]],
   ];
-  const sim = laid(board, [slotOf('Pip'), slotOf('O'), slotOf('O')], undefined, ['undo', null]);
+  const sim = laid(board, [slotOf('Pip'), slotOf('O'), slotOf('O')], 3, ['undo', null]);
   sim.apply({ t: 'place', slot: 0, x: 8, y: 8 });
   const ev = sim.events.find(e => e.name === 'pop_merge');
   const merges = (ev?.payload.merges ?? []) as { cells: number[]; s: number; shape: string; piece: number; from: number[] }[];
   const four = [at(0, 6), at(0, 7), at(1, 7), at(2, 7)];
-  check('a pop that splits pieces merges the ones touching into the biggest whole shape (four cells, not three)',
+  check('rules 3: a pop that splits pieces merges the ones touching into the biggest whole shape (four cells, not three)',
     merges.length === 1 && merges[0].cells.join() === four.join() && ['L', 'J'].includes(merges[0].shape) && merges[0].from.join() === '1,2,3', JSON.stringify(merges));
   check('the merged cells are one new piece of that shape (numbered below zero, never a placement\'s)',
     four.every(c => sim.cellShape[c] === merges[0]?.s && sim.cellPiece[c] === merges[0]?.piece) && (merges[0]?.piece ?? 0) < -3);
-  check('a whole piece beside them stays as it was (the Pip on top)', sim.cellShape[at(1, 6)] === id('Pip') && sim.cellPiece[at(1, 6)] === 9);
+  check('rules 3: a whole piece beside them stays as it was (the Pip on top)', sim.cellShape[at(1, 6)] === id('Pip') && sim.cellPiece[at(1, 6)] === 9);
   check('a merge changes no cell of the board, nor the score: only the labels', sim.filled === 5 && sim.lines === 1 && sim.events.findIndex(e => e.name === 'pop_merge') > sim.events.findIndex(e => e.name === 'pop_lines'));
   sim.apply({ t: 'power', slot: 0 });
   check('Undo puts back the pieces as they were before the merge', board.every(([k, cells], i) => cells.every(c => sim.cellShape[c] === id(k) && sim.cellPiece[c] === i + 1)) && sim.cellShape[at(8, 8)] === -1);
@@ -568,15 +583,46 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
   check('split pieces that make no shape together stay as they were', odd.lines === 1 && !odd.events.some(e => e.name === 'pop_merge') && odd.cellShape[at(0, 5)] === id('I') && odd.cellShape[at(1, 7)] === id('L') && odd.cellPiece[at(1, 6)] === 2);
 
   // Sweep, Meteor and Second Wind split pieces too: a Sweep of the bottom row merges the same way.
-  const swept = laid(board, [slotOf('O'), slotOf('O'), slotOf('O')], undefined, ['sweep', null]);
+  const swept = laid(board, [slotOf('O'), slotOf('O'), slotOf('O')], 3, ['sweep', null]);
   swept.apply({ t: 'power', slot: 0, arg: 8 });
   const sm = swept.events.find(e => e.name === 'pop_merge')?.payload.merges as { cells: number[] }[] | undefined;
-  check('a Sweep that splits pieces merges them too', sm?.length === 1 && sm[0].cells.join() === four.join(), JSON.stringify(sm));
+  check('rules 3: a Sweep that splits pieces merges them too', sm?.length === 1 && sm[0].cells.join() === four.join(), JSON.stringify(sm));
+
+  // Rules 4 (Blake, 2026-11-01 evening: "when placing shapes, if there is a greater shape they can merge
+  // into it should happen"): whole pieces merge too.
+  const all4 = laid(board, [slotOf('Pip'), slotOf('O'), slotOf('O')], undefined, ['undo', null]);
+  all4.apply({ t: 'place', slot: 0, x: 8, y: 8 });
+  const m4 = (all4.events.find(e => e.name === 'pop_merge')?.payload ?? {}) as { merges?: { cells: number[]; shape: string; from: number[] }[]; why?: string };
+  check('rules 4: after a pop, the whole Pip on top joins the split pieces: one P of five, the biggest they make',
+    m4.why === 'pop' && m4.merges?.length === 1 && m4.merges[0].shape === 'P' && m4.merges[0].cells.join() === [at(0, 6), at(1, 6), at(0, 7), at(1, 7), at(2, 7)].join() && m4.merges[0].from.join() === '1,9,2,3', JSON.stringify(m4));
+  // A placed Pip beside a Pip: one Domino.
+  const pp = laid([['Pip', [at(4, 4)]]], [slotOf('Pip'), slotOf('O'), slotOf('O')], undefined, ['undo', null]);
+  pp.apply({ t: 'place', slot: 0, x: 5, y: 4 });
+  const pm = (pp.events.find(e => e.name === 'pop_merge')?.payload ?? {}) as { merges?: { cells: number[]; shape: string; from: number[]; piece: number }[]; why?: string };
+  check('rules 4: a placed Pip beside a Pip merges into one Domino (why: place)', pm.why === 'place' && pm.merges?.length === 1 && pm.merges[0].shape === 'Domino' && pm.merges[0].from.join() === '1,2'
+    && pp.cellShape[at(4, 4)] === id('Domino') && pp.cellPiece[at(5, 4)] === pm.merges[0].piece && pp.cellPiece[at(4, 4)] === pm.merges[0].piece, JSON.stringify(pm));
+  check('rules 4: a placement merge changes only labels: the board, the score and the lines stay', pp.filled === 2 && pp.lines === 0 && pp.score === 1);
+  pp.apply({ t: 'power', slot: 0 });
+  check('rules 4: Undo takes the placed Pip back and the old Pip is itself again', pp.cellShape[at(5, 4)] === -1 && pp.cellShape[at(4, 4)] === id('Pip') && pp.cellPiece[at(4, 4)] === 1);
+  // Biggest first: a Pip placed beside an O and a Pip makes a P with the O (five), not a Domino with the Pip.
+  // (The other Pip with the O would be a P turned over, which isn't a shape.)
+  const big = laid([['O', [at(1, 0), at(2, 0), at(1, 1), at(2, 1)]], ['Pip', [at(0, 1)]]], [slotOf('Pip'), slotOf('O'), slotOf('O')]);
+  big.apply({ t: 'place', slot: 0, x: 0, y: 0 });
+  const bm = (big.events.find(e => e.name === 'pop_merge')?.payload.merges ?? []) as { shape: string; from: number[] }[];
+  check('rules 4: the biggest shape wins: a Pip beside an O and a Pip makes a P with the O, and the other Pip stays',
+    bm.length === 1 && bm[0].shape === 'P' && [...bm[0].from].sort().join() === '1,3' && big.cellShape[at(0, 1)] === id('Pip') && big.cellPiece[at(0, 1)] === 2, JSON.stringify(bm));
+  // Shapes that make nothing together stay: an I beside an I is eight cells.
+  const ii = laid([['I', [at(0, 0), at(1, 0), at(2, 0), at(3, 0)]]], [slotOf('I', 0), slotOf('O'), slotOf('O')]);
+  ii.apply({ t: 'place', slot: 0, x: 0, y: 1 });
+  check('rules 4: a placed shape that makes no shape with its neighbours stays itself', !ii.events.some(e => e.name === 'pop_merge') && ii.cellShape[at(0, 1)] === id('I') && ii.cellPiece[at(0, 1)] === 2, `${ii.cellShape[at(0, 1)]}`);
+  const old3 = laid([['Pip', [at(4, 4)]]], [slotOf('Pip'), slotOf('O'), slotOf('O')], 3);
+  old3.apply({ t: 'place', slot: 0, x: 5, y: 4 });
+  check('rules 3 runs never merge whole pieces on a placement', !old3.events.some(e => e.name === 'pop_merge') && old3.cellPiece[at(4, 4)] === 1 && old3.cellPiece[at(5, 4)] === 2);
 
   // Biggest first, then nearest the top left: replays agree, and many random runs never leave two
-  // touching split pieces that could still make a shape.
-  /** Split pieces on the board (connected cells of one piece smaller than its shape), and pairs of touching ones that make a shape. */
-  const splits = (r: PopSim) => {
+  // touching split pieces that could still make a shape (rules 4: nor two touching pieces of any kind).
+  /** The board's pieces (connected cells of one piece), each marked split when smaller than its shape. */
+  const comps = (r: PopSim) => {
     const seen = new Uint8Array(81), out: number[][] = [];
     for (let i = 0; i < 81; i++) {
       if (seen[i] || r.cellShape[i] < 0) continue;
@@ -589,12 +635,12 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
           seen[n] = 1; cells.push(n); stack.push(n);
         }
       }
-      if (cells.length < POP_SHAPES[r.cellShape[i]].size) out.push(cells);
+      out.push(Object.assign(cells, { split: cells.length < POP_SHAPES[r.cellShape[i]].size }));
     }
-    return out;
+    return out as (number[] & { split: boolean })[];
   };
   const touch = (a: number[], b: number[]) => a.some(c => b.some(d => (Math.abs(c - d) === 9) || (Math.abs(c - d) === 1 && ((c / 9) | 0) === ((d / 9) | 0))));
-  let lingering = 0, merged = 0, cellsOk = true, moves = 0;
+  let lingering = 0, lingeringWhole = 0, merged = 0, placeMerged = 0, cellsOk = true, moves = 0;
   for (let k = 0; k < 40; k++) {
     const r = new PopSim({ seed: 900 + k });
     while (!r.over && r.placements < 400) {
@@ -602,8 +648,12 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
       if (!mv || !r.apply({ t: 'place', ...mv })) break;
       moves++;
       merged += r.events.filter(e => e.name === 'pop_merge').length;
-      const sp = splits(r);
+      placeMerged += r.events.filter(e => e.name === 'pop_merge' && e.payload.why === 'place').length;
+      const all = comps(r), sp = all.filter(c => c.split);
       for (let i = 0; i < sp.length; i++) for (let j = i + 1; j < sp.length; j++) if (touch(sp[i], sp[j]) && shapeOfCells([...sp[i], ...sp[j]]) >= 0) lingering++;
+      for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+        if (all[i].length + all[j].length <= 5 && touch(all[i], all[j]) && shapeOfCells([...all[i], ...all[j]]) >= 0) lingeringWhole++;
+      }
     }
     r.apply({ t: 'end' });
     const again = replay(recordOf(r))!;
@@ -611,6 +661,7 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
   }
   check('replays merge exactly as the run did (40 greedy runs)', cellsOk);
   check(`after every move no two touching split pieces could still make a shape (40 greedy runs, ${moves} moves, ${merged} merges)`, lingering === 0 && merged > 0, `${lingering} left`);
+  check(`rules 4: after every move no two touching pieces of any kind could still make a shape (${placeMerged} merges on placing)`, lingeringWhole === 0 && placeMerged > 0, `${lingeringWhole} left`);
 }
 
 // ---------------------------------------------------------------- bots against the balance targets

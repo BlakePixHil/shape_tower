@@ -11,6 +11,9 @@
 // Rules 3 (Blake's playtest, 2026-11-01): checkpoints grow by a line every area, and pieces split by a
 // pop, Sweep, Meteor or Second Wind merge with the split pieces beside them into whole shapes, biggest
 // first (only the cells' shape and piece labels change, so the digest and the board don't).
+// Rules 4 (Blake's playtest, 2026-11-01 evening): every checkpoint is a new area (5 lines leave the Meadow,
+// 6 leave Treetops ...), and whole pieces merge too: a placed shape and the pieces it touches become one
+// bigger shape when together they make one.
 
 import { Rng } from '../../sim/rng.ts';
 import { CELLS, EMPTY, LINE_CELLS, type Mask, cellBit, count, fits, fullLines, has, isEmpty, linesMask } from './board.ts';
@@ -107,7 +110,10 @@ export interface EventSink { emit(name: string, payload: Record<string, unknown>
 
 export type PopCause = 'noroom' | 'end';
 
-/** Biome index (0 Meadow ... 9 Deep Cosmos) with `cp` checkpoints claimed: the tower's schedule (Pop plan §6). */
+/** The areas, Meadow (0) to Deep Cosmos (9). */
+export const POP_AREAS = 10;
+
+/** Biome index (0 Meadow ... 9 Deep Cosmos) with `cp` checkpoints claimed: the tower's schedule (Pop plan §6, rules 1 to 3). */
 export function popBiome(cp: number): number {
   const FIRST = [1, 3, 5, 7, 9, 11, 14, 17, 20, 23]; // art/src/biomes.ts firstCp, the checkpoint being climbed toward
   let i = 0;
@@ -346,7 +352,12 @@ export class PopSim {
     return t.xpLine * this.lines + t.xpCp * this.cp + t.xpPlace * this.placements + t.xpClear * this.clears;
   }
 
-  get biome(): number { return popBiome(this.cp); }
+  get biome(): number { return this.areaOf(this.cp); }
+
+  /** The area with `cp` checkpoints claimed: one per checkpoint (rules 4), else the tower's schedule. */
+  areaOf(cp: number): number {
+    return this.tuning.cpPerArea ? Math.min(cp, POP_AREAS - 1) : popBiome(cp);
+  }
 
   /** Lines into the current checkpoint, and the lines it needs. */
   get cpProgress(): { into: number; need: number } {
@@ -355,7 +366,7 @@ export class PopSim {
 
   /** Lines the next checkpoint takes with `cp` claimed: linesPerCp, plus cpGrow for every area climbed (rules 3). */
   needFor(cp: number): number {
-    return this.tuning.linesPerCp + this.tuning.cpGrow * popBiome(cp);
+    return this.tuning.linesPerCp + this.tuning.cpGrow * this.areaOf(cp);
   }
 
   /** Lines popped by the time checkpoint `n` is claimed. */
@@ -436,7 +447,7 @@ export class PopSim {
         order: lines.map(id => orderFrom(LINE_CELLS[id], cells)),
       });
       if (this.combo >= 2) this.emit('pop_combo', { combo: this.combo, mult });
-      this.tidy();
+      this.tidy('pop');
       if (isEmpty(this.board)) {
         this.clears++;
         gained += T.allClear;
@@ -455,6 +466,8 @@ export class PopSim {
         this.sparks = T.sparks;
       }
     }
+    // Rules 4: the placed shape merges with the pieces it touches (after a pop, tidy('pop') did it).
+    if (!lines.length) this.tidy('place');
     this.score += gained;
     this.emit('pop_score', { score: this.score, gained, lines: lines.length });
     if (this.v2) {
@@ -535,7 +548,7 @@ export class PopSim {
         let gained = Math.floor(linePoints(T, 1) * mult);
         this.lines++;
         this.emit('pop_power', { kind, slot: i, line: arg, cells, shapes, pieces, points: gained, mult });
-        this.tidy();
+        this.tidy('pop');
         let clear = false;
         if (isEmpty(this.board)) {
           clear = true;
@@ -559,7 +572,7 @@ export class PopSim {
         this.powers[i] = null;
         this.powersUsed++;
         this.emit('pop_power', { kind, slot: i, cell: arg, block, cells, shapes, pieces });
-        this.tidy();
+        this.tidy('pop');
         return true;
       }
       case 'fresh': {
@@ -595,7 +608,7 @@ export class PopSim {
     const old = this.tray.map(s => (s ? { ...s } : null));
     const slots = this.freshDeal();
     this.emit('pop_second_wind', { rows, cols, cells, shapes, pieces, slots, old, tray: this.tray.map(s => (s ? { ...s } : null)) });
-    this.tidy();
+    this.tidy('pop');
     return true;
   }
 
@@ -605,9 +618,13 @@ export class PopSim {
    * that shape as one new piece; the biggest shape goes first, then the one nearest the top left, and again
    * until no two left can merge. Only cellShape and cellPiece change: the board, the score and the digest
    * don't, so a merge never changes what fits.
+   * Rules 4 (Blake, 2026-11-01 evening): whole pieces take part too, so a placed shape merges with the
+   * pieces it touches when together they make a bigger whole shape (`why` 'place'), and after a pop the
+   * split pieces can merge with whole ones beside them ('pop').
    */
-  private tidy(): void {
-    if (!this.tuning.merge) return;
+  private tidy(why: 'pop' | 'place'): void {
+    if (!this.tuning.merge || (why === 'place' && !this.tuning.mergeWhole)) return;
+    const whole = this.tuning.mergeWhole;
     const frag = new Int16Array(CELLS).fill(-1), seen = new Uint8Array(CELLS);
     const frags: number[][] = [];
     for (let i = 0; i < CELLS; i++) {
@@ -622,7 +639,8 @@ export class PopSim {
           seen[n] = 1; cells.push(n); stack.push(n);
         }
       }
-      if (cells.length >= POP_SHAPES[s].size) continue;
+      // A whole piece only merges under rules 4, and a five-cell one never can (five cells at most).
+      if (cells.length >= POP_SHAPES[s].size && (!whole || cells.length >= 5)) continue;
       for (const c of cells) frag[c] = frags.length;
       frags.push(cells.sort((a, b) => a - b));
     }
@@ -661,7 +679,7 @@ export class PopSim {
       for (const f of ids) alive.delete(f);
       merges.push({ cells, s, shape: POP_SHAPES[s].key, piece, from: [...new Set(wasPiece)], wasShape, wasPiece });
     }
-    if (merges.length) this.emit('pop_merge', { merges });
+    if (merges.length) this.emit('pop_merge', { merges, why });
   }
 
   /** New shapes for the ones left in the tray, whole-tray-fits where it can (its own stream). The bag and the next tray stay. */

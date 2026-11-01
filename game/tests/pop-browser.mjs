@@ -436,6 +436,69 @@ const stage = (page, filled, tray) => page.evaluate(([filled, tray]) => {
   await ctx.close();
 }
 
+// ---------------------------------------------------------------- Blake's evening notes (2026-11-01, rules 4)
+// "I got to 5/5 meadow and it didn't take me to the next background": every checkpoint is an area now.
+// "I'd like the background to animate kind of like it does in tower mode": Art's props move, and a new area
+// climbs in; Reduce motion keeps the still postcard. "If there is a greater shape they can merge into it
+// should happen": a placed shape merges with the pieces it touches.
+
+{
+  const { ctx, page, errors } = await open({ width: 448, height: 825 }, 2.25);
+  await page.click('.sc-root.show [data-action="pop"]');
+  await page.waitForFunction(() => window.__wobble.pop?.view?.active, null, { timeout: 8000 });
+  await page.waitForTimeout(500);
+  const sky = () => page.evaluate(() => {
+    const v = window.__wobble.pop.view;
+    return { biome: v.bg?.biome, still: v.bg?.still, probe: v.bg?.probe(), skies: document.querySelectorAll('.pop-sky').length, moving: [...document.querySelectorAll('.pop-sky-part.moving')].map(e => e.style.transform).join('|') };
+  });
+  const s0 = await sky();
+  await page.waitForTimeout(700);
+  const s1 = await sky();
+  step('the Meadow sky is alive: Art\'s props drift, bob and spin (their places change over 0.7 s)', s0.biome === 0 && !s0.still && s0.probe.moving >= 3 && s0.moving !== s1.moving, JSON.stringify({ s0: s0.probe, moved: s0.moving !== s1.moving }));
+  // Four lines popped, then a fifth: the Meadow's target. The bottom row waits for a Pip at x 8.
+  const at = (x, y) => y * 9 + x;
+  await stage(page, [...[0, 1, 2, 3, 4, 5, 6, 7].map((x, i) => [at(x, 8), 0, 1 + i])], [{ s: 0, q: 0 }, { s: 4, q: 0 }, { s: 4, q: 0 }]);
+  await page.evaluate(() => { const v = window.__wobble.pop.view; v.sim.lines = 4; v.sim.placements = 8; v.hud(); });
+  const pill0 = await page.textContent('.pop-cp');
+  const plan = await dragPlan(page, 0, 8, 8);
+  await drag(page, plan.from, plan.to);
+  await page.waitForTimeout(900);
+  const mid = await sky();
+  await page.screenshot({ path: `${out}/11-climb-mid.png` });
+  await page.waitForTimeout(1900);
+  const end = await sky();
+  const pill1 = await page.textContent('.pop-cp');
+  await page.screenshot({ path: `${out}/12-treetops.png` });
+  const sim1 = await page.evaluate(() => ({ cp: window.__wobble.pop.view.sim.cp, biome: window.__wobble.pop.view.sim.biome }));
+  step('the pill reads 4/5 in the Meadow, and the 5th line takes the run to Treetops (checkpoint 1)', /4\/5\s*Meadow/.test(pill0.trim()) && sim1.cp === 1 && sim1.biome === 1 && /0\/6\s*Treetops/.test(pill1.trim()), JSON.stringify({ pill0, pill1, sim1 }));
+  step('Treetops climbs in over the Meadow (both skies part-way), then the Meadow\'s is gone', mid.skies === 2 && mid.biome === 1 && end.skies === 1 && end.biome === 1 && end.probe.moving >= 3, JSON.stringify({ mid: [mid.skies, mid.biome], end: [end.skies, end.biome, end.probe] }));
+  // A Pip placed beside a Pip: one Domino Blockling.
+  await stage(page, [[at(4, 4), 0, 1]], [{ s: 0, q: 0 }, { s: 4, q: 0 }, { s: 4, q: 0 }]);
+  await page.evaluate(() => { window.__wobble.pop.view.sim.placements = 1; });
+  const pp = await dragPlan(page, 0, 5, 4);
+  await drag(page, pp.from, pp.to);
+  await page.waitForTimeout(450);
+  const dom = await page.evaluate(c => {
+    const v = window.__wobble.pop.view, sim = v.sim, comp = v.comps.find(k => k.cells.some(([x, y]) => y * 9 + x === c));
+    return { sim: [sim.cellShape[c], sim.cellShape[c + 1], sim.cellPiece[c] === sim.cellPiece[c + 1]], comp: comp && { s: comp.s, size: comp.size, face: comp.face }, why: sim.events.find(e => e.name === 'pop_merge')?.payload.why };
+  }, at(4, 4));
+  await page.screenshot({ path: `${out}/13-place-merge.png` });
+  step('a Pip placed beside a Pip merges into one Domino Blockling with a face', dom.why === 'place' && dom.sim[0] === 1 && dom.sim[1] === 1 && dom.sim[2] && dom.comp?.s === 1 && dom.comp.size === 2 && !!dom.comp.face, JSON.stringify(dom));
+  step('no page errors with the live sky, the climb and placement merges', errors.length === 0, errors.slice(0, 3).join(' | '));
+  // Reduce motion: the still postcard, no moving props.
+  await page.evaluate(k => { const s = JSON.parse(localStorage.getItem(k) || '{}'); s.reduceMotion = true; localStorage.setItem(k, JSON.stringify(s)); }, 'shape-tower-settings-v1');
+  await page.reload();
+  await page.waitForSelector('.sc-root.show [data-action="play"]', { timeout: 20000 });
+  await page.waitForTimeout(600);
+  await page.click('.sc-root.show [data-action="pop"]');
+  await page.waitForFunction(() => window.__wobble.pop?.view?.active, null, { timeout: 8000 });
+  await page.waitForTimeout(500);
+  const still = await sky();
+  const card = await page.evaluate(() => !!document.querySelector('.pop-sky .pop-sky-card'));
+  step('under Reduce motion the sky is the still postcard: no moving props', still.still === true && card && still.moving === '' && still.probe.moving === 0, JSON.stringify({ still, card }));
+  await ctx.close();
+}
+
 // ---------------------------------------------------------------- milestone 3: powers, bubbles and Second Wind
 
 /** A board cell's centre in CSS px. */
