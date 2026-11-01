@@ -88,8 +88,9 @@ export class NativeBackend implements Backend {
     for (const t of purchases) {
       const id = t.productIdentifier;
       if (!id) continue;
-      // Android: "1" is paid, "0" waits for payment (cash at a shop). iOS lists current entitlements only.
-      if (this.kind === 'play' && t.purchaseState !== undefined && String(t.purchaseState) !== '1') { if (String(t.purchaseState) === '0') pending.push(id); continue; }
+      // Android: "1" is paid; Play Billing's PENDING is "2" (cash at a shop), though the plugin's docs say "0".
+      // iOS lists current entitlements only.
+      if (this.kind === 'play' && t.purchaseState !== undefined && String(t.purchaseState) !== '1') { if (/^[02]$/.test(String(t.purchaseState))) pending.push(id); continue; }
       if (t.revocationDate) continue;
       owned.push(id);
       if (this.kind === 'play' && t.purchaseToken) receipts[id] = { store: 'play', product: id, token: t.purchaseToken };
