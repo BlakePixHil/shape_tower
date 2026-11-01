@@ -45,8 +45,11 @@ export interface StoreRow {
   order: number;
 }
 
+/** The ones the consoles have: Pop's in-game-only ones stay out (Pop plan §12). */
+export const STORE_ACHIEVEMENTS = ACHIEVEMENTS.filter(a => !a.local);
+
 export function storeRows(ids = STORE_IDS): StoreRow[] {
-  return ACHIEVEMENTS.map((a, i) => ({
+  return STORE_ACHIEVEMENTS.map((a, i) => ({
     id: a.id, name: a.name, text: a.text, tier: a.tier, points: TIER_POINTS[a.tier], hidden: !!a.secret,
     steps: isIncremental(a) ? a.goal : undefined,
     play: ids.play.achievements[a.id] ?? '', gameCenter: ids.gameCenter.prefix + a.id, order: i + 1,
@@ -97,6 +100,7 @@ export class StoreSync {
 
   /** This store's id for one of the game's achievements ('' when the console doesn't have it yet). */
   storeId(id: string): string {
+    if (BY_ID.get(id)?.local) return '';
     if (this.service === 'play') return this.ids.play.achievements[id] ?? '';
     return this.service === 'gamecenter' ? this.ids.gameCenter.prefix + id : '';
   }
@@ -120,7 +124,7 @@ export class StoreSync {
   async sync(p: Profile): Promise<void> {
     this.profile = p;
     if (!this.api || !this.available || !this.signedIn) return;
-    for (const a of ACHIEVEMENTS) {
+    for (const a of STORE_ACHIEVEMENTS) {
       if (p.achievements[a.id]) await this.report(a.id);
       else if (isIncremental(a)) await this.reportSteps(p, a);
     }

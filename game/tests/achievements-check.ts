@@ -4,8 +4,12 @@
 // Run: npm run achievements:check
 
 import {
-  ACHIEVEMENTS, BY_ID, RunTracker, TIER_POINTS, TIER_XP, freshCounts, grantHistory, grantStreaks, payAchievements, progress,
+  ACHIEVEMENTS, BY_ID, RunTracker, TIER_POINTS, TIER_XP, freshCounts, grantHistory, grantStreaks, payAchievements, popHistory, progress,
 } from '../src/meta/achievements.ts';
+import { PopTracker } from '../src/pop/achievements.ts';
+import { PopSim } from '../src/pop/sim/pop.ts';
+import { smartIntent } from '../src/pop/sim/bot.ts';
+import { freshPop } from '../src/view/profile.ts';
 import { readFileSync } from 'node:fs';
 import type { BusEvent } from '../src/sim/bus.ts';
 import type { Sim } from '../src/sim/sim.ts';
@@ -70,21 +74,26 @@ function climb(to: number, from = 1): [string, Record<string, unknown>?][] {
 
 {
   const ids = new Set(ACHIEVEMENTS.map(a => a.id));
-  check('49 achievements with unique ids', ACHIEVEMENTS.length === 49 && ids.size === 49, `${ACHIEVEMENTS.length} / ${ids.size}`);
-  const tiers = { bronze: 0, silver: 0, gold: 0, platinum: 0 };
-  for (const a of ACHIEVEMENTS) tiers[a.tier]++;
-  check('17 Bronze, 19 Silver, 11 Gold, 2 Platinum (§18.2, with the Daily Tower\'s two)', tiers.bronze === 17 && tiers.silver === 19 && tiers.gold === 11 && tiers.platinum === 2, JSON.stringify(tiers));
-  const xp = ACHIEVEMENTS.reduce((s, a) => s + TIER_XP[a.tier], 0);
-  const pts = ACHIEVEMENTS.reduce((s, a) => s + TIER_POINTS[a.tier], 0);
-  check('All XP adds up to 2,890 (§18.1)', xp === 2890, String(xp));
-  check('Console points 955, under 1,000, each a multiple of 5 and at most 100 (§18.5)', pts === 955 && Object.values(TIER_POINTS).every(v => v % 5 === 0 && v <= 100), String(pts));
+  const tower = ACHIEVEMENTS.filter(a => a.group !== 'pop'), popList = ACHIEVEMENTS.filter(a => a.group === 'pop');
+  check('65 achievements with unique ids: the tower\'s 49 and Blockling Pop\'s 16', ACHIEVEMENTS.length === 65 && ids.size === 65 && tower.length === 49 && popList.length === 16, `${ACHIEVEMENTS.length} / ${ids.size}`);
+  const tierCount = (list: typeof ACHIEVEMENTS) => { const t = { bronze: 0, silver: 0, gold: 0, platinum: 0 }; for (const a of list) t[a.tier]++; return t; };
+  const tiers = tierCount(tower), popTiers = tierCount(popList);
+  check('Tower: 17 Bronze, 19 Silver, 11 Gold, 2 Platinum (§18.2, with the Daily Tower\'s two)', tiers.bronze === 17 && tiers.silver === 19 && tiers.gold === 11 && tiers.platinum === 2, JSON.stringify(tiers));
+  check('Pop: 5 Bronze, 5 Silver, 5 Gold, 1 Platinum (Pop plan §12)', popTiers.bronze === 5 && popTiers.silver === 5 && popTiers.gold === 5 && popTiers.platinum === 1, JSON.stringify(popTiers));
+  const xp = tower.reduce((s, a) => s + TIER_XP[a.tier], 0), popXp = popList.reduce((s, a) => s + TIER_XP[a.tier], 0);
+  const pts = tower.reduce((s, a) => s + TIER_POINTS[a.tier], 0);
+  const popPts = popList.filter(a => !a.local).reduce((s, a) => s + TIER_POINTS[a.tier], 0);
+  check('All XP adds up to 2,890 for the tower (§18.1) and 1,100 for Pop', xp === 2890 && popXp === 1100, `${xp} + ${popXp}`);
+  check('Console points 955 for the tower, under 1,000, each a multiple of 5 and at most 100 (§18.5)', pts === 955 && Object.values(TIER_POINTS).every(v => v % 5 === 0 && v <= 100), String(pts));
+  check('Pop\'s five in the stores take the last 45 points; the other 11 are in the game only', popPts === 45 && popList.filter(a => !a.local).length === 5 && tower.every(a => !a.local), String(popPts));
   // Read as text: Art's icon module needs a canvas to load.
   const kit = readFileSync(new URL('../../art/src/ui/icons.ts', import.meta.url).pathname, 'utf8');
   const icons = new Set([...(/UI_ICONS = \[([^\]]*)\]/.exec(kit)?.[1] ?? '').matchAll(/'(\w+)'/g)].map(m => m[1]));
   const bad = ACHIEVEMENTS.filter(a => !icons.has(a.icon)).map(a => `${a.id}:${a.icon}`);
   check("Every badge's glyph is in Art's UI_ICONS", icons.size > 40 && bad.length === 0, bad.join(', ') || `${icons.size} icons`);
-  const biomes = ACHIEVEMENTS.filter(a => a.biome !== undefined).map(a => a.biome!);
+  const biomes = tower.filter(a => a.biome !== undefined).map(a => a.biome!);
   check('Biome badges name biomes 2 to 10 (1 = Meadow; Art counts from 0)', biomes.join() === '2,3,4,5,6,7,8,9,10', biomes.join());
+  check('Pop\'s climb badges are the Moon and Deep Cosmos', popList.filter(a => a.biome).map(a => `${a.id}:${a.biome}`).join() === 'pop_moon:7,pop_cosmos:10');
 }
 
 // ---------------------------------------------------------------- climb
@@ -306,6 +315,60 @@ function climb(to: number, from = 1): [string, Record<string, unknown>?][] {
   }
   check('A tracked bot run has the same digests as an untracked one', a.digests.length > 10 && a.digests.join() === b.digests.join(), `${a.digests.length} digests`);
   check('The bot run earns Off the Ground when it claims', a.cp === 0 || a.got.includes('cp_first'), `claims ${a.cp}, earned ${a.got.join(', ')}`);
+}
+
+// ---------------------------------------------------------------- Blockling Pop (Pop plan §12)
+
+{
+  type Ev = [string, Record<string, unknown>];
+  const fake = (o: Partial<{ mode: string; score: number; lines: number; clears: number; powersUsed: number; wind: string }> = {}) =>
+    ({ mode: 'endless', score: 0, lines: 0, clears: 0, powersUsed: 0, wind: 'earn', ...o }) as unknown as PopSim;
+  const pp = (over: Partial<Profile['pop']> = {}) => profile({ pop: { ...freshPop(), ...over } });
+  /** Feeds intents' events (one array per intent); `set` changes the fake sim's state before each intent. */
+  const popPlay = (intents: Ev[][], o: { sim?: PopSim; p?: Profile; set?: Partial<Record<string, number | string>>[] } = {}) => {
+    const sim = o.sim ?? fake(), got: string[] = [];
+    const t = new PopTracker(sim, o.p ?? pp(), { onUnlock: a => got.push(a.id), save: () => {} });
+    intents.forEach((evs, i) => { Object.assign(sim, o.set?.[i] ?? {}); t.handle(evs.map(([name, payload]) => ({ name, payload }))); });
+    return got;
+  };
+  const lines = (count: number, combo = 1, more: Record<string, unknown> = {}): Ev => ['pop_lines', { count, combo, ...more }];
+  const placed = (bagSave = false): Ev => ['pop_placed', { slot: bagSave ? 3 : 0, bagSave }];
+
+  check('Pop!: the first line; no line, nothing', has(popPlay([[placed(), lines(1)]]), 'pop_first') && popPlay([[placed()]]).length === 0);
+  const one = popPlay([[placed(), lines(2)]]), three = popPlay([[placed(), lines(3)]]), four = popPlay([[placed(), lines(4)]]);
+  check('Double Trouble at 2 lines with one shape, not Hat Trick', has(one, 'pop_double') && !has(one, 'pop_triple'));
+  check('Hat Trick at 3, Towering Pop at 4 or more (and the smaller ones with it)', has(three, 'pop_triple') && !has(three, 'pop_quad') && ['pop_first', 'pop_double', 'pop_triple', 'pop_quad'].every(id => has(four, id)));
+  check('On a Roll at combo 8, not 7; Unstoppable at 15, not 14', has(popPlay([[lines(1, 8)]]), 'pop_combo_8') && !has(popPlay([[lines(1, 7)]]), 'pop_combo_8') && has(popPlay([[lines(1, 15)]]), 'pop_combo_15') && !has(popPlay([[lines(1, 14)]]), 'pop_combo_15'));
+  check('Squeaky Clean on an All Clear', has(popPlay([[placed(), lines(2), ['pop_all_clear', { clears: 1 }]]]), 'pop_clear'));
+  check('Saved by the Bag: the bag placed when nothing in the tray fit, and it pops a line', has(popPlay([[placed(true), lines(1)]]), 'pop_bag'));
+  check('...not without a line, nor from the tray, nor from the bag when a tray shape fit', !has(popPlay([[placed(true)]]), 'pop_bag') && !has(popPlay([[placed(false), lines(1)]]), 'pop_bag') && !has(popPlay([[placed(true)], [placed(false), lines(1)]]), 'pop_bag'));
+  check('Five Digits at 10,000 in Endless; 9,999 no; Daily Pop no', has(popPlay([[['pop_score', {}]]], { sim: fake({ score: 10000 }) }), 'pop_10k') && !has(popPlay([[['pop_score', {}]]], { sim: fake({ score: 9999 }) }), 'pop_10k') && !has(popPlay([[['pop_score', {}]]], { sim: fake({ score: 12000, mode: 'daily' }) }), 'pop_10k'));
+  check('Bare Hands at 20,000 with no power-up or Second Wind', has(popPlay([[['pop_score', {}]]], { sim: fake({ score: 20000 }) }), 'pop_bare'));
+  check('...not after a power-up, nor after Second Wind, nor in a continued run that used one', !has(popPlay([[['pop_power', { kind: 'undo' }]], [['pop_score', {}]]], { sim: fake({ score: 21000 }) }), 'pop_bare')
+    && !has(popPlay([[['pop_second_wind', {}]], [['pop_score', {}]]], { sim: fake({ score: 21000 }) }), 'pop_bare')
+    && !has(popPlay([[['pop_score', {}]]], { sim: fake({ score: 21000, powersUsed: 1 }) }), 'pop_bare'));
+  check('Pop to the Moon on biome 6 (the sim counts from 0: 100 lines); 5 no', has(popPlay([[['biome_entered', { id: 6 }]]]), 'pop_moon') && !has(popPlay([[['biome_entered', { id: 5 }]]]), 'pop_moon'));
+  check('Pop Star on Deep Cosmos (biome 9), with the Moon', ['pop_moon', 'pop_cosmos'].every(id => has(popPlay([[['biome_entered', { id: 9 }]]]), id)));
+  check('Line Dancer when lifetime lines reach 1,000 mid-run', has(popPlay([[lines(1)]], { p: pp({ totalLines: 990 }), sim: fake({ lines: 10 }) }), 'pop_lines_1k') && !has(popPlay([[lines(1)]], { p: pp({ totalLines: 990 }), sim: fake({ lines: 9 }) }), 'pop_lines_1k'));
+  check('Neat Freak at the 10th All Clear ever', has(popPlay([[['pop_all_clear', {}]]], { p: pp({ clears: 9 }), sim: fake({ clears: 1 }) }), 'pop_clears_10') && !has(popPlay([[['pop_all_clear', {}]]], { p: pp({ clears: 8 }), sim: fake({ clears: 1 }) }), 'pop_clears_10'));
+  check('Nothing counts after run_over', popPlay([[['run_over', {}], lines(4, 20)]]).length === 0);
+  const hp = pp({ totalLines: 1200, clears: 3, combo: 9, best: 15000, biome: 7 });
+  check('History: Pop records grant what they prove', popHistory(hp.pop).join() === 'pop_first,pop_clear,pop_combo_8,pop_10k,pop_moon,pop_lines_1k', popHistory(hp.pop).join());
+  check('History: a fresh profile proves nothing in Pop', popHistory(freshPop()).length === 0 && grantHistory(pp()).length === 0);
+  const pr = progress(pp({ totalLines: 420, clears: 4 }), BY_ID.get('pop_lines_1k')!), pc = progress(pp({ clears: 4 }), BY_ID.get('pop_clears_10')!);
+  check('Progress for the counted Pop ones', pr?.join() === '420,1000' && pc?.join() === '4,10', `${pr} ${pc}`);
+  // A real bot run with the tracker reading each intent's events: same digest, and it earns Pop! when it pops.
+  const runPop = (track: boolean) => {
+    const sim = new PopSim({ seed: 4242 }), got: string[] = [];
+    const t = track ? new PopTracker(sim, pp(), { onUnlock: a => got.push(a.id), save: () => {} }) : null;
+    while (!sim.over && sim.placements < 120) {
+      if (!sim.apply(smartIntent(sim))) sim.apply({ t: 'end' });
+      t?.handle(sim.events);
+    }
+    return { digest: sim.digest(), got, lines: sim.lines };
+  };
+  const ta = runPop(true), tb = runPop(false);
+  check('A tracked Pop bot run has the same digest as an untracked one, and earns Pop!', ta.digest === tb.digest && (ta.lines === 0 || ta.got.includes('pop_first')), `${ta.got.join(', ')}`);
 }
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');

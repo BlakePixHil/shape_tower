@@ -60,19 +60,32 @@ export interface PopHooks {
   onChange(sim: PopSim): void;
   /** The run is over and its last moment has played: show the results. */
   onOver(sim: PopSim): void;
+  /**
+   * The first-run guide's tips, each shown once ever (Pop plan §14): true means show it now (and it counts
+   * as seen). Ids: intro (the card), bag, bubble, combo, next.
+   */
+  coach?(id: string): boolean;
+  /** Pop's settings (Pop plan §14); read every frame, so a change in Settings shows straight away. */
+  settings?(): PopViewSettings;
 }
 
 const CSS = `
 .pop-root { position: fixed; inset: 0; z-index: 6; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; background: #A9DEFF; }
 .pop-bg { position: absolute; inset: 0; width: 100%; height: 100%; transition: opacity 1.2s ease; }
 .pop-cv { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
-.pop-top { position: absolute; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 0; display: grid; grid-template-columns: 64px 1fr 64px; align-items: start; pointer-events: none; }
+.pop-top { position: absolute; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 0; display: grid; grid-template-columns: 1fr auto 1fr; column-gap: 8px; align-items: start; pointer-events: none; }
+.pop-top > .ui-btn { justify-self: start; }
 .pop-top .ui-btn { pointer-events: auto; }
 .pop-score { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .pop-score b { font: 700 36px/1 var(--display, Fredoka, sans-serif); color: #fff; -webkit-text-stroke: 7px var(--ink, ${INK}); paint-order: stroke fill; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
-.pop-score span, .pop-cp { font: 800 12px/1 var(--body, Nunito, sans-serif); color: var(--ink, ${INK}); background: rgba(255,247,232,0.94); border: 2px solid var(--ink, ${INK}); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
-.pop-cp { justify-self: end; display: flex; align-items: center; gap: 4px; padding: 3px 8px 3px 5px; margin-top: 6px; }
-.pop-cp img { width: 18px; height: 18px; }
+.pop-score span { font: 800 12px/1 var(--body, Nunito, sans-serif); color: var(--ink, ${INK}); background: rgba(255,247,232,0.94); border: 2px solid var(--ink, ${INK}); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+/* The area pill: the count big on top, the area's name small under it, and the pill filling with gold as
+   the checkpoint nears. It keeps to its own column (the name trims before anything leaves the pill). */
+.pop-cp { --p: 0%; justify-self: end; box-sizing: border-box; display: flex; align-items: center; gap: 5px; margin-top: 4px; padding: 4px 10px 4px 6px; color: var(--ink, ${INK}); border: 2px solid var(--ink, ${INK}); border-radius: 14px; background: linear-gradient(90deg, rgba(255,214,102,0.95) var(--p), rgba(255,247,232,0.94) var(--p)); }
+.pop-cp img { width: 20px; height: 20px; flex: none; }
+.pop-cp > div { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.pop-cp b { font: 700 16px/1 var(--display, Fredoka, sans-serif); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pop-cp small { white-space: nowrap; font: 800 9px/1.1 var(--body, Nunito, sans-serif); letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.8; }
 .pop-combo { position: absolute; display: flex; align-items: center; gap: 4px; font: 700 18px/1 var(--display, Fredoka, sans-serif); color: #fff; background: #FF8A3D; border: 3px solid var(--ink, ${INK}); border-radius: 999px; padding: 3px 9px 3px 10px; box-shadow: 0 3px 0 var(--ink, ${INK}); transform: translate(-100%, -50%) scale(0); transform-origin: 100% 50%; transition: transform 180ms cubic-bezier(.3,1.6,.5,1); pointer-events: none; -webkit-text-stroke: 4px var(--ink, ${INK}); paint-order: stroke fill; }
 .pop-combo.on { transform: translate(-100%, -50%) scale(1); }
 .pop-combo i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #FFE08A; border: 2px solid var(--ink, ${INK}); }
@@ -109,10 +122,34 @@ const CSS = `
 .pop-end.show { display: block; animation: pop-bump 320ms cubic-bezier(.3,1.6,.5,1); }
 .pop-hint { position: absolute; left: 50%; transform: translate(-50%, -50%); font: 800 14px/1.1 var(--body, Nunito, sans-serif); color: var(--ink, ${INK}); background: rgba(255,247,232,0.96); border: 2px solid var(--ink, ${INK}); border-radius: 999px; padding: 6px 12px; pointer-events: none; opacity: 0; transition: opacity 200ms; white-space: nowrap; }
 .pop-hint.show { opacity: 1; }
+.pop-coach { position: absolute; z-index: 3; max-width: 220px; font: 800 15px/1.2 var(--body, Nunito, sans-serif); color: var(--ink, ${INK}); background: #FFF7E8; border: 3px solid var(--ink, ${INK}); border-radius: 14px; padding: 7px 12px; box-shadow: 0 3px 0 var(--ink, ${INK}); text-align: center; pointer-events: none; opacity: 0; transition: opacity 180ms; }
+.pop-coach.show { opacity: 1; animation: pop-bump 320ms cubic-bezier(.3,1.6,.5,1); }
+.pop-coach::after { content: ''; position: absolute; left: var(--ax, 50%); width: 12px; height: 12px; background: #FFF7E8; border: 3px solid var(--ink, ${INK}); border-top: 0; border-left: 0; transform: translateX(-50%) rotate(45deg); bottom: -9px; }
+.pop-coach.below::after { bottom: auto; top: -9px; transform: translateX(-50%) rotate(225deg); }
+.pop-intro { position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(34,24,58,0.45); pointer-events: auto; }
+.pop-intro .pop-intro-card { max-width: 320px; background: #FFF7E8; border: 3px solid var(--ink, ${INK}); border-radius: 18px; box-shadow: 0 5px 0 var(--ink, ${INK}); padding: 18px 18px 16px; text-align: center; animation: pop-bump 360ms cubic-bezier(.3,1.6,.5,1); }
+.pop-intro h2 { margin: 0 0 8px; font: 700 26px/1.1 var(--display, Fredoka, sans-serif); color: var(--ink, ${INK}); }
+.pop-intro p { margin: 0 0 14px; font: 700 16px/1.35 var(--body, Nunito, sans-serif); color: var(--ink, ${INK}); }
+.pop-intro .st-btn { font-size: 20px !important; padding: 10px 26px !important; background: #FFC23D !important; }
 `;
 
 interface Comp { s: number; piece: number; cells: [number, number][]; x: number; y: number; face: boolean; size: number }
-interface Held { slot: number; px: number; py: number; t0: number; ghost: { x: number; y: number } | null; lines: number[]; id: number }
+interface Held { slot: number; px: number; py: number; t0: number; ghost: { x: number; y: number } | null; lines: number[]; id: number; tap?: boolean }
+
+/** Pop's settings as the view reads them (view/settings.ts popViewFor). */
+export interface PopViewSettings {
+  /** The held shape's bottom edge above the finger, in cells; null: centred on the finger. */
+  lift: number | null;
+  /** Tap mode: tap a shape, tap the board to aim, tap the ghost to place. */
+  tap: boolean;
+  /** The bottom row mirrored: the bag on the left, the power slots on the right. */
+  left: boolean;
+  /** Glow the lines a drop would pop. */
+  preview: boolean;
+  /** Stronger grid lines and square tints. */
+  grid: boolean;
+}
+const VIEW_DEFAULTS: PopViewSettings = { lift: 1.1, tap: false, left: false, preview: true, grid: false };
 interface Spring { slot: number; x: number; y: number; scale: number; t0: number }
 interface Popping { cell: number; s: number; start: number; burst: boolean; smash?: boolean }
 /** A block flying off the board (the run over's tumble, a Sweep, Second Wind's gust); it waits until `at`. */
@@ -129,6 +166,8 @@ interface Flyer { s: number; x0: number; y0: number; t0: number; dur: number; li
 const now = () => performance.now();
 const backOut = (t: number) => { const c = 1.9; const u = t - 1; return 1 + (c + 1) * u * u * u + c * u * u; };
 const BANNERS = ['', '', 'Double!', 'Triple!', 'TOWERING!', 'SKY-HIGH!'];
+/** The guide's first pop: party colours. */
+const CONFETTI = ['#FFE08A', '#FF8FA3', '#5EC8FF', '#A6F4C5', '#FFFFFF', '#FF8A3D'];
 
 export class PopView {
   readonly root: HTMLDivElement;
@@ -146,7 +185,10 @@ export class PopView {
   private bgBiome = -1;
   private scoreEl: HTMLElement;
   private bestEl: HTMLElement;
+  private topEl: HTMLElement;
+  private pillEl: HTMLElement;
   private cpEl: HTMLElement;
+  private areaEl: HTMLElement;
   private comboEl: HTMLElement;
   private nextLabel: HTMLElement;
   private bagLabel: HTMLElement;
@@ -177,6 +219,9 @@ export class PopView {
   private popping: Popping[] = [];
   private flashes: { cells: number[]; t0: number; color?: string }[] = [];
   private stamps = new Map<number, number>(); // piece → when it landed
+  /** Rules 3 merges: cells keep their old look until the pop around them has played (cell → shape, piece, new piece). */
+  private merging = new Map<number, { s: number; piece: number; now: number }>();
+  private mergeAt = 0;
   private trayIn = -1e9;
   private shownScore = 0;
   private pointer = -1;
@@ -222,7 +267,16 @@ export class PopView {
   private rewindAt = -1e9;
   private iconFlys: IconFly[] = [];
   private leaving: Leaving[] = [];
-  private firstBubble = true;
+  // the first-run guide (Pop plan §14)
+  private coachEl: HTMLDivElement;
+  private introEl: HTMLDivElement | null = null;
+  private coachUntil = 0;
+  private coachTimer = 0;
+  /** The hand showing the first drag: when it started, or -1 once it's done. */
+  private handAt = -1;
+  /** Pop's settings this frame, and the layout they were laid out with (grid and hand). */
+  private vs: PopViewSettings = VIEW_DEFAULTS;
+  private laidFor = '';
 
   constructor(parent: HTMLElement, hooks: PopHooks) {
     this.hooks = hooks;
@@ -242,10 +296,13 @@ export class PopView {
     top.className = 'pop-top';
     top.innerHTML = `<button type="button" class="ui-btn icon" data-act="pause" aria-label="Pause"><img alt="" src="${uiIconUrl('pause', 24)}"></button>
       <div class="pop-score"><b>0</b><span>Best 0</span></div>
-      <div class="pop-cp"><img alt="" src="${uiIconUrl('flag', 18)}"><span>0/8</span></div>`;
+      <div class="pop-cp"><img alt="" src="${uiIconUrl('flag', 20)}"><div><b>0/5</b><small>Meadow</small></div></div>`;
     this.scoreEl = top.querySelector('.pop-score b')!;
     this.bestEl = top.querySelector('.pop-score span')!;
-    this.cpEl = top.querySelector('.pop-cp span')!;
+    this.topEl = top;
+    this.pillEl = top.querySelector('.pop-cp')!;
+    this.cpEl = top.querySelector('.pop-cp b')!;
+    this.areaEl = top.querySelector('.pop-cp small')!;
     this.comboEl = document.createElement('div');
     this.comboEl.className = 'pop-combo';
     this.nextLabel = document.createElement('div');
@@ -272,7 +329,11 @@ export class PopView {
     this.endBtn.onclick = () => { if (this.sim?.stuck) this.intent({ t: 'end' }); };
     this.hintEl = document.createElement('div');
     this.hintEl.className = 'pop-hint';
-    this.root.append(this.cv, top, this.comboEl, this.nextLabel, this.bagLabel, this.pwEl, this.endBtn, this.hintEl);
+    this.coachEl = document.createElement('div');
+    this.coachEl.className = 'pop-coach';
+    this.coachEl.setAttribute('role', 'status');
+    this.coachEl.style.display = 'none';
+    this.root.append(this.cv, top, this.comboEl, this.nextLabel, this.bagLabel, this.pwEl, this.endBtn, this.hintEl, this.coachEl);
     parent.appendChild(this.root);
     top.querySelector<HTMLElement>('[data-act="pause"]')!.onclick = () => { if (this.sim && !this.sim.over) hooks.onPause(); };
     this.cv.addEventListener('pointerdown', e => this.down(e));
@@ -295,6 +356,7 @@ export class PopView {
     this.popping = [];
     this.flashes = [];
     this.stamps.clear();
+    this.merging.clear();
     this.bodies = [];
     this.overAt = -1;
     this.overDone = false;
@@ -323,9 +385,13 @@ export class PopView {
     this.rewindAt = -1e9;
     this.iconFlys = [];
     this.leaving = [];
-    this.firstBubble = sim.bubblesGot === 0;
     this.pwKey = '';
     this.hint('');
+    this.coachOff();
+    this.introEl?.remove();
+    this.introEl = null;
+    this.handAt = -1;
+    this.vs = this.hooks.settings?.() ?? VIEW_DEFAULTS;
     this.root.style.display = '';
     this.layout();
     this.fx.clear();
@@ -337,6 +403,8 @@ export class PopView {
     this.say('pop_run_start', { biome: sim.biome + 1, cp: sim.cp, fill: sim.filled / CELLS }, a => a.handle('run_start', {}));
     this.fitsWas = [true, true, true, true];
     this.wouldWas = 0;
+    // A first Pop run: one card, then the hand shows the first drag (Pop plan §14).
+    if (sim.guide && sim.placements === 0 && this.hooks.coach?.('intro')) this.intro();
     this.last = now();
     this.lastRaw = this.last;
     cancelAnimationFrame(this.raf);
@@ -352,6 +420,9 @@ export class PopView {
     this.aim = null;
     this.pending = null;
     this.hint('');
+    this.coachOff();
+    this.introEl?.remove();
+    this.introEl = null;
     this.hooks.audio()?.setMode?.('tower');
   }
 
@@ -387,22 +458,30 @@ export class PopView {
     this.trayH = Math.round(trayC * k);
     const botY = this.trayY + this.trayH + spare * 0.15 * k;
     const bagS = Math.round(cellC * 1.7 * k);
-    this.bag = { x: this.W - bagS - Math.max(16 * k, (Wc / 3 - cellC * 1.7) / 2 * k), y: botY, s: bagS };
+    const left = this.vs.left;
+    this.laidFor = `${left}|${this.vs.grid}`;
+    const bagEdge = Math.max(16 * k, (Wc / 3 - cellC * 1.7) / 2 * k);
+    this.bag = { x: left ? bagEdge : this.W - bagS - bagEdge, y: botY, s: bagS };
     // The bottom row: the two power slots and Second Wind on the left, the next tray between them and the bag.
+    // Left-handed mirrors it: the bag on the left, the powers on the right (Pop plan §14).
     const psC = Math.round(cellC * 1.2), wsC = Math.round(cellC * 1.34), gapC = 6;
     const groupC = psC * 2 + wsC + gapC * 2;
-    const leftC = Math.max(12, (Wc / 3 - groupC) / 2);
+    const edgeC = Math.max(12, (Wc / 3 - groupC) / 2);
+    const leftC = left ? Wc - edgeC - groupC : edgeC;
     this.pwEl.style.setProperty('--ps', `${psC}px`);
     this.pwEl.style.setProperty('--ws', `${wsC}px`);
     this.pwEl.style.left = `${leftC}px`;
     this.pwEl.style.top = `${(botY + bagS / 2) / k - wsC / 2}px`;
-    const nx0 = (leftC + groupC + 8) * k, nx1 = this.bag.x - 8 * k;
+    const nx0 = left ? this.bag.x + bagS + 8 * k : (leftC + groupC + 8) * k, nx1 = left ? (leftC - 8) * k : this.bag.x - 8 * k;
     const nw = Math.max(cellC * 2.4 * k, Math.min(cellC * 5.2 * k, nx1 - nx0));
     this.nextBox = { x: (nx0 + nx1) / 2 - nw / 2, y: botY, w: nw, h: bagS };
     this.endBtn.style.top = `${(this.trayY + this.trayH / 2) / k}px`;
     this.hintEl.style.top = `${Math.max(topC + 14, byC - padC - 22)}px`;
+    // The top bar (pause, score, the area pill) keeps inside the board frame's left and right edges.
+    const frameC = Math.max(12, Math.floor((Wc - cellC * 9) / 2 - padC));
+    this.topEl.style.paddingLeft = this.topEl.style.paddingRight = `${frameC}px`;
     this.art = new PopArt(this.cell, this.sim?.biome ?? 0);
-    this.boardCv = bakeBoard(this.cell, this.pad);
+    this.boardCv = bakeBoard(this.cell, this.pad, this.vs.grid);
     this.bagCv = [bakeBagBox(bagS, false), bakeBagBox(bagS, true)];
     this.fx = new PopFx(k);
     this.comboEl.style.left = `${(this.bx + this.cell * 9 + this.pad * 0.6) / k}px`;
@@ -442,9 +521,13 @@ export class PopView {
     const sim = this.sim!;
     const seen = new Uint8Array(CELLS);
     const comps: Comp[] = [];
+    // A merge still waiting for its pop to play shows the split pieces it was made from.
+    const held = (c: number) => { const m = this.merging.get(c); return m && sim.cellPiece[c] === m.now ? m : null; };
+    const shapeAt = (c: number) => held(c)?.s ?? sim.cellShape[c];
+    const pieceAt = (c: number) => held(c)?.piece ?? sim.cellPiece[c];
     for (let i = 0; i < CELLS; i++) {
       if (seen[i] || sim.cellShape[i] < 0) continue;
-      const piece = sim.cellPiece[i], s = sim.cellShape[i];
+      const piece = pieceAt(i), s = shapeAt(i);
       const cells: [number, number][] = [];
       const stack = [i];
       seen[i] = 1;
@@ -456,7 +539,7 @@ export class PopView {
           const nx = x + dx, ny = y + dy;
           if (nx < 0 || ny < 0 || nx > 8 || ny > 8) continue;
           const n = ny * 9 + nx;
-          if (!seen[n] && sim.cellPiece[n] === piece && sim.cellShape[n] === s) { seen[n] = 1; stack.push(n); }
+          if (!seen[n] && sim.cellShape[n] >= 0 && pieceAt(n) === piece && shapeAt(n) === s) { seen[n] = 1; stack.push(n); }
         }
       }
       comps.push({ s, piece, cells, x: Math.min(...cells.map(v => v[0])), y: Math.min(...cells.map(v => v[1])), face: false, size: cells.length });
@@ -498,7 +581,7 @@ export class PopView {
               const nx = x + dx, ny = y + dy;
               if (nx < 0 || ny < 0 || nx > 8 || ny > 8) continue;
               const pc = sim.cellPiece[ny * 9 + nx];
-              if (pc >= 0 && pc !== p.piece && sim.cellShape[ny * 9 + nx] >= 0) near.add(pc);
+              if (pc !== p.piece && sim.cellShape[ny * 9 + nx] >= 0) near.add(pc);
             }
           }
           for (const pc of near) this.jiggles.set(pc, t);
@@ -507,6 +590,12 @@ export class PopView {
       }
       case 'pop_lines': {
         const n = p.count as number;
+        // The guide's first pop gets extra confetti (Pop plan §14).
+        if (this.sim!.guide && this.sim!.lines === n && juice && !calm) {
+          const fy = this.by + this.cell * 9;
+          this.fx.cannon(this.bx - this.cell * 0.3, fy, -Math.PI * 0.32, this.cell, CONFETTI, 46);
+          this.fx.cannon(this.bx + this.cell * 9.3, fy, -Math.PI * 0.68, this.cell, CONFETTI, 46);
+        }
         const order = p.order as number[][];
         const cells = p.cells as number[], shapes = p.shapes as number[];
         const stop = juice ? (n >= 3 ? 80 : n === 2 ? 60 : 40) : 0;
@@ -548,6 +637,20 @@ export class PopView {
         });
         break;
       }
+      case 'pop_merge': {
+        // Split pieces snap together into whole shapes (rules 3, Blake's playtest 2026-11-01): once the
+        // pop around them has played, they take the new shape's look with a stamp and a white flash.
+        const merges = p.merges as { cells: number[]; piece: number; wasShape: number[]; wasPiece: number[] }[];
+        const at = t + (juice ? 360 : 0);
+        for (const m of merges) {
+          m.cells.forEach((c, i) => this.merging.set(c, { s: m.wasShape[i], piece: m.wasPiece[i], now: m.piece }));
+          this.stamps.set(m.piece, at);
+          if (juice) this.flashes.push({ cells: m.cells, t0: at, color: '255,255,255' });
+        }
+        this.mergeAt = at;
+        this.say('pop_merge', { count: merges.length, cells: merges.reduce((a, m) => a + m.cells.length, 0), delay: at - t }, au => au.handle('piece_settled', { grade: 'clean' }));
+        break;
+      }
       case 'pop_score':
         if (juice) bump(this.scoreEl);
         break;
@@ -569,7 +672,7 @@ export class PopView {
           this.fx.text(`Checkpoint ${p.n}!`, this.bx + this.cell * 4.5, this.by - this.pad * 1.6, { size: 24, fill: '#A6F4C5', rise: 20, life: 1400, pop: true });
           const [fx0, fy0] = this.pillCentre();
           for (let i = 0; i < 3; i++) this.fx.burst(fx0, fy0, this.cell, ['#A6F4C5', '#FFE08A', '#FFFFFF', '#5EC8FF'], 8);
-          bump(this.cpEl.parentElement!);
+          bump(this.pillEl);
         }
         this.say('pop_checkpoint', { n: p.n }, au => au.handle('checkpoint_claimed', { n: p.n }));
         this.skyStep();
@@ -582,9 +685,16 @@ export class PopView {
         break;
       case 'pop_tray':
         if ((p.n as number) > this.seenTray) { this.seenTray = p.n as number; this.trayIn = t; this.say('pop_tray', { n: p.n }); }
+        if (p.n === 3 && this.coachFree() && this.hooks.coach?.('next')) {
+          this.coach('Your next tray: plan ahead!', (this.nextBox.x + this.nextBox.w / 2) / this.k, (this.nextBox.y - 6 * this.k) / this.k);
+        }
         break;
       case 'pop_combo':
         this.say('pop_combo', { combo: p.combo });
+        if (p.combo === 2 && this.coachFree() && this.hooks.coach?.('combo')) {
+          const r = this.comboEl.getBoundingClientRect(), rr = this.root.getBoundingClientRect();
+          this.coach('Combo! Pop again within a few shapes to keep it going.', r.left - rr.left + r.width / 2, r.bottom - rr.top + 12, true);
+        }
         break;
       case 'pop_combo_end':
         this.say('pop_combo_end', { combo: p.combo });
@@ -602,10 +712,9 @@ export class PopView {
         const cell = p.cell as number;
         this.bubbleAt.set(cell, t);
         this.say('pop_bubble', { kind: p.kind, why: p.why }, au => au.handle('bubble_spawned', {}));
-        if (this.firstBubble) {
-          this.firstBubble = false;
+        if (this.coachFree() && this.hooks.coach?.('bubble')) {
           const [x, y] = this.cellCentre(cell);
-          this.fx.text('Cover it!', x, y - this.cell * 0.9, { size: 22, fill: '#FFFFFF', rise: 14, life: 1800, pop: true });
+          this.coach('Cover it! A shape on a bubble wins its power.', x / this.k, (y - this.cell * 0.55) / this.k);
         }
         break;
       }
@@ -767,7 +876,7 @@ export class PopView {
 
   /** The checkpoint pill's centre in device px (where faces fly to). */
   private pillCentre(): [number, number] {
-    const r = this.cpEl.parentElement!.getBoundingClientRect();
+    const r = this.pillEl.getBoundingClientRect();
     return [(r.left + r.width / 2) * this.k, (r.top + r.height / 2) * this.k];
   }
 
@@ -785,7 +894,10 @@ export class PopView {
     if (!sim) return;
     this.bestEl.textContent = `Best ${Math.max(this.hooks.best(), sim.score).toLocaleString('en-US')}`;
     const pr = sim.cpProgress;
-    this.cpEl.textContent = `${BIOMES[sim.biome].name} ${pr.into}/${pr.need}`;
+    const count = `${pr.into}/${pr.need}`, area = BIOMES[sim.biome].name;
+    if (this.cpEl.textContent !== count) this.cpEl.textContent = count;
+    if (this.areaEl.textContent !== area) this.areaEl.textContent = area;
+    this.pillEl.style.setProperty('--p', `${Math.round(100 * Math.max(0, Math.min(1, pr.into / Math.max(1, pr.need))))}%`);
     const el = this.comboEl, juice = this.hooks.juice();
     if (sim.combo >= 1) {
       const mult = Math.min(sim.tuning.comboMax, 1 + sim.tuning.comboStep * (sim.combo - 1));
@@ -1012,12 +1124,14 @@ export class PopView {
   private down(e: PointerEvent): void {
     const sim = this.sim;
     if (!sim || sim.over || this.paused || this.pointer !== -1) return;
+    if (this.coachEl.classList.contains('show')) this.coachOff(); // a tip never stands in the way: any touch closes it
     const [x, y] = this.toDev(e);
     if (this.aim) {
       this.aimDown(x, y, e.pointerId);
       if (this.pointer === e.pointerId) try { this.cv.setPointerCapture(e.pointerId); } catch { /* fine */ }
       return;
     }
+    if (this.vs.tap) { this.tapDown(x, y); return; }
     const slot = this.slotAt(x, y);
     if (slot < 0 || !sim.slot(slot) || this.springs.some(s => s.slot === slot)) return;
     this.pointer = e.pointerId;
@@ -1025,6 +1139,44 @@ export class PopView {
     // Spin on: a tap turns the shape; it's picked up only once the finger moves.
     if (sim.spinning && sim.canSpin(slot)) { this.pending = { slot, x, y, id: e.pointerId }; return; }
     this.pickUp(slot, x, y, e.pointerId);
+  }
+
+  /**
+   * Tap mode (Pop plan §14): tap a shape to lift it, tap a board cell to aim it there (the ghost shows
+   * where it would sit), tap the ghost to place it. The bag takes a lifted shape; tapping it again, or
+   * anywhere else, puts it back.
+   */
+  private tapDown(x: number, y: number): void {
+    const sim = this.sim!, h = this.held;
+    const slot = this.slotAt(x, y);
+    if (h?.tap) {
+      if (slot === BAG && h.slot !== BAG && sim.canBag(h.slot)) { this.held = null; this.intent({ t: 'bag', slot: h.slot }); return; }
+      const cell = this.cellAt(x, y), t = sim.turn(h.slot);
+      if (cell >= 0 && t) {
+        // On the ghost: place it.
+        if (h.ghost && t.cells.some(([cx, cy]) => (h.ghost!.y + cy) * 9 + h.ghost!.x + cx === cell)) {
+          const g = h.ghost;
+          this.held = null;
+          if (!this.intent({ t: 'place', slot: h.slot, x: g.x, y: g.y })) this.springBack(h);
+          return;
+        }
+        // Elsewhere on the board: aim there, the shape centred on the tapped cell.
+        const lift = this.vs.lift;
+        h.px = this.bx + ((cell % 9) + 0.5) * this.cell;
+        h.py = this.by + (Math.floor(cell / 9) + 0.5) * this.cell + (lift === null ? 0 : this.cell * (lift + t.h / 2));
+        this.track();
+        this.say('pop_aim_move', {}, a => a.ui('tap'));
+        return;
+      }
+      // Off the board: put it back, and lift another if that's what was tapped.
+      this.cancelHeld();
+      if (slot < 0 || slot === h.slot) return;
+    }
+    if (slot < 0 || !sim.slot(slot) || this.springs.some(s => s.slot === slot)) return;
+    if (sim.spinning && sim.canSpin(slot)) { this.intent({ t: 'spin', slot }); return; }
+    const [sx, sy] = this.slotCentre(slot);
+    this.pickUp(slot, sx, sy, -1);
+    this.held!.tap = true;
   }
 
   private pickUp(slot: number, x: number, y: number, id: number): void {
@@ -1088,9 +1240,10 @@ export class PopView {
     this.say('pop_drop_back', {}, a => a.ui('back'));
   }
 
-  /** The held shape's centre: over the finger, its bottom edge 1.1 cells above it (Pop plan §3). */
+  /** The held shape's centre: over the finger, its bottom edge 1.1 cells above it (Pop plan §3; the setting changes it, §14). */
   private heldCentre(h: Held, t: Turn): [number, number] {
-    return [h.px, h.py - this.cell * (1.1 + t.h / 2)];
+    const lift = this.vs.lift;
+    return [h.px, h.py - (lift === null ? 0 : this.cell * (lift + t.h / 2))];
   }
 
   private heldScale(h: Held): number {
@@ -1136,7 +1289,11 @@ export class PopView {
 
   private intent(it: PopIntent): boolean {
     const sim = this.sim;
-    if (!sim || !sim.apply(it)) return false;
+    if (!sim) return false;
+    // A merge still waiting shows now: the next move goes on the board as it really is.
+    if (this.merging.size) { this.merging.clear(); this.rebuild(); }
+    if (!sim.apply(it)) return false;
+    if (it.t === 'place') this.handAt = -1;
     this.rebuild();
     this.hooks.onChange(sim);
     if (this.wouldWas) { this.wouldWas = 0; this.say('pop_would_pop', { count: 0 }); }
@@ -1147,9 +1304,98 @@ export class PopView {
     for (let i = 0; i <= BAG; i++) {
       const fits = !sim.slot(i) || sim.fitsAnywhere(i);
       if (!fits && this.fitsWas[i] && !sim.over) this.say('pop_cant_fit', { slot: i });
+      // The first time a tray shape can't fit while the bag could take it, the bag gets a tip.
+      if (!fits && i < BAG && !sim.over && sim.canBag(i) && this.coachFree() && this.hooks.coach?.('bag')) {
+        this.coach('Doesn\'t fit? Drag it to the bag to keep it for later.', (this.bag.x + this.bag.s / 2) / this.k, (this.bag.y - 6 * this.k) / this.k);
+      }
       this.fitsWas[i] = fits;
     }
     return true;
+  }
+
+  // ---------------------------------------------------------------- the first-run guide (Pop plan §14)
+
+  /** The first Pop run's card. Its button starts the hand. */
+  private intro(): void {
+    const el = document.createElement('div');
+    el.className = 'pop-intro';
+    el.innerHTML = `<div class="pop-intro-card" role="dialog" aria-label="How to play Blockling Pop"><h2>Blockling Pop</h2>
+      <p>Drag shapes onto the board. Fill a row, column or square to pop it. When nothing fits, the run's over.</p>
+      <button type="button" class="st-btn">Let's pop!</button></div>`;
+    el.querySelector('button')!.onclick = () => {
+      el.remove();
+      this.introEl = null;
+      this.handAt = this.vt;
+      this.hooks.audio()?.ui('start');
+    };
+    this.introEl = el;
+    this.root.appendChild(el);
+  }
+
+  /** No tip is up, and none was in the last moment (one at a time). */
+  private coachFree(): boolean { return !this.introEl && now() > this.coachUntil; }
+
+  /** A tip bubble pointing at (x, y) in CSS px: above it, or below with `below`. Touches go through it; any touch or 4.5 s closes it. */
+  private coach(text: string, x: number, y: number, below = false): void {
+    const el = this.coachEl, W = window.innerWidth;
+    el.textContent = text;
+    el.style.display = '';
+    el.classList.toggle('below', below);
+    const w = Math.min(220, W - 32);
+    const left = Math.max(16, Math.min(W - 16 - w, x - w / 2));
+    el.style.width = `${w}px`;
+    el.style.left = `${left}px`;
+    el.style.setProperty('--ax', `${Math.max(16, Math.min(w - 16, x - left))}px`);
+    // Placed by its top edge, not a transform: the pop-in animation uses transform.
+    el.style.top = `${below ? y : y - el.offsetHeight}px`;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+    this.coachUntil = now() + 4500;
+    clearTimeout(this.coachTimer);
+    this.coachTimer = window.setTimeout(() => this.coachOff(), 4500);
+  }
+
+  private coachOff(): void {
+    clearTimeout(this.coachTimer);
+    this.coachEl.classList.remove('show');
+    this.coachEl.style.display = 'none';
+    this.coachUntil = Math.min(this.coachUntil, now() + 600);
+  }
+
+  /** The hand: from the tray's first shape to the gap in the bottom row, over and over until the first placement. */
+  private drawHand(t: number): void {
+    const sim = this.sim!;
+    if (this.handAt < 0 || this.held || this.paused || sim.placements > 0 || !sim.slot(0)) return;
+    const c = this.c, cell = this.cell;
+    const u = ((t - this.handAt) % 2200) / 2200;
+    const [sx, sy] = this.slotCentre(0);
+    const ex = this.bx + cell * 7, ey = this.by + cell * 8.5;
+    // Rest on the shape, glide up to the gap, linger, fade.
+    const m = u < 0.18 ? 0 : u < 0.62 ? (u - 0.18) / 0.44 : 1;
+    const e = m * m * (3 - 2 * m);
+    const x = sx + (ex - sx) * e, y = sy + (ey - sy) * e - Math.sin(e * Math.PI) * cell * 1.2;
+    const alpha = u < 0.08 ? u / 0.08 : u > 0.86 ? Math.max(0, (1 - u) / 0.14) : 1;
+    c.save();
+    c.globalAlpha = alpha;
+    // The gap's outline, where the I goes.
+    c.strokeStyle = 'rgba(255,255,255,0.9)';
+    c.lineWidth = Math.max(2, cell * 0.07);
+    c.setLineDash([cell * 0.18, cell * 0.12]);
+    c.strokeRect(this.bx + cell * 5 + 2, this.by + cell * 8 + 2, cell * 4 - 4, cell - 4);
+    c.setLineDash([]);
+    // A fingertip: a press ring at the start, then the dot.
+    const press = u < 0.18 ? u / 0.18 : 0;
+    if (press > 0) {
+      c.strokeStyle = 'rgba(255,255,255,0.8)';
+      c.lineWidth = cell * 0.06;
+      c.beginPath(); c.arc(sx, sy, cell * (0.35 + press * 0.4), 0, Math.PI * 2); c.stroke();
+    }
+    c.fillStyle = 'rgba(255,255,255,0.95)';
+    c.strokeStyle = INK;
+    c.lineWidth = Math.max(2, cell * 0.08);
+    c.beginPath(); c.arc(x, y, cell * 0.3, 0, Math.PI * 2); c.fill(); c.stroke();
+    c.restore();
   }
 
   // ---------------------------------------------------------------- frame
@@ -1160,12 +1406,17 @@ export class PopView {
     this.last = t;
     const sim = this.sim;
     if (!sim) return;
+    // Settings can change mid-run (Pause, Settings): the left-handed row and the grid need a new layout.
+    this.vs = this.hooks.settings?.() ?? VIEW_DEFAULTS;
+    if (`${this.vs.left}|${this.vs.grid}` !== this.laidFor) this.layout();
+    if (this.held?.tap && !this.vs.tap) this.cancelHeld();
     if (!this.paused && !sim.over && !document.hidden) { this.playMs += dt; this.frames.add(t - this.lastRaw); }
     this.lastRaw = t;
     const juice = this.hooks.juice();
     // The effects clock: slow-mo for the All Clear and the run over, never for input.
     const sdt = dt * (this.vt < this.slowUntil ? this.slowK : 1);
     this.vt += sdt;
+    if (this.merging.size && this.vt >= this.mergeAt) { this.merging.clear(); this.rebuild(); }
     const vt = this.vt;
     if (vt >= this.holdUntil) this.fx.step(sdt);
     // The held shape leans up to 5° into its motion and leaves a faint stardust trail.
@@ -1254,13 +1505,13 @@ export class PopView {
     const fill = sim.filled / CELLS;
     const mood: Expression = fill >= 0.85 ? 'panic' : fill >= 0.7 ? 'worried' : 'idle';
     const glow = new Set<number>();
-    for (const id of this.held?.lines ?? []) for (const cc of LINE_CELLS[id]) glow.add(cc);
+    if (this.vs.preview) for (const id of this.held?.lines ?? []) for (const cc of LINE_CELLS[id]) glow.add(cc);
     // Pieces and fragments.
     const pad = Math.ceil(0.2 * this.art.s);
     for (const cp of this.comps) {
       const lit = glow.size > 0 && cp.cells.some(([x, y]) => glow.has(y * 9 + x));
       const st = this.stamps.get(cp.piece);
-      const age = st === undefined ? 1e9 : t - st;
+      const age = st === undefined || t < st ? 1e9 : t - st;
       const face: Expression | null = cp.face ? (age < 160 ? 'squint' : lit ? 'proud' : mood) : null;
       const bk = this.art.cells(cp.s, cp.cells, face);
       const x = this.bx + cp.x * this.cell - pad, y = this.by + cp.y * this.cell - pad;
@@ -1315,6 +1566,7 @@ export class PopView {
     // The line flash: a white-gold wash over what popped, fading.
     this.flashes = this.flashes.filter(f => {
       const u = (t - f.t0) / 420;
+      if (u < 0) return true;
       if (u >= 1) return false;
       c.fillStyle = `rgba(${f.color ?? '255,240,170'},${0.45 * (1 - u)})`;
       for (const cc of f.cells) c.fillRect(this.bx + (cc % 9) * this.cell, this.by + ((cc / 9) | 0) * this.cell, this.cell, this.cell);
@@ -1342,7 +1594,7 @@ export class PopView {
       c.stroke(path);
       c.restore();
       // Two lines or more: a faint preview of the banner above the board.
-      if (juice && h.lines.length >= 2) this.fx.label(c, BANNERS[Math.min(5, h.lines.length)], bcx, this.by - this.pad - this.cell * 0.55, 30, '#FFFFFF', 0.5 + 0.15 * Math.sin(t / 80));
+      if (juice && this.vs.preview && h.lines.length >= 2) this.fx.label(c, BANNERS[Math.min(5, h.lines.length)], bcx, this.by - this.pad - this.cell * 0.55, 30, '#FFFFFF', 0.5 + 0.15 * Math.sin(t / 80));
     }
     // Tumbling blocks after No room.
     for (const b of this.bodies) {
@@ -1366,6 +1618,7 @@ export class PopView {
     this.drawSlots(t, juice);
     c.setTransform(boardT);
     this.fx.draw(c);
+    this.drawHand(t);
     c.setTransform(1, 0, 0, 1, 0, 0);
     this.drawFlyers(t);
     this.drawIconFlys(t);
@@ -1580,7 +1833,7 @@ export class PopView {
       c.restore();
       return true;
     });
-    if (landed) bump(this.cpEl.parentElement!);
+    if (landed) bump(this.pillEl);
   }
 
   private drawSlots(t: number, juice: boolean): void {

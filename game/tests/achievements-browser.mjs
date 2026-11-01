@@ -41,7 +41,7 @@ await page.waitForSelector('.ui-achrow');
 await page.waitForTimeout(400);
 await shot('01-profile');
 const row = await page.evaluate(() => document.querySelector('.ui-achrow')?.textContent?.replace(/\s+/g, ' ').trim());
-step('profile row counts 4 of 49', /Achievements\s*4 \/ 49/.test(row ?? ''), row);
+step('profile row counts 4 of 65 (49 tower, 16 Blockling Pop)', /Achievements\s*4 \/ 65/.test(row ?? ''), row);
 
 await page.click('.ui-achrow');
 await page.waitForSelector('.ui-achs');
@@ -59,10 +59,10 @@ const panel = await page.evaluate(secrets => {
     overflowX: document.documentElement.scrollWidth > window.innerWidth,
   };
 }, SECRETS);
-step('panel lists 49, 4 earned, in six groups', panel.items === 49 && panel.earned === 4 && panel.groups.join() === 'Climb,Craft,Survive,Power-ups,Lifetime,Secret', JSON.stringify(panel.groups));
+step('panel lists 65, 4 earned, in seven groups (Blockling Pop last)', panel.items === 65 && panel.earned === 4 && panel.groups.join() === 'Climb,Craft,Survive,Power-ups,Lifetime,Secret,Blockling Pop', JSON.stringify(panel.groups));
 step('secret names and texts stay out of the page', panel.leaked.length === 0 && panel.hidden === 4, `leaked ${panel.leaked}`);
 step('counted ones show progress (Brick by Brick 310 / 1,000)', /310 \/ 1,000/.test(panel.bricks ?? ''), panel.bricks);
-step('every row has a baked badge', panel.badges === 49, `${panel.badges} / 49`);
+step('every row has a baked badge', panel.badges === 65, `${panel.badges} / 65`);
 step('no sideways scroll at 390 px', !panel.overflowX);
 await page.evaluate(() => document.querySelector('.ui-achs').scrollTo(0, 99999));
 await page.waitForTimeout(200);

@@ -75,7 +75,8 @@ export function shapeColors(s: number): { light: string; base: string; shade: st
  * The board: an Ink-rimmed paper slab, its cells in two paper tints by 3×3 square with faint lines.
  * `cell` and `pad` are device px; the canvas includes the rim and its drop shadow.
  */
-export function bakeBoard(cell: number, pad: number): HTMLCanvasElement {
+/** The board's paper, rim and lines. `strong`: the Strong grid setting's darker lines and square tints (Pop plan §14). */
+export function bakeBoard(cell: number, pad: number, strong = false): HTMLCanvasElement {
   const inner = cell * 9, size = inner + pad * 2;
   const cv = document.createElement('canvas');
   cv.width = Math.ceil(size + pad * 0.6);
@@ -101,12 +102,12 @@ export function bakeBoard(cell: number, pad: number): HTMLCanvasElement {
   const x0 = pad, y0 = pad;
   for (let sq = 0; sq < 9; sq++) {
     const sx = (sq % 3) * 3, sy = Math.floor(sq / 3) * 3;
-    c.fillStyle = sq % 2 === 0 ? PAPER : '#F1E2C6';
+    c.fillStyle = sq % 2 === 0 ? PAPER : strong ? '#E2CBA2' : '#F1E2C6';
     c.fillRect(x0 + sx * cell, y0 + sy * cell, cell * 3, cell * 3);
   }
   // Cell lines, then the squares' lines a little stronger.
-  c.strokeStyle = 'rgba(34,24,58,0.10)';
-  c.lineWidth = Math.max(1, cell * 0.03);
+  c.strokeStyle = strong ? 'rgba(34,24,58,0.30)' : 'rgba(34,24,58,0.10)';
+  c.lineWidth = Math.max(1, cell * (strong ? 0.04 : 0.03));
   c.beginPath();
   for (let i = 1; i < 9; i++) {
     if (i % 3 === 0) continue;
@@ -114,8 +115,8 @@ export function bakeBoard(cell: number, pad: number): HTMLCanvasElement {
     c.moveTo(x0, y0 + i * cell); c.lineTo(x0 + inner, y0 + i * cell);
   }
   c.stroke();
-  c.strokeStyle = 'rgba(34,24,58,0.22)';
-  c.lineWidth = Math.max(1.5, cell * 0.05);
+  c.strokeStyle = strong ? 'rgba(34,24,58,0.6)' : 'rgba(34,24,58,0.22)';
+  c.lineWidth = Math.max(1.5, cell * (strong ? 0.07 : 0.05));
   c.beginPath();
   for (const i of [3, 6]) {
     c.moveTo(x0 + i * cell, y0); c.lineTo(x0 + i * cell, y0 + inner);

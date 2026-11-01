@@ -8,7 +8,7 @@ import {
   profilePanel, readAvatar, readNameCard, readSettings, rewardAt, setDailyCountdown, setDailyLadder, setDailyTab, setNameBusy, setNameHint, setXpBar, settingsPanel,
   showAllXpLines, showXpLine, summaryCard, uiIconUrl, type DailyCardData, type DailyTab, type LadderPanelData, type NameCardData, type SettingGroup, type SettingValue,
   PURCHASE_SETTINGS, setWorkshopItem, setWorkshopNote, setWorkshopRestoring, setWorkshopStore, testPurchaseSheet, workshopPanel, type WorkshopData, type WorkshopItem, type WorkshopStore,
-  levelRewards, levelTrack, lookPanel, lookPreviewUrl, readLook, type CosmeticOwner, type UiIcon,
+  levelRewards, levelTrack, lookPanel, lookPreviewUrl, readLook, type CosmeticOwner, type UiIcon, BIOMES,
 } from '@art/index.ts';
 import { extraHats, lookOf, saveLook, wornLook } from './look.ts';
 import type { Entitlements } from '../meta/shop.ts';
@@ -123,6 +123,10 @@ const CSS = `
 .ui-summary [data-action="share"][aria-busy="true"] { opacity: 0.6; }
 .sc-ask .ui-btn { min-height: 40px; padding: 4px 18px; font-size: 16px; }
 .sc-ask .sc-face { font-size: 24px; padding: 2px 6px; min-width: 46px; }
+.sc-statseg { margin: 0 0 8px; }
+.sc-statseg label span { font-size: 15px; padding: 8px 6px; }
+.sc-statseg input:checked + span { background: var(--gold, #FFD23F); }
+.ui-stats.sc-off { display: none; }
 .sc-ask .sc-thanks { font: 600 14px 'Nunito', sans-serif; color: ${INK_SOFT}; margin: 4px 0; }
 .sc-ladder { margin-top: 10px; text-align: left; }
 .sc-look { display: flex; align-items: center; gap: 12px; width: 100%; margin: 0 0 6px; padding: 8px 12px 8px 8px; text-align: left; }
@@ -149,6 +153,13 @@ const LAYOUT: SettingGroup[] = [
     { key: 'reduceMotion', kind: 'toggle', label: 'Reduce motion' },
     { key: 'shake', kind: 'choice', label: 'Screen shake', options: [['off', 'Off'], ['low', 'Low'], ['full', 'Full']] },
     { key: 'faces', kind: 'toggle', label: 'Block faces' },
+  ] },  // Blockling Pop's five (Pop plan §14); the comfort ones above apply to it too.
+  { title: 'Blockling Pop', items: [
+    { key: 'popDrag', kind: 'choice', label: 'Shape above finger', options: [['off', 'Off'], ['small', 'Small'], ['normal', 'Normal'], ['large', 'Large']] },
+    { key: 'popTap', kind: 'toggle', label: 'Tap to place' },
+    { key: 'popLeft', kind: 'toggle', label: 'Left-handed' },
+    { key: 'popPreview', kind: 'toggle', label: 'Pop preview' },
+    { key: 'popGrid', kind: 'toggle', label: 'Strong grid' },
   ] },
 ];
 
@@ -508,7 +519,7 @@ export class Screens {
    * The profile; tapping the avatar opens the picker, and `onSave` stores a new choice. `id` is the name and
    * portrait (the Daily ladder's too): read fresh each time it's shown, and `onName` opens the name card.
    */
-  profile(p: Profile, onBack: () => void, onSave: () => void, id?: ProfileIdentity): void {
+  profile(p: Profile, onBack: () => void, onSave: () => void, id?: ProfileIdentity, tab: 'tower' | 'pop' = 'tower'): void {
     const st = p.stats;
     const el = profilePanel({
       name: this.playerName, ...xpOf(p), avatar: p.avatar, ...id?.get(),
@@ -517,7 +528,9 @@ export class Screens {
       // Achievements (gameplay.md §18.3): a row under the stats opens the panel.
       achievements: achievementCount(p),
     });
-    const back = () => this.profile(p, onBack, onSave, id);
+    // Stats get a Tower or Pop switch once Pop is open (Pop plan §12): its bests never mix with the tower's.
+    const shown = p.level >= 2 || p.pop.runs > 0 ? popStats(el, p, tab) : () => 'tower' as const;
+    const back = () => this.profile(p, onBack, onSave, id, shown());
     const lk = this.looks;
     if (lk) {
       // Your look and the two-lane level track, under the XP bar (monetisation plan v2).
@@ -692,4 +705,35 @@ export class Screens {
       workshop: t => { unbind(); el.remove(); this.name = keep; this.looks?.onWorkshop(t.dataset.id ?? 'builders_pass', null); },
     });
   }
+}
+
+/**
+ * Blockling Pop's stats beside the tower's on the profile (Pop plan §12): a Tower or Pop switch over Art's
+ * stats grid, and a second grid in the same style. Returns a reader for the tab shown, to come back to it.
+ */
+function popStats(panel: HTMLElement, p: Profile, tab: 'tower' | 'pop'): () => 'tower' | 'pop' {
+  const tower = panel.querySelector<HTMLElement>('.ui-stats');
+  if (!tower) return () => 'tower';
+  const r = p.pop, n = (v: number) => v.toLocaleString('en-US');
+  const stat = (ic: UiIcon, v: string, label: string) =>
+    `<div class="ui-stat"><img alt="" src="${uiIconUrl(ic, 26)}"><div><b${v.length > 9 ? ' class="sm"' : ''}>${v}</b><span>${label}</span></div></div>`;
+  const grid = document.createElement('div');
+  grid.className = 'ui-stats sc-popstats';
+  grid.innerHTML = stat('score', n(r.best), 'Best score') + stat('row', n(r.lines), 'Most lines')
+    + stat('combo', n(r.combo), 'Longest combo') + stat('biome', BIOMES[Math.max(0, r.biome - 1)]?.name ?? '-', 'Best biome')
+    + stat('star', n(r.clears), 'All Clears') + stat('shapes', n(r.totalLines), 'Lines popped')
+    + stat('gift', n(r.powers), 'Power-ups used') + stat('stats', n(r.runs), 'Pop runs');
+  const seg = document.createElement('div');
+  seg.className = 'ui-seg sc-statseg';
+  seg.setAttribute('role', 'radiogroup');
+  seg.setAttribute('aria-label', 'Stats for');
+  seg.innerHTML = (['tower', 'pop'] as const).map(t =>
+    `<label><input type="radio" name="sc-stattab" value="${t}"${t === tab ? ' checked' : ''}><span>${t === 'tower' ? 'Tower' : 'Pop'}</span></label>`).join('');
+  tower.before(seg);
+  tower.after(grid);
+  let shown = tab;
+  const show = (t: 'tower' | 'pop') => { shown = t; tower.classList.toggle('sc-off', t !== 'tower'); grid.classList.toggle('sc-off', t !== 'pop'); };
+  show(tab);
+  seg.addEventListener('change', e => show((e.target as HTMLInputElement).value as 'tower' | 'pop'));
+  return () => shown;
 }

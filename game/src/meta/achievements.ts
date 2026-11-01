@@ -9,7 +9,7 @@ import type { Profile } from '../view/profile.ts';
 import { scoredFinished } from './daily.ts';
 
 export type Tier = 'bronze' | 'silver' | 'gold' | 'platinum';
-export type Group = 'climb' | 'craft' | 'survive' | 'powers' | 'lifetime' | 'secret';
+export type Group = 'climb' | 'craft' | 'survive' | 'powers' | 'lifetime' | 'secret' | 'pop';
 
 export interface Achievement {
   id: string;
@@ -26,15 +26,18 @@ export interface Achievement {
   secret?: boolean;
   /** Counted ones: the total that earns it (the panel shows progress). */
   goal?: number;
+  /** In the game only, not in the store consoles (11 of Blockling Pop's 16: Pop plan §12). */
+  local?: boolean;
 }
 
 export const TIER_XP: Record<Tier, number> = { bronze: 20, silver: 50, gold: 100, platinum: 250 };
-/** Play Games and Game Center points (§18.5): 935 of the 1,000 both allow. */
+/** Play Games and Game Center points (§18.5): the tower's 49 take 955 of the 1,000 both allow, Pop's 5 the last 45. */
 export const TIER_POINTS: Record<Tier, number> = { bronze: 5, silver: 15, gold: 35, platinum: 100 };
 
 export const GROUPS: { id: Group; name: string }[] = [
   { id: 'climb', name: 'Climb' }, { id: 'craft', name: 'Craft' }, { id: 'survive', name: 'Survive' },
   { id: 'powers', name: 'Power-ups' }, { id: 'lifetime', name: 'Lifetime' }, { id: 'secret', name: 'Secret' },
+  { id: 'pop', name: 'Blockling Pop' },
 ];
 
 const A = (group: Group, id: string, name: string, text: string, tier: Tier, icon: string, more: Partial<Achievement> = {}): Achievement =>
@@ -95,6 +98,25 @@ export const ACHIEVEMENTS: Achievement[] = [
   A('secret', 'so_close', 'So Close!', 'Run out of bricks within a block of the line', 'bronze', 'flag', { secret: true }),
   A('secret', 'do_over', 'Do-Over', 'Undo a shape, then place it again as a Perfect', 'bronze', 'undo', { secret: true }),
   A('secret', 'needle', 'Needle Threader', 'Claim a checkpoint with a tower so thin it gets the smallest foundation', 'bronze', 'needle', { secret: true }),
+
+  // Blockling Pop (Pop plan §12). Read from the Pop sim's events by pop/achievements.ts. The five without
+  // `local` are in the store consoles; puzzle ones come only from puzzles.
+  A('pop', 'pop_first', 'Pop!', 'Pop your first line in Blockling Pop', 'bronze', 'row'),
+  A('pop', 'pop_double', 'Double Trouble', 'Pop 2 lines with one shape', 'bronze', 'row'),
+  A('pop', 'pop_daily', 'Daily Popper', 'Finish a scored Daily Pop', 'bronze', 'daily'),
+  A('pop', 'pop_10k', 'Five Digits', 'Score 10,000 in one Endless Pop run', 'bronze', 'score', { local: true }),
+  A('pop', 'pop_bag', 'Saved by the Bag', 'When no tray shape fits, place the bagged shape and pop a line', 'bronze', 'bag', { local: true }),
+  A('pop', 'pop_clear', 'Squeaky Clean', 'Get an All Clear in Blockling Pop', 'silver', 'star'),
+  A('pop', 'pop_combo_8', 'On a Roll', 'Reach combo 8 in Blockling Pop', 'silver', 'combo'),
+  A('pop', 'pop_triple', 'Hat Trick', 'Pop 3 lines with one shape', 'silver', 'row', { local: true }),
+  A('pop', 'pop_lines_1k', 'Line Dancer', 'Pop 1,000 lines in all', 'silver', 'shapes', { goal: 1000, local: true }),
+  A('pop', 'pop_world', 'Star Student', '3 stars on every puzzle in a world', 'silver', 'star', { local: true }),
+  A('pop', 'pop_quad', 'Towering Pop', 'Pop 4 or more lines with one shape', 'gold', 'tower', { local: true }),
+  A('pop', 'pop_combo_15', 'Unstoppable', 'Reach combo 15 in Blockling Pop', 'gold', 'combo', { local: true }),
+  A('pop', 'pop_moon', 'Pop to the Moon', 'Reach the Moon in one Endless Pop run (100 lines)', 'gold', 'biome', { biome: 7, local: true }),
+  A('pop', 'pop_bare', 'Bare Hands', 'Score 20,000 in one Endless Pop run without power-ups or Second Wind', 'gold', 'purist', { local: true }),
+  A('pop', 'pop_clears_10', 'Neat Freak', 'Get 10 All Clears in Blockling Pop', 'gold', 'swirl', { goal: 10, local: true }),
+  A('pop', 'pop_cosmos', 'Pop Star', 'Reach Deep Cosmos in one Endless Pop run (208 lines)', 'platinum', 'biome', { biome: 10, local: true }),
 ];
 
 export const BY_ID = new Map(ACHIEVEMENTS.map(a => [a.id, a]));
@@ -143,6 +165,7 @@ export function progress(p: Profile, a: Achievement): [number, number] | null {
   const have: Record<string, number> = {
     toolbox: l.powers, bubbles_50: l.bubbles, bricks_1k: l.bricks, bricks_10k: l.bricks, perfects_250: l.perfects,
     rows_100: l.rows, cps_100: l.checkpoints, streak_3: l.streak, streak_7: l.streak, daily_12: l.dailies,
+    pop_lines_1k: p.pop?.totalLines ?? 0, pop_clears_10: p.pop?.clears ?? 0,
   };
   return [Math.min(a.goal, have[a.id] ?? 0), a.goal];
 }
@@ -177,7 +200,23 @@ export function grantHistory(p: Profile, now = new Date()): string[] {
   if (s.rows >= 1) ids.push('row');
   if (s.clutches >= 1) ids.push('clutch');
   ids.push(...countedIds(lifetime(p)));
+  if (p.pop) ids.push(...popHistory(p.pop));
   return ids.filter(id => unlock(p, id, now));
+}
+
+/** What Pop's records prove (runs before its achievements, and the counted ones). Every Pop run so far is Endless. */
+export function popHistory(r: Profile['pop']): string[] {
+  const ids: string[] = [];
+  if (r.totalLines >= 1) ids.push('pop_first');
+  if (r.clears >= 1) ids.push('pop_clear');
+  if (r.combo >= 8) ids.push('pop_combo_8');
+  if (r.combo >= 15) ids.push('pop_combo_15');
+  if (r.best >= 10000) ids.push('pop_10k');
+  if (r.biome >= 7) ids.push('pop_moon');
+  if (r.biome >= 10) ids.push('pop_cosmos');
+  if (r.totalLines >= 1000) ids.push('pop_lines_1k');
+  if (r.clears >= 10) ids.push('pop_clears_10');
+  return ids;
 }
 
 /** The Daily Tower's: finished scored tries, checked once a scored try is over. */

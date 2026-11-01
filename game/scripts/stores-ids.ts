@@ -5,7 +5,7 @@
 //   --gamecenter also turns Game Center on, once the achievements exist in App Store Connect.
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { ACHIEVEMENTS } from '../src/meta/achievements.ts';
+import { STORE_ACHIEVEMENTS as ACHIEVEMENTS } from '../src/meta/stores.ts';
 import { STORE_IDS } from '../src/meta/store-ids.ts';
 
 /** Play Console names each id after the achievement: `achievement_` and the name in lower case, other characters as `_`. */
