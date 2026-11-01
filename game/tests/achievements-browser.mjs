@@ -57,12 +57,16 @@ const panel = await page.evaluate(secrets => {
     badges: [...p.querySelectorAll('.ui-ach > img')].filter(i => i.src.startsWith('data:image/png') && i.naturalWidth > 0).length,
     groups: [...p.querySelectorAll('h2.ui-h2')].map(h => h.firstChild.textContent),
     overflowX: document.documentElement.scrollWidth > window.innerWidth,
+    // Pop! and Solid Ground share a tier and icon; Pop's badge has Art's Pop look, so they differ.
+    popBadge: [...p.querySelectorAll('.ui-ach')].find(i => i.textContent.includes('Pop!'))?.querySelector(':scope > img')?.src ?? '',
+    towerBadge: [...p.querySelectorAll('.ui-ach')].find(i => i.textContent.includes('Solid Ground'))?.querySelector(':scope > img')?.src ?? '',
   };
 }, SECRETS);
 step('panel lists 65, 4 earned, in seven groups (Blockling Pop last)', panel.items === 65 && panel.earned === 4 && panel.groups.join() === 'Climb,Craft,Survive,Power-ups,Lifetime,Secret,Blockling Pop', JSON.stringify(panel.groups));
 step('secret names and texts stay out of the page', panel.leaked.length === 0 && panel.hidden === 4, `leaked ${panel.leaked}`);
 step('counted ones show progress (Brick by Brick 310 / 1,000)', /310 \/ 1,000/.test(panel.bricks ?? ''), panel.bricks);
 step('every row has a baked badge', panel.badges === 65, `${panel.badges} / 65`);
+step('Blockling Pop badges have their own look (Pop! differs from Solid Ground)', panel.popBadge.length > 100 && panel.towerBadge.length > 100 && panel.popBadge !== panel.towerBadge, `${panel.popBadge.length} ${panel.towerBadge.length}`);
 step('no sideways scroll at 390 px', !panel.overflowX);
 await page.evaluate(() => document.querySelector('.ui-achs').scrollTo(0, 99999));
 await page.waitForTimeout(200);

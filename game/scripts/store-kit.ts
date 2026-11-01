@@ -21,7 +21,7 @@ export function storeKit(): Record<string, string> {
     gc.push([r.name, r.gameCenter, r.points, r.hidden ? 'Yes' : 'No', 'No', r.name, r.text, r.text, `gamecenter/${r.id}.png`] as string[]);
   }
   // Art's export counts biomes from 0 (Meadow); the game from 1.
-  const badges = rows.map(r => { const a = BY_ID.get(r.id)!; return { id: r.id, tier: a.tier, icon: a.icon, ...(a.biome ? { biome: a.biome - 1 } : {}) }; });
+  const badges = rows.map(r => { const a = BY_ID.get(r.id)!; return { id: r.id, tier: a.tier, icon: a.icon, ...(a.biome ? { biome: a.biome - 1 } : {}), ...(a.group === 'pop' ? { pop: true } : {}) }; });
   return {
     'achievements.json': JSON.stringify(rows, null, 2) + '\n',
     'play-games.csv': csv(play),
