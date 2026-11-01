@@ -35,9 +35,10 @@ so there's nothing to install by hand. The team id is in the Xcode project (`DEV
 
 - `npm run testflight:team`: an internal TestFlight group that gets every build, with everyone on the App
   Store Connect team in it. Internal testers need no Beta App Review.
-- `npm run stores:gamecenter -- --apply`: the 49 achievements in Game Center with their English text and
-  Art's badges (`art: npm run export:badges`), then turns Game Center on in `src/meta/store-ids.ts`. Without
-  `--apply` it only lists them.
+- `npm run stores:gamecenter -- --apply`: the store achievements (54 since Blockling Pop) in Game Center with
+  their English text and Art's badges (`art: npm run export:badges`, or `-- badges.json` from `npm run
+  store-kit` for the Pop look), then turns Game Center on in `src/meta/store-ids.ts`. Without `--apply` it only
+  lists them. Badges are only added where missing; `--replace pop_first,pop_double` swaps the ones Art redrew.
 
 ## Native bits
 
