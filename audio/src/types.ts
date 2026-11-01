@@ -75,6 +75,26 @@ export const JUICE_EVENTS = [
 
 export type JuiceEventName = (typeof JUICE_EVENTS)[number];
 
+/**
+ * Blockling Pop's events (Pop plan §10), sent by the Pop view through handle() once setMode('pop') is on.
+ * Biome ids are 1-based, like the tower's; pop_pickup's shape is a key ('Pip', 'L') or its index.
+ */
+export const POP_EVENTS = [
+  'pop_run_start', // {biome, cp, fill 0-1, puzzle?}
+  'pop_pickup', 'pop_ghost', 'pop_would_pop', 'pop_drop_back', // {shape}, {lines}, {count, 0 = stop}
+  'pop_place', 'pop_lines', 'pop_combo', 'pop_combo_end', 'pop_all_clear', // {shape, cells, combo}, {count, combo, lines, hitstop ms}, {combo}
+  'pop_checkpoint', 'biome_entered', 'pop_tray', 'pop_bag', 'pop_cant_fit', 'pop_fill', // {n}, {id}, {n}, -, {slot}, {fill}
+  'pop_no_room', 'pop_run_over', // {waiting?}, {cause}
+  // milestone 3: bubbles, powers and Second Wind
+  'pop_bubble', 'pop_bubble_got', 'pop_bubble_gone', 'pop_power_got', // {kind, why}, {kind}, -, {kind, why}
+  'pop_power', 'pop_meteor_hit', 'pop_power_refused', // {kind: undo|spin|sweep|meteor|fresh, cells?}, {cells}, -
+  'pop_aim', 'pop_aim_move', 'pop_aim_cancel', 'pop_spin', // {kind}, -, -, -
+  'pop_wind_ready', 'pop_wind_armed', 'pop_second_wind', // {why}, -, {cells}
+  'pause', 'resume', 'xp_tick', 'level_up', 'unlock', 'achievement',
+] as const;
+
+export type PopEventName = (typeof POP_EVENTS)[number];
+
 /** Payloads are read defensively: unknown or missing fields fall back to defaults. */
 export type Payload = Record<string, unknown> | undefined;
 

@@ -21,7 +21,7 @@ export const THEME_BARS = 32;
 /** alternate versions of each section, cycled pass by pass */
 export const VARIATIONS = 3;
 
-export type Part = 'pad' | 'bass' | 'support' | 'drums' | 'lead' | 'tension' | 'riser';
+export type Part = 'pad' | 'bass' | 'support' | 'drums' | 'lead' | 'tension' | 'riser' | 'sparkle';
 
 export interface NoteEvent {
   part: Part;
@@ -39,6 +39,8 @@ export interface NoteEvent {
 
 const DIATONIC = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] };
 const STRUM = 0.012;
+/** Pop's keys roll their chords this much (s); the keys stab on a placement uses the same buffer. */
+export const KEYS_ROLL = 0.008;
 
 /** The key's tonic on the lowest MIDI note at or above `low`. */
 export function tonicAt(key: Key, low: number): number {
@@ -47,23 +49,28 @@ export function tonicAt(key: Key, low: number): number {
 }
 
 /** Semitones above the tonic for a diatonic degree (any integer). */
-function dia(key: Key, d: number): number {
+export function dia(key: Key, d: number): number {
   const s = DIATONIC[key.mode];
   return s[((d % 7) + 7) % 7] + 12 * Math.floor(d / 7);
 }
 
 /** Pitch classes of the triad on a diatonic degree. */
-function triadPcs(key: Key, degree: number): number[] {
+export function triadPcs(key: Key, degree: number): number[] {
   return [0, 2, 4].map((k) => (((key.root + dia(key, degree + k)) % 12) + 12) % 12);
 }
 
+/** Pitch classes of the seventh chord on a diatonic degree. */
+export function seventhPcs(key: Key, degree: number): number[] {
+  return [0, 2, 4, 6].map((k) => (((key.root + dia(key, degree + k)) % 12) + 12) % 12);
+}
+
 /** Close voicing: each pitch class on its lowest note at or above `low`, low to high. */
-function voice(pcs: number[], low: number): number[] {
+export function voice(pcs: number[], low: number): number[] {
   return pcs.map((pc) => low + ((pc - (low % 12) + 12) % 12)).sort((a, b) => a - b);
 }
 
 /** MIDI note for a pentatonic step above the tonic at `base`. */
-function pent(key: Key, base: number, p: number): number {
+export function pent(key: Key, base: number, p: number): number {
   const s = PENTATONIC[key.mode];
   return base + s[((p % 5) + 5) % 5] + 12 * Math.floor(p / 5);
 }
@@ -122,6 +129,29 @@ export class Theme {
 
   constructor(readonly style: MusicStyle, readonly key: Key, readonly tune: number) {}
 
+  /** Seconds per beat and per bar at this theme's tempo. */
+  get beat(): number {
+    return 60 / (this.style.bpm ?? BPM);
+  }
+
+  get barLen(): number {
+    return 4 * this.beat;
+  }
+
+  /** The chord (a diatonic degree) under bar `bar`. */
+  degreeAt(bar: number): number {
+    const inTheme = ((bar % THEME_BARS) + THEME_BARS) % THEME_BARS;
+    const section = Math.floor(inTheme / SECTION_BARS);
+    const prog = this.style.progressions[section === 2 ? 1 : 0];
+    return prog[Math.floor((inTheme % SECTION_BARS) / 2) % prog.length];
+  }
+
+  /** The pad's chord on bar `bar`, voiced as the pad plays it (Pop's keys stab reuses it). */
+  padChord(bar: number): number[] {
+    const d = this.degreeAt(bar);
+    return voice(this.style.sevenths ? seventhPcs(this.key, d) : triadPcs(this.key, d), this.style.padLow);
+  }
+
   /** Every note of bar `bar` (counted from the theme's start) for the foundation, groove and lead. */
   bar(bar: number, density: 0 | 1 | 2): NoteEvent[] {
     const s = this.style;
@@ -136,15 +166,19 @@ export class Theme {
     const out: NoteEvent[] = [];
     const pcs = triadPcs(this.key, chord);
 
-    // pad: one chord per two bars, held across both
-    if (inSection % 2 === 0) out.push({ part: 'pad', inst: s.pad, midis: voice(pcs, s.padLow), beat: 0, dur: 8, vel: 1 });
+    // pad: one chord per two bars, held across both (or Pop's keys, in a pattern)
+    const pattern = s.padPattern ?? 'hold';
+    if (pattern === 'hold') {
+      if (inSection % 2 === 0) out.push({ part: 'pad', inst: s.pad, midis: voice(pcs, s.padLow), beat: 0, dur: 8, vel: 1 });
+    } else this.keys(out, this.padChord(bar), pattern, rng);
+    if (s.hold && inSection % 2 === 0) out.push({ part: 'pad', inst: s.hold, midis: voice(pcs, s.holdLow ?? s.padLow), beat: 0, dur: 8, vel: 0.6 });
 
     this.bass(out, chord, next, rng);
     this.support(out, pcs, rng, density);
     this.drums(out, density, inSection === SECTION_BARS - 1, rng);
     for (const e of this.melody(pass % VARIATIONS, section, prog)) {
       const local = e.beat - inSection * 4;
-      if (local >= 0 && local < 4) out.push({ ...e, beat: local });
+      if (local >= 0 && local < 4) out.push({ ...e, beat: s.swingAll && local % 1 === 0.5 ? local + s.swing : local });
     }
     return out;
   }
@@ -176,9 +210,10 @@ export class Theme {
   /** Every note and chord this theme (and its riser into `next`) can ask for, so the bank can bake them first. */
   notes(next?: MusicStyle): NoteRequest[] {
     const seen = new Map<string, NoteRequest>();
+    const low = this.style.low;
     const add = (e: NoteEvent) => {
       const k = `${e.inst}:${e.midis.join(',')}:${e.spread ?? 0}`;
-      if (!seen.has(k)) seen.set(k, { inst: e.inst, midis: e.midis, spread: e.spread });
+      if (!seen.has(k)) seen.set(k, low ? { inst: e.inst, midis: e.midis, spread: e.spread, low } : { inst: e.inst, midis: e.midis, spread: e.spread });
     };
     for (let pass = 0; pass < VARIATIONS; pass++) {
       for (let b = 0; b < THEME_BARS; b++) {
@@ -188,6 +223,35 @@ export class Theme {
     }
     if (next) for (let i = 0; i < 4; i++) this.riser(i, next).forEach(add);
     return [...seen.values()];
+  }
+
+  /** Pop's keys: a café comp of stabs, a two-beat sway, or one slow bloom a bar. One voicing per chord, so one buffer. */
+  private keys(out: NoteEvent[], midis: number[], pattern: 'comp' | 'sway' | 'bloom', rng: Rng): void {
+    const s = this.style;
+    const n = (beat: number, dur: number, vel: number) =>
+      out.push({ part: 'pad', inst: s.pad, midis, spread: KEYS_ROLL, beat: beat % 1 === 0.5 ? beat + s.swing : beat, dur, vel });
+    switch (pattern) {
+      case 'comp': {
+        n(0, 1.3, 0.85);
+        const r = rng();
+        if (r < 0.5) {
+          n(1.5, 0.4, 0.5);
+          n(2.5, 1.2, 0.65);
+        } else if (r < 0.8) {
+          n(2, 0.9, 0.6);
+          n(3.5, 0.45, 0.5);
+        } else n(2.5, 1.4, 0.6);
+        break;
+      }
+      case 'sway':
+        n(0, 2, 0.8);
+        n(2, 2, rng() < 0.5 ? 0.6 : 0.5);
+        break;
+      case 'bloom':
+        n(0, 4, 0.8);
+        if (rng() < 0.3) n(3, 1, 0.4);
+        break;
+    }
   }
 
   private bass(out: NoteEvent[], chord: number, next: number, rng: Rng): void {

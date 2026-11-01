@@ -6,7 +6,7 @@ import { SOUNDS, renderBed } from '../../src/synth/recipes';
 import { renderNote, MATERIAL_INSTRUMENT, type InstrumentId } from '../../src/synth/instruments';
 import { mulberry32 } from '../../src/synth/dsp';
 import { BIOMES } from '../../src/biomes';
-import { biomeScope, biomeWindow } from '../../src/bank';
+import { biomeScope, biomeWindow, modeScope, towerOnly } from '../../src/bank';
 
 const SR = 48000;
 
@@ -63,19 +63,24 @@ test('every sound and variation renders clean, within the memory budget', () => 
   }
   const ms = performance.now() - t0;
   const all = [...bytesOf.values()].reduce((a, b) => a + b, 0);
-  // what is actually held while playing in each biome: core sounds plus that biome's window
-  const loaded = BIOMES.map((b) => {
+  // what is actually held while playing in each biome: core sounds plus that biome's window, and in
+  // Blockling Pop its own sounds instead of the tower sounds it never plays
+  const held = (mode: 'tower' | 'pop') => BIOMES.map((b) => {
     const win = biomeWindow(b.id);
     let sum = 0;
     for (const [name, n] of bytesOf) {
+      if ((modeScope(name) ?? 'tower') !== mode && modeScope(name)) continue;
+      if (mode === 'pop' && towerOnly(name)) continue;
       const sc = biomeScope(name);
       if (!sc || sc.some((x) => win.includes(x))) sum += n;
     }
     return sum;
   });
-  const worst = Math.max(...loaded);
-  console.log(`# ${names.length} sounds rendered in ${ms.toFixed(0)} ms; ${(all / 1e6).toFixed(1)} MB if all were loaded, at most ${(worst / 1e6).toFixed(1)} MB held in any biome (48 kHz)`);
+  const worst = Math.max(...held('tower'));
+  const pop = Math.max(...held('pop'));
+  console.log(`# ${names.length} sounds rendered in ${ms.toFixed(0)} ms; ${(all / 1e6).toFixed(1)} MB if all were loaded, at most ${(worst / 1e6).toFixed(1)} MB held in any biome (48 kHz), ${(pop / 1e6).toFixed(1)} MB in Pop`);
   assert.ok(worst < 25e6, `SFX held in memory stays under the 25 MB budget (worst ${(worst / 1e6).toFixed(1)} MB)`);
+  assert.ok(pop < 25e6, `and in Blockling Pop (worst ${(pop / 1e6).toFixed(1)} MB)`);
 });
 
 test('the core sounds Wobble Lab needs all exist', () => {

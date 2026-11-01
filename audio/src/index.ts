@@ -17,4 +17,4 @@ export { Haptics, PATTERNS, type CapacitorHapticsLike, type PatternName } from '
 export { DEFAULT_SETTINGS, type AudioSettings } from './settings';
 export { BIOMES, biome, biomeKey } from './biomes';
 export { MUSIC_TUNING, type MusicScreen, type MusicMode } from './music/engine';
-export { JUICE_EVENTS, DEFAULT_SIGNALS, type Signals, type Material, type HapticsLevel, type JuiceEventName } from './types';
+export { JUICE_EVENTS, POP_EVENTS, DEFAULT_SIGNALS, type Signals, type Material, type HapticsLevel, type JuiceEventName, type PopEventName } from './types';

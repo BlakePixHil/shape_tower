@@ -3,18 +3,21 @@
 // JuiceBus events and 10 Hz signals into sound. Gameplay code never calls
 // anything here except through events, plus ui() and the settings setters.
 
-import { BIOMES, biome, biomeKey, type BiomeAudio } from './biomes';
+import { BIOMES, biome, biomeKey, cosmosRotation, type BiomeAudio } from './biomes';
 import { SoundBank, type NoteRequest } from './bank';
 import { FallbackBaker, ThreadBaker, WorkerBaker, type Baker } from './bake/baker';
 import { Haptics, defaultHapticsLevel, type CapacitorHapticsLike, type PatternName } from './haptics';
 import { MusicEngine, type MusicScreen } from './music/engine';
+import { pent, tonicAt, triadPcs, voice } from './music/composer';
+import { popStyleFor } from './music/styles-pop';
+import type { MusicStyle } from './music/styles';
 import { LandingLadder, type Grade } from './music/ladder';
 import { run, scaleNote, tonicChord, type Key } from './music/theory';
 import { Mixer, type Overlay } from './mixer';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type AudioSettings, type StorageLike } from './settings';
 import { clamp, dbToGain, lerp, mulberry32, semis, type Rng } from './synth/dsp';
 import { MATERIAL_INSTRUMENT, type InstrumentId } from './synth/instruments';
-import { SHAPE_VOICE } from './synth/voice';
+import { POP_SHAPE_KEYS, SHAPE_VOICE } from './synth/voice';
 import {
   DEFAULT_SIGNALS, asMaterial, bool, num, str,
   type BusName, type Category, type HapticsLevel, type Material, type Payload, type Priority, type Signals,
@@ -135,6 +138,9 @@ export class AudioDirector {
   private juice = true;
   /** a Zen run (setZen): no countdown pressure, so the checkpoint hold keeps its suspense to itself */
   private zen = false;
+  /** 'pop' while Blockling Pop is open (setMode): handle() takes Pop's own events */
+  private modeName: 'tower' | 'pop' = 'tower';
+  private popRun: PopRun = newPopRun();
 
   // run state
   private running = false;
@@ -248,10 +254,27 @@ export class AudioDirector {
    * (a lighter arrangement), 'none' for silence. Results music starts by itself after a run.
    */
   screen(name: MusicScreen | 'none', when: number = this.now()): void {
-    if (this.running) return;
+    if (this.running || this.popRun.on) return;
     if (name === 'none') return this.music.stop(when);
-    if (name !== 'results') this.mixer.setBase('menu', when, 0.5);
+    if (name !== 'results' && name !== 'popResults') this.mixer.setBase('menu', when, 0.5);
     this.music.showScreen(name, when);
+  }
+
+  /**
+   * Blockling Pop (the Pop plan): 'pop' while a Pop run shows, 'tower' when it leaves. In Pop, handle()
+   * takes Pop's own events (POP_EVENTS) and the tower's are ignored; Pop's sounds bake when it opens and
+   * go when the tower comes back. Leaving in the middle of a run closes it quietly.
+   */
+  setMode(mode: 'tower' | 'pop', when: number = this.now()): void {
+    if ((mode !== 'tower' && mode !== 'pop') || mode === this.modeName) return;
+    if (this.popRun.on) this.endPop(when);
+    if (mode === 'pop' && this.running) this.attach(when);
+    this.modeName = mode;
+    void this.bank.prepareMode(mode);
+  }
+
+  get mode(): 'tower' | 'pop' {
+    return this.modeName;
   }
 
   setVolume(bus: 'music' | 'sfx' | 'voices', linear: number): void {
@@ -364,6 +387,8 @@ export class AudioDirector {
       haptics: this.haptics.backend.name,
       baking: this.bank.baker.name,
       music: this.music.state(),
+      mode: this.modeName,
+      pop: { on: this.popRun.on, combo: this.popRun.combo, step: this.popRun.step, cp: this.popRun.cp, shimmer: !!this.popRun.shimmer },
     };
   }
 
@@ -722,6 +747,11 @@ export class AudioDirector {
   // ------------------------------------------------------------ events
 
   private dispatch(name: string, p: Payload, when: number): void {
+    if (this.modeName === 'pop') this.dispatchPop(name, p, when);
+    else this.dispatchTower(name, p, when);
+  }
+
+  private dispatchTower(name: string, p: Payload, when: number): void {
     switch (name) {
       // input (6.1)
       case 'piece_spawned':
@@ -1448,6 +1478,459 @@ export class AudioDirector {
     } else if (type === 'dust') this.play('dust.swirl', { when, gainDb: -11, category: 'misc', priority: 2 });
   }
 
+  // ------------------------------------------------------------ Blockling Pop (Pop plan, Music and sound)
+
+  private dispatchPop(name: string, p: Payload, when: number): void {
+    const R = this.popRun;
+    // the run start was missed (sent before the bank was ready): the first move starts it
+    if (!R.on && (name === 'pop_pickup' || name === 'pop_place') && when - R.overAt > 1) this.onPopStart({ biome: this.biomeId || 1 }, when);
+    switch (name) {
+      case 'pop_run_start':
+        this.onPopStart(p, when);
+        break;
+      case 'pop_pickup': {
+        this.play('pop.boop', { when, gainDb: -13, rate: semis(SHAPE_VOICE[popShape(p?.shape)] ?? 0), category: 'ui', priority: 2, slowmo: false });
+        this.haptic('light');
+        break;
+      }
+      case 'pop_ghost':
+        if (!this.cool.ready('popghost', when, 0.035)) break;
+        this.play('pop.snap', { when, gainDb: -19, rate: semis(2 * clamp(num(p, 'lines', 0), 0, 3)), category: 'ui', priority: 3, slowmo: false });
+        this.haptic('select');
+        break;
+      case 'pop_would_pop':
+        this.wouldPop(Math.max(0, Math.round(num(p, 'count', 0))), when);
+        break;
+      case 'pop_drop_back':
+        this.wouldPop(0, when);
+        this.play('pop.boing', { when, gainDb: -15, category: 'misc', priority: 2 });
+        this.haptic('light');
+        break;
+      case 'pop_place':
+        this.onPopPlace(p, when);
+        break;
+      case 'pop_lines':
+        this.onPopLines(p, when);
+        break;
+      case 'pop_combo': {
+        const combo = Math.max(1, Math.round(num(p, 'combo', R.combo)));
+        R.combo = combo;
+        this.music.popInput({ combo });
+        this.play('pop.tick', {
+          when: when + 0.1, gainDb: -16, rate: semis(scaleNote({ root: 0, mode: this.key.mode }, Math.min(combo - 2, 9))),
+          category: 'ui', priority: 2, vary: false, slowmo: false,
+        });
+        break;
+      }
+      case 'pop_combo_end':
+        R.combo = 0;
+        this.music.popInput({ combo: 0 });
+        this.play('pop.fizz', { when, gainDb: -17, category: 'misc', priority: 3 });
+        break;
+      case 'pop_all_clear':
+        this.onAllClear(when);
+        break;
+      case 'pop_checkpoint':
+        this.onPopCheckpoint(Math.round(num(p, 'n', R.cp + 1)), when);
+        break;
+      case 'biome_entered':
+        this.popBiome(Math.round(num(p, 'id', this.biomeId)), when, true);
+        break;
+      case 'pop_tray':
+        R.cantFit.clear();
+        if (!this.cool.ready('poptray', when, 0.2)) break;
+        for (let i = 0; i < 3; i++) this.play('pop.flick', { when: when + i * 0.07, gainDb: -21 - i, rate: 1 + i * 0.04, category: 'ui', priority: 3, slowmo: false });
+        break;
+      case 'pop_bag':
+        this.play('swap', { when, gainDb: -14, category: 'ui', priority: 2 });
+        this.haptic('double', 0.6);
+        break;
+      case 'pop_cant_fit': {
+        const slot = Math.round(num(p, 'slot', -1));
+        if (R.cantFit.has(slot)) break;
+        R.cantFit.add(slot);
+        if (this.juice && this.cool.ready('popuh', when, 1)) this.play('pop.uh', { bus: 'voices', when, gainDb: -13, category: 'misc', priority: 3 });
+        break;
+      }
+      case 'pop_fill':
+        this.music.popInput({ fill: num(p, 'fill', 0) });
+        break;
+      case 'pop_no_room':
+        this.onNoRoom(when, bool(p, 'waiting'));
+        break;
+      case 'pop_run_over':
+      case 'run_over':
+        this.onPopOver(str(p, 'cause', ''), when);
+        break;
+      // milestone 3: bubbles, powers and Second Wind
+      case 'pop_bubble':
+        // a bubble floats down onto its cell
+        if (this.cool.ready('popbubble', when, 0.5)) this.play('bubble.spawn', { when, gainDb: -15, category: 'misc', priority: 3 });
+        break;
+      case 'pop_bubble_got':
+        // a shape covers it: the film bursts, the icon flies to a slot with a chime
+        this.play('bubble.pop', { when, gainDb: -9, category: 'misc', priority: 2 });
+        if (this.juice) this.popChime(when + 0.04, -12);
+        this.haptic('double', 0.7);
+        break;
+      case 'pop_bubble_gone':
+        this.play('boop', { when, gainDb: -24, rate: 1.6, category: 'misc', priority: 4 });
+        break;
+      case 'pop_power_got': {
+        // straight into a slot (a big pop, an All Clear, a checkpoint, the head start): after the moment that earned it
+        const at = Math.max(when, this.lastCheckpointAt + 1, this.lastGrantAt + 0.45);
+        this.lastGrantAt = at;
+        if (!this.juice) {
+          this.play('bubble.pop', { when: at, gainDb: -14, category: 'misc', priority: 3 });
+          break;
+        }
+        this.popChime(at, -13);
+        this.play('shimmer', { when: at + 0.15, gainDb: -17, category: 'misc', priority: 4 });
+        this.haptic('double', 0.5, at - when);
+        break;
+      }
+      case 'pop_power':
+        this.onPopPower(str(p, 'kind', ''), p, when);
+        break;
+      case 'pop_meteor_hit':
+        this.onMeteorHit(Array.isArray(p?.cells) ? p.cells.length : 6, when);
+        break;
+      case 'pop_power_refused':
+        this.play('rotate.blocked', { bus: 'ui', when, gainDb: -12, rate: 0.8, category: 'ui', priority: 2, slowmo: false });
+        this.haptic('rotateBlocked');
+        break;
+      case 'pop_aim':
+        this.play('ui.open', { bus: 'ui', when, gainDb: -17, category: 'ui', priority: 3, slowmo: false });
+        this.haptic('light');
+        break;
+      case 'pop_aim_move':
+        // like the ghost: a faint snap as the target steps a cell
+        if (!this.cool.ready('popaim', when, 0.035)) break;
+        this.play('pop.snap', { when, gainDb: -21, rate: 0.9, category: 'ui', priority: 3, slowmo: false });
+        this.haptic('select');
+        break;
+      case 'pop_aim_cancel':
+        this.play('ui.back', { bus: 'ui', when, gainDb: -16, category: 'ui', priority: 3, slowmo: false });
+        break;
+      case 'pop_spin':
+        // each tap turns a tray shape: an 80 ms snap and a little whoosh arc
+        if (!this.cool.ready('popspin', when, 0.06)) break;
+        this.play('pop.snap', { when, gainDb: -14, rate: 1.1, category: 'ui', priority: 2, slowmo: false });
+        if (this.juice) this.play('pop.whoosh', { when: when + 0.01, gainDb: -17, rate: 1.3, category: 'misc', priority: 3 });
+        this.haptic('select');
+        break;
+      case 'pop_wind_ready': {
+        // never a nag: silent at run start, one soft cue when checkpoint 2 earns it
+        if (str(p, 'why', 'start') === 'start') break;
+        const at = Math.max(when, this.lastCheckpointAt + 2.2);
+        if (this.juice) this.play('shimmer', { when: at, gainDb: -17, category: 'misc', priority: 3 });
+        this.popNote(this.popStyle.pop!.board, this.popPitch(7), { when: at + 0.05, gainDb: -17 });
+        break;
+      }
+      case 'pop_wind_armed':
+        // the first of the two taps: a breath in
+        this.play('ui.on', { bus: 'ui', when, gainDb: -14, rate: 1.1, category: 'ui', priority: 2, slowmo: false });
+        if (this.juice) this.play('pop.whoosh', { when, gainDb: -20, rate: 0.7, category: 'misc', priority: 3 });
+        this.haptic('light');
+        break;
+      case 'pop_second_wind':
+        this.onPopSecondWind(Array.isArray(p?.cells) ? p.cells.length : 27, when);
+        break;
+      // shared with the tower
+      case 'pause':
+      case 'resume':
+      case 'xp_tick':
+      case 'level_up':
+      case 'achievement':
+      case 'unlock':
+        this.dispatchTower(name, p, when);
+        break;
+    }
+  }
+
+  /** Pop's band for the biome and Deep Cosmos rotation the run is in (its board instrument and scales). */
+  private get popStyle(): MusicStyle {
+    return popStyleFor(this.biomeId, this.biomeId === 10 ? cosmosRotation(this.popRun.cp) : 0);
+  }
+
+  /** A pentatonic step on the board's register, in the current key. */
+  private popPitch(step: number): number {
+    return pent(this.key, tonicAt(this.key, this.popStyle.pop!.boardLow), step);
+  }
+
+  /** A note on the board's instrument, baked at half rate like the rest of Pop. */
+  private popNote(inst: InstrumentId, midi: number, o: PlayOptions = {}): Playing | null {
+    return this.playBuffer(this.bank.note(inst, midi, true), { category: 'note', priority: 2, vary: false, ...o });
+  }
+
+  private popChord(inst: InstrumentId, midis: number[], o: PlayOptions = {}, spread = 0): Playing | null {
+    return this.playBuffer(this.bank.chord(inst, midis, spread, true), { category: 'stinger', priority: 2, vary: false, ...o });
+  }
+
+  /** Bakes the board's notes and answer chords in the current key: the landing ladder and every glissando. */
+  private warmPop(): void {
+    const style = this.popStyle, v = style.pop!;
+    const items: NoteRequest[] = [];
+    for (let st = 0; st <= 15; st++) items.push({ inst: v.board, midis: [this.popPitch(st)], low: true });
+    for (const d of new Set([0, ...style.progressions.flat()])) items.push({ inst: v.board, midis: voice(triadPcs(this.key, d), v.boardLow), low: true });
+    items.push({ inst: v.board, midis: voice(triadPcs(this.key, 0), v.boardLow), spread: 0.03, low: true });
+    void this.bank.warmNotes(items);
+  }
+
+  private onPopStart(p: Payload, when: number): void {
+    const R = (this.popRun = newPopRun());
+    R.on = true;
+    R.puzzle = bool(p, 'puzzle');
+    R.cp = Math.max(0, Math.round(num(p, 'cp', 0)));
+    void this.bank.prepareMode('pop');
+    this.mixer.clearOverlays(when);
+    this.mixer.setBase('playing', when);
+    this.biomeId = 0;
+    this.popBiome(Math.round(num(p, 'biome', 1)), when, false);
+    this.music.startPop(when, this.biomeId, { cp: R.cp, fill: num(p, 'fill', 0), puzzle: R.puzzle });
+  }
+
+  /** A biome entered (1 to 10): its entry moment, and the band moves to its family at the next bar line. */
+  private popBiome(id: number, when: number, entry: boolean): void {
+    const b = biome(id);
+    const changed = b.id !== this.biomeId;
+    this.biomeId = b.id;
+    this.key = biomeKey(b.id, this.popRun.cp);
+    this.mixer.setAir(b.air, when);
+    if (!changed) return;
+    void this.bank.prepareBiome(b.id);
+    this.music.popBiome(b.id, this.popRun.cp);
+    this.warmPop();
+    if (entry && this.juice) {
+      const at = Math.max(when, this.lastCheckpointAt + 1.2);
+      this.play(`entry.${b.id}`, { when: at, gainDb: b.id === 4 ? -8 : -11, category: 'stinger', priority: 1, slowmo: false });
+      this.haptic('medium', 1, at - this.now());
+    }
+  }
+
+  /** The lines a held shape would pop glow: a soft shimmer loops until it moves off or lands. */
+  private wouldPop(count: number, when: number): void {
+    const R = this.popRun;
+    if (count > 0) {
+      const db = -23 + 2 * Math.min(count, 3);
+      if (!R.shimmer) R.shimmer = this.play('pop.shimmer', { when, gainDb: db, attack: 0.08, loop: true, category: 'ambience', priority: 2, vary: false, slowmo: false });
+      else R.shimmer.gain.gain.setTargetAtTime(dbToGain(db), when, 0.05);
+    } else if (R.shimmer) {
+      this.stopPlaying(R.shimmer, when, 0.12);
+      this.voices.remove(R.shimmer.id);
+      R.shimmer = null;
+    }
+  }
+
+  /** A shape stamped onto the board: its skin's impact, then (juice) a keys stab and a landing note. */
+  private onPopPlace(p: Payload, when: number): void {
+    const R = this.popRun;
+    this.wouldPop(0, when);
+    R.placed++;
+    const cells = Math.round(num(p, 'cells', 4));
+    this.play(this.impactName(asMaterial(p?.material, this.material), cells >= 5 ? 3 : 2), { when, gainDb: -9, category: 'impact', priority: 2 });
+    this.haptic('medium');
+    if (!this.juice) return;
+    // the notes climb the scale while a combo is alive; otherwise placements walk up five steps and start over
+    R.step = R.combo > 0 ? Math.min(R.step + 1, 9) : (R.placed - 1) % 5;
+    this.popNote(this.popStyle.pop!.board, this.popPitch(R.step), { when: when + 0.01, gainDb: -12 });
+    const h = this.music.popHarmony(when);
+    if (h) {
+      const stab = this.playChord(h.chord.inst, h.chord.midis, { when, gainDb: -17, priority: 3 }, h.chord.spread);
+      if (stab) this.stopPlaying(stab, when + 0.18, 0.09);
+    }
+  }
+
+  /**
+   * Lines pop. What popped is always heard: the clack and a plip for each step of the wave. With juice,
+   * the board plays: the first note at once, then one note up the scale per cell, 39 ms apart from the
+   * end of the freeze, each line a third above the last; the answer lands on the next sixteenth.
+   */
+  private onPopLines(p: Payload, when: number): void {
+    const R = this.popRun;
+    const count = Math.max(1, Math.round(num(p, 'count', 1)));
+    R.combo = Math.max(1, Math.round(num(p, 'combo', R.combo + 1)));
+    this.music.popped();
+    this.music.popInput({ combo: R.combo });
+    const raw = Array.isArray(p?.lines) ? (p.lines as unknown[]).map(Number).filter((n) => n > 0) : [];
+    const lens = raw.length ? raw : Array<number>(count).fill(9);
+    const stop = clamp(num(p, 'hitstop', count >= 3 ? 80 : count === 2 ? 60 : 40), 0, 300) / 1000;
+    const steps = Math.min(9, Math.max(...lens));
+    this.play('row.clack', { when, gainDb: -6, category: 'stinger', priority: 1 });
+    for (let k = 0; k < steps; k++) {
+      this.play('pop.plip', { when: when + (k ? stop + k * POP_STEP : 0), gainDb: -19 + Math.min(4, count), rate: semis(k * 0.5), category: 'misc', priority: 2 });
+    }
+    this.haptic(count >= 2 ? 'heavyDouble' : 'heavy');
+    if (!this.juice) return;
+    const style = this.popStyle, v = style.pop!;
+    const from = R.step % 5;
+    const lines = lens.slice(0, POP_HARMONY.length);
+    // in time order, so each new note takes over from the oldest one still ringing
+    for (let k = 0; k < steps; k++) {
+      lines.forEach((len, j) => {
+        if (k >= len) return;
+        this.popNote(v.board, this.popPitch(from + POP_HARMONY[j] + k), { when: k ? when + stop + k * POP_STEP : when, gainDb: -12 });
+      });
+    }
+    const at = this.music.nextGrid(when + 0.04, 0.25);
+    const h = this.music.popHarmony(at);
+    const degree = h?.degree ?? 0;
+    if (h) this.playChord(h.chord.inst, h.chord.midis, { when: at, gainDb: -14, priority: 2 }, h.chord.spread);
+    this.popChord(v.board, voice(triadPcs(this.key, degree), v.boardLow), { when: at, gainDb: count >= 2 ? -9 : -11, priority: 1 });
+    if (count >= 2) {
+      this.popNote(v.board, this.popPitch(10), { when: at + 0.02, gainDb: -13 });
+      // a little crowd of shapes cheering
+      if (this.say('yay', when + 0.25, { minGap: TUNING.voiceGapCheckpoint })) {
+        for (let i = 0; i < Math.min(3, count - 1); i++) this.say('yay', when + 0.37 + i * 0.11, { force: true, gainDb: -15 - i });
+      }
+    }
+    if (count >= 3) this.play('shimmer', { when: at + 0.05, gainDb: -12, category: 'misc', priority: 3 });
+  }
+
+  /** The jackpot: an instant hit and a crowd roar, the band's fanfare from the next beat, success three times. */
+  private onAllClear(when: number): void {
+    this.play('flag', { when, gainDb: this.juice ? -12 : -8, category: 'stinger', priority: 1 });
+    if (!this.juice) return;
+    const at = this.music.allClear(when);
+    const v = this.popStyle.pop!;
+    this.popChord(v.board, voice(triadPcs(this.key, 0), v.boardLow), { when: when + 0.02, gainDb: -8, priority: 1 }, 0.03);
+    this.popNote(v.board, this.popPitch(10), { when: when + 0.1, gainDb: -11 });
+    for (let i = 0; i < 2; i++) this.play('firework', { when: when + 0.15 + i * 0.3, gainDb: -12, pan: [-0.4, 0.4][i], category: 'stinger', priority: 2 });
+    for (let i = 0; i < 3; i++) this.play('confetti', { when: when + 0.1 + this.rng() * 0.4, gainDb: -15, pan: (this.rng() * 2 - 1) * 0.5, category: 'misc', priority: 4 });
+    this.play('shimmer', { when: at, gainDb: -12, category: 'misc', priority: 3 });
+    this.say('yay', when + 0.3, { force: true });
+    for (let i = 0; i < 3; i++) this.say('yay', when + 0.42 + i * 0.1, { force: true, gainDb: -14 - i });
+    this.say('whee', when + 0.8, { force: true, gainDb: -15 });
+    for (let i = 0; i < 3; i++) this.haptic('success', 1, i * 0.35);
+  }
+
+  private onPopCheckpoint(n: number, when: number): void {
+    const R = this.popRun;
+    R.cp = n;
+    this.lastCheckpointAt = when;
+    this.play('flag', { when, gainDb: -8, category: 'stinger', priority: 1 });
+    if (this.juice) this.play('pop.whoosh', { when: when + 0.05, gainDb: -14, category: 'misc', priority: 3 });
+    this.haptic('medium');
+    // Deep Cosmos turns key every 6 checkpoints
+    if (this.biomeId === 10) {
+      const k = biomeKey(10, n);
+      const turned = k.root !== this.key.root || k.mode !== this.key.mode;
+      this.key = k;
+      if (turned) this.warmPop();
+    }
+    this.music.popBiome(this.biomeId, n);
+  }
+
+  /** No room: "uh-oh" from the shapes and the error buzz. The run ends a moment later (pop_run_over). */
+  /** "No room!": the error and the Blocklings' uh-oh. Waiting for a power or End run, one uh-oh, not a chorus. */
+  private onNoRoom(when: number, waiting = false): void {
+    const R = this.popRun;
+    if (when - R.noRoomAt < 1) return;
+    R.noRoomAt = when;
+    this.wouldPop(0, when);
+    this.play('ui.error', { bus: 'ui', when, gainDb: -12, category: 'ui', priority: 1, slowmo: false });
+    if (this.say('uhoh', when + 0.1, { force: true }) && !waiting) this.say('uhoh', when + 0.28, { force: true, gainDb: -15 });
+    this.haptic('error');
+  }
+
+  /** The run is over: the board tumbles, the band tape-stops into "nice try", then Pop's results loop. */
+  private onPopOver(cause: string, when: number): void {
+    const R = this.popRun;
+    if (!R.on) return;
+    if (cause === 'noroom' && when - R.noRoomAt > 3) this.onNoRoom(when);
+    R.on = false;
+    R.overAt = when;
+    this.wouldPop(0, when);
+    for (let i = 0; i < 7; i++) {
+      this.play(this.impactName(this.material, i < 2 ? 3 : 2), {
+        when: when + 0.05 + i * 0.11 + this.rng() * 0.05, gainDb: -12 - 1.5 * i, pan: (this.rng() * 2 - 1) * 0.5, category: 'impact', priority: 3,
+      });
+    }
+    const t = this.music.stopPop(when);
+    this.mixer.clearOverlays(when);
+    this.mixer.setBase('results', when + 0.4, 0.5);
+    if (cause !== 'end') this.say('aww', when + 0.75, { force: true });
+    this.music.showScreen('popResults', t);
+  }
+
+  /** Leaving Pop in the middle of a run (setMode('tower')): it closes quietly. */
+  private endPop(when: number): void {
+    const R = this.popRun;
+    R.on = false;
+    R.overAt = when;
+    this.wouldPop(0, when);
+    this.music.stop(when);
+  }
+
+  /** A power used (Pop plan, Power-ups). Meteor's impact comes with pop_meteor_hit, once the streak lands. */
+  private onPopPower(kind: string, p: Payload, when: number): void {
+    switch (kind) {
+      case 'undo':
+        this.play('pop.rewind', { when, gainDb: -9, category: 'misc', priority: 2 });
+        this.haptic('light');
+        break;
+      case 'spin':
+        // Spin turns on; each tap after it is a pop_spin
+        this.play('ui.on', { bus: 'ui', when, gainDb: -13, category: 'ui', priority: 2, slowmo: false });
+        if (this.juice) this.play('pop.whoosh', { when: when + 0.02, gainDb: -15, category: 'misc', priority: 3 });
+        this.haptic('light');
+        break;
+      case 'sweep': {
+        const cells = Array.isArray(p?.cells) ? p.cells.length : 9;
+        this.play('sweep', { when, gainDb: -13 + 5 * clamp(cells / 18, 0, 1), category: 'misc', priority: 2 });
+        // the line's Blocklings tumble off the board, going "whee"
+        if (this.say('whee', when + 0.12, { force: true })) this.say('whee', when + 0.3, { force: true, gainDb: -16 });
+        this.haptic('medium');
+        break;
+      }
+      case 'meteor':
+        // the target is set and the meteor streaks in (260 ms)
+        this.play('meteor.whistle', { when, gainDb: -12, rate: 1.6, category: 'misc', priority: 2 });
+        break;
+      case 'fresh':
+        this.play('pop.shuffle', { when, gainDb: -10, category: 'misc', priority: 2 });
+        if (this.juice) for (let i = 0; i < 3; i++) this.play('pop.flick', { when: when + 0.22 + i * 0.08, gainDb: -18 - i, rate: 1 + i * 0.05, category: 'ui', priority: 3, slowmo: false });
+        this.haptic('light');
+        break;
+      default:
+        this.play('ui.on', { bus: 'ui', when, gainDb: -12, category: 'ui', priority: 3, slowmo: false });
+    }
+  }
+
+  /** The meteor lands: a flash, the cells shatter into stone chips, a crater puff. */
+  private onMeteorHit(cells: number, when: number): void {
+    this.play('meteor.pop', { when, gainDb: -6, category: 'stinger', priority: 1 });
+    this.play(this.impactName('stone', 4), { when, gainDb: -8, category: 'impact', priority: 1 });
+    if (this.juice) {
+      const chips = clamp(Math.round(cells / 3), 2, 4);
+      for (let i = 0; i < chips; i++) this.play(this.impactName('stone', 1), { when: when + 0.08 + i * 0.06 + this.rng() * 0.03, gainDb: -17 - i, pan: (this.rng() * 2 - 1) * 0.4, category: 'impact', priority: 3 });
+      this.play('windgust', { when: when + 0.05, gainDb: -22, rate: 1.4, category: 'misc', priority: 4 });
+    }
+    this.haptic('heavy');
+  }
+
+  /**
+   * Second Wind: the tower's gust, the chosen rows and columns blowing away left to right over about
+   * half a second, and the music swelling into the board's chord.
+   */
+  private onPopSecondWind(cells: number, when: number): void {
+    this.play('windgust', { when, gainDb: -6, category: 'misc', priority: 1 });
+    const n = clamp(Math.round(cells / 4), 4, 9);
+    for (let i = 0; i < n; i++) this.play('pop.plip', { when: when + 0.1 + (i * 0.5) / n, gainDb: -20, rate: semis(i), category: 'misc', priority: 3 });
+    this.haptic('double', 0.8);
+    if (!this.juice) return;
+    const v = this.popStyle.pop!;
+    this.popChord(v.board, voice(triadPcs(this.key, 0), v.boardLow), { when: when + 0.65, gainDb: -9, priority: 1 }, 0.03);
+    this.play('swell', { when: when + 0.3, gainDb: -14, category: 'misc', priority: 3 });
+    this.play('shimmer', { when: when + 0.75, gainDb: -12, category: 'misc', priority: 3 });
+    this.haptic('celebrate', 1, 0.65);
+  }
+
+  /** A power arriving in a slot: three rising notes on the board's instrument. */
+  private popChime(when: number, gainDb: number): void {
+    [5, 6, 7].forEach((st, i) => this.popNote(this.popStyle.pop!.board, this.popPitch(st), { when: when + i * 0.07, gainDb: gainDb - i }));
+  }
+
   private stopDrumroll(when: number): void {
     if (this.drumroll) {
       this.stopPlaying(this.drumroll, when, 0.1);
@@ -1458,6 +1941,37 @@ export class AudioDirector {
 }
 
 const TIERS = ['bronze', 'silver', 'gold', 'platinum'];
+
+/** A Blockling Pop run's sound state. */
+interface PopRun {
+  on: boolean;
+  puzzle: boolean;
+  cp: number;
+  combo: number;
+  /** the landing ladder, in pentatonic steps on the board's instrument */
+  step: number;
+  placed: number;
+  shimmer: Playing | null;
+  cantFit: Set<number>;
+  noRoomAt: number;
+  overAt: number;
+}
+
+function newPopRun(): PopRun {
+  return { on: false, puzzle: false, cp: 0, combo: 0, step: 0, placed: 0, shimmer: null, cantFit: new Set(), noRoomAt: -10, overAt: -10 };
+}
+
+/** One popping cell to the next: a 64th note at 96 BPM, like the view's wave. */
+const POP_STEP = 0.039;
+
+/** Where each popping line's glissando starts above the first: root, third, fifth (pentatonic steps). */
+const POP_HARMONY = [0, 2, 3];
+
+/** A Pop shape named by key ('Plank') or by number (POP_KEYS order). */
+function popShape(v: unknown): string {
+  if (typeof v === 'number' && Number.isFinite(v)) return POP_SHAPE_KEYS[Math.round(v)] ?? '';
+  return typeof v === 'string' ? v : '';
+}
 
 function hazardType(t: string): string {
   const s = t.toLowerCase().replace(/[^a-z]/g, '');

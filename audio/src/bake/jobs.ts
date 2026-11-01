@@ -8,8 +8,8 @@ import { SOUNDS, renderBed } from '../synth/recipes';
 
 export type BakeJob =
   | { kind: 'sound'; name: string; sr: number; seed: number }
-  | { kind: 'note'; inst: InstrumentId; midi: number; sr: number }
-  | { kind: 'chord'; inst: InstrumentId; midis: number[]; spread: number; sr: number }
+  | { kind: 'note'; inst: InstrumentId; midi: number; sr: number; low?: boolean }
+  | { kind: 'chord'; inst: InstrumentId; midis: number[]; spread: number; sr: number; low?: boolean }
   | { kind: 'bed'; biome: number; sr: number }
   | { kind: 'ir'; seconds: number; seed: number; sr: number };
 
@@ -44,10 +44,11 @@ export function jobKey(j: BakeJob): string {
   switch (j.kind) {
     case 'sound':
       return j.name;
+    // a note baked at a lower rate than its instrument's own (Pop's) is a different buffer
     case 'note':
-      return `${j.inst}:${j.midi}`;
+      return `${j.inst}:${j.midi}${j.low ? '~' : ''}`;
     case 'chord':
-      return `${j.inst}:[${j.midis.join(',')}]:${j.spread}`;
+      return `${j.inst}:[${j.midis.join(',')}]:${j.spread}${j.low ? '~' : ''}`;
     case 'bed':
       return `bed:${j.biome}`;
     case 'ir':

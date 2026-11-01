@@ -29,15 +29,36 @@ export function biomeScope(name: string): number[] | null {
   return null;
 }
 
+/** Sounds only one mode plays (Blockling Pop's `pop.*`): never baked with the tower's, loaded by prepareMode. */
+export function modeScope(name: string): 'pop' | null {
+  return name.startsWith('pop.') ? 'pop' : null;
+}
+
+/** Tower sounds Pop never plays: let go while Pop is open, so Pop's own fit in the same budget, and baked again after. */
+const TOWER_ONLY = new Set([
+  'creak', 'groan', 'teeter', 'heartbeat', 'scrape.rough', 'scrape.smooth', 'scrape.squeak', 'collapse.crack', 'collapse.rumble',
+  'drumroll', 'hold.tick', 'hold.womp', 'gust.warn', 'gust.push', 'wind.loop', 'tidal.loop', 'dust.swirl', 'radar',
+  'fallwhistle', 'plonk', 'stonewave', 'foundation',
+]);
+
+export function towerOnly(name: string): boolean {
+  return TOWER_ONLY.has(name) || name.startsWith('amb.');
+}
+
 /** The biomes whose sounds stay loaded while playing in `id`: the one below (older tower pieces), this one and the next. */
 export function biomeWindow(id: number): number[] {
   const b = biome(id).id;
   return [b - 1, b, b + 1].filter((x) => x >= 1 && x <= BIOMES.length);
 }
 
-/** Notes and chords re-render quickly in the background, so only recent ones stay in memory. */
-/** Notes and chords: the landing ladder plus the band for two biomes (audio section 4.8). */
-const NOTE_BUDGET = 20e6;
+/** Notes and chords re-render quickly in the background, so only recent ones stay in memory: the landing
+ * ladder plus the band for two biomes (audio section 4.8). */
+export const NOTE_BUDGET = 20e6;
+/**
+ * Blockling Pop: two bands with the board's notes and glissandos, all at half rate (Pop plan, Music and
+ * sound). Pop holds 7 MB fewer effects than the tower, so a run still fits the 60 MB audio budget.
+ */
+export const POP_NOTE_BUDGET = 32e6;
 
 /** Baked first, so a run can start before the whole bank is done. */
 const FIRST = [
@@ -53,6 +74,8 @@ export interface NoteRequest {
   inst: InstrumentId;
   midis: number[];
   spread?: number;
+  /** bake at half rate even if the instrument normally bakes at full rate (Blockling Pop) */
+  low?: boolean;
 }
 
 export interface BuildOptions {
@@ -75,6 +98,9 @@ export class SoundBank {
   private inFlight = new Set<string>();
   private prepared = 0;
   private preparing: Promise<void> = Promise.resolve();
+  private mode: 'tower' | 'pop' = 'tower';
+  /** how much the note cache may hold before the least recently used notes go */
+  noteBudget = NOTE_BUDGET;
 
   constructor(private ctx: BaseAudioContext, private seed = 1, readonly baker: Baker = new ThreadBaker()) {
     this.rng = mulberry32(seed ^ 0x9e3779b9);
@@ -90,6 +116,8 @@ export class SoundBank {
     this.prepared = start; // set first, so a biome entered while this runs takes over
     const keep = new Set(biomeWindow(start));
     const wanted = (n: string) => {
+      if (modeScope(n) && modeScope(n) !== this.mode) return false;
+      if (this.mode === 'pop' && towerOnly(n)) return false;
       const sc = biomeScope(n);
       return !sc || sc.some((b) => keep.has(b));
     };
@@ -133,7 +161,7 @@ export class SoundBank {
     for (const name of Object.keys(SOUNDS)) {
       const sc = biomeScope(name);
       if (!sc) continue;
-      if (sc.some((b) => keep.has(b))) {
+      if (sc.some((b) => keep.has(b)) && !(this.mode === 'pop' && towerOnly(name))) {
         if (!this.buffers.has(name)) jobs.push(this.soundJob(name));
       } else this.evict(name);
     }
@@ -145,6 +173,28 @@ export class SoundBank {
       await this.bakeInto(batch);
     }
   }
+
+  /**
+   * Loads one mode's own sounds and frees the other's: Blockling Pop's `pop.*` sounds bake when
+   * Pop opens and go when the tower comes back, and Pop's note cache is a little bigger.
+   */
+  prepareMode(mode: 'tower' | 'pop'): Promise<void> {
+    if (mode === this.mode) return this.modeReady;
+    this.mode = mode;
+    this.noteBudget = mode === 'pop' ? POP_NOTE_BUDGET : NOTE_BUDGET;
+    const all = Object.keys(SOUNDS);
+    const pop = all.filter((n) => modeScope(n));
+    const keep = new Set(biomeWindow(this.prepared || 1));
+    const tower = all.filter((n) => towerOnly(n) && (!biomeScope(n) || biomeScope(n)!.some((b) => keep.has(b))));
+    const out = mode === 'pop' ? tower : pop;
+    const back = mode === 'pop' ? pop : tower;
+    out.forEach((n) => this.evict(n));
+    this.trimNotes();
+    this.modeReady = this.bakeInto(back.filter((n) => !this.buffers.has(n)).map((n) => this.soundJob(n)));
+    return this.modeReady;
+  }
+
+  private modeReady: Promise<void> = Promise.resolve();
 
   /** Bakes a missing sound in the background. */
   warm(name: string): void {
@@ -226,13 +276,13 @@ export class SoundBank {
     this.replace(name, bufs, loop);
   }
 
-  note(inst: InstrumentId, midi: number): AudioBuffer {
-    return this.noteOrChord(this.noteJob({ inst, midis: [midi] }));
+  note(inst: InstrumentId, midi: number, low = false): AudioBuffer {
+    return this.noteOrChord(this.noteJob({ inst, midis: [midi], low }));
   }
 
   /** Several notes mixed into one buffer, so a chord costs one voice. `spread` staggers them (s). */
-  chord(inst: InstrumentId, midis: number[], spread = 0): AudioBuffer {
-    return this.noteOrChord(this.noteJob({ inst, midis, spread }));
+  chord(inst: InstrumentId, midis: number[], spread = 0, low = false): AudioBuffer {
+    return this.noteOrChord(this.noteJob({ inst, midis, spread, low }));
   }
 
   bed(biomeId: number): AudioBuffer {
@@ -269,10 +319,23 @@ export class SoundBank {
   // ------------------------------------------------------------ internals
 
   private noteJob(it: NoteRequest): BakeJob {
-    const sr = Math.round(this.ctx.sampleRate * instrumentRate(it.inst));
+    // only a note that would otherwise bake at full rate is a separate low-rate buffer
+    const low = !!it.low && instrumentRate(it.inst) === 1;
+    const sr = Math.round(this.ctx.sampleRate * instrumentRate(it.inst, low));
+    const flag = low ? { low: true } : {};
     return it.midis.length === 1
-      ? { kind: 'note', inst: it.inst, midi: it.midis[0], sr }
-      : { kind: 'chord', inst: it.inst, midis: it.midis, spread: it.spread ?? 0, sr };
+      ? { kind: 'note', inst: it.inst, midi: it.midis[0], sr, ...flag }
+      : { kind: 'chord', inst: it.inst, midis: it.midis, spread: it.spread ?? 0, sr, ...flag };
+  }
+
+  /** Lets the least recently used notes go until the cache fits its budget. */
+  private trimNotes(keep?: string): void {
+    for (const [old, ob] of this.notes) {
+      if (this.noteBytes <= this.noteBudget) break;
+      if (old === keep) continue;
+      this.notes.delete(old);
+      this.noteBytes -= ob.length * 4;
+    }
   }
 
   private soundJob(name: string): BakeJob {
@@ -343,11 +406,7 @@ export class SoundBank {
         const k = jobKey(j);
         this.notes.set(k, b);
         this.noteBytes += b.length * 4;
-        for (const [old, ob] of this.notes) {
-          if (this.noteBytes <= NOTE_BUDGET || old === k) break;
-          this.notes.delete(old);
-          this.noteBytes -= ob.length * 4;
-        }
+        this.trimNotes(k);
       }
     }
   }

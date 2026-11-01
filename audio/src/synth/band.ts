@@ -10,20 +10,20 @@ import {
 } from './dsp';
 
 export type BandInstrument =
-  | 'recorder' | 'harp' | 'pizz' | 'musicBox' | 'theremin' | 'brass' | 'uke'
+  | 'recorder' | 'harp' | 'pizz' | 'musicBox' | 'theremin' | 'brass' | 'uke' | 'keys'
   | 'padSoft' | 'choir' | 'padStrings' | 'padGlass' | 'padAnalog'
   | 'bassPluck' | 'bassSoft' | 'bassSub'
   | 'drums';
 
 export const BAND: readonly BandInstrument[] = [
-  'recorder', 'harp', 'pizz', 'musicBox', 'theremin', 'brass', 'uke',
+  'recorder', 'harp', 'pizz', 'musicBox', 'theremin', 'brass', 'uke', 'keys',
   'padSoft', 'choir', 'padStrings', 'padGlass', 'padAnalog',
   'bassPluck', 'bassSoft', 'bassSub', 'drums',
 ];
 
 /** Baked length in seconds: long enough for the longest note the sequencer asks for. */
 const LENGTH: Record<BandInstrument, number> = {
-  recorder: 1.7, harp: 1.8, pizz: 0.6, musicBox: 1.3, theremin: 1.7, brass: 1.7, uke: 1.0,
+  recorder: 1.7, harp: 1.8, pizz: 0.6, musicBox: 1.3, theremin: 1.7, brass: 1.7, uke: 1.0, keys: 1.6,
   padSoft: 5.2, choir: 5.2, padStrings: 5.2, padGlass: 5.2, padAnalog: 5.2,
   bassPluck: 1.3, bassSoft: 1.4, bassSub: 1.4, drums: 0.7,
 };
@@ -89,6 +89,17 @@ export function renderBandNote(inst: BandInstrument, midi: number, sr: number, r
       const y = pluckF(n, sr, f, rng, 0.996, 0.55);
       mixInto(y, biquad(burst(sr, rng, 4, 3000, n), sr, 'bandpass', 380, 3), sr, 0, 0.25);
       return decay(y, sr, 0.35, 0.001);
+    }
+    case 'keys': {
+      // Blockling Pop's soft electric keys: a sine tine struck by a felt hammer (FM whose index fades
+      // fast, the "bark"), a glassy ding from the tine that is gone in 30 ms, and a slow tremolo
+      const warm = Math.pow(262 / f, 0.25);
+      const y = fm(n, sr, f, 1, 1.3 * warm, 0.2);
+      const ding = fm(n, sr, f, Math.min(14, (sr * 0.4) / f), 0.8, 0.01);
+      mixInto(y, decay(ding, sr, 0.04, 0.0005), sr, 0, 0.14);
+      mixInto(y, decay(osc(n, sr, f * 2, 'sine'), sr, 0.3), sr, 0, 0.1);
+      shape(y, sr, (t) => 1 - 0.1 * (0.5 + 0.5 * Math.sin(TAU * 4.6 * t)) * Math.min(1, t / 0.25));
+      return decay(y, sr, 0.75 * warm, 0.003);
     }
     case 'padSoft': {
       const y = alloc(sr, sec);

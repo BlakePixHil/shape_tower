@@ -3,11 +3,12 @@
 // scripts/build-sketchbook.mjs (the bake worker is inlined as a blob).
 
 import { AudioDirector, type PlayOptions } from '../src/director';
-import { BIOMES, biome } from '../src/biomes';
-import { biomeScope, biomeWindow } from '../src/bank';
+import { BIOMES, FIRST_DEEP_COSMOS_CHECKPOINT, biome, cosmosRotation } from '../src/biomes';
+import { biomeScope, biomeWindow, modeScope } from '../src/bank';
 import { MATERIAL_INSTRUMENT } from '../src/synth/instruments';
 import { keyName, scaleNote, type Key } from '../src/music/theory';
 import { SOUNDS } from '../src/synth/recipes';
+import { popFamily } from '../src/music/styles-pop';
 import type { Material } from '../src/types';
 
 declare const __BAKE_WORKER__: string;
@@ -224,6 +225,7 @@ let currentBiome = 1;
 
 function ensureRun(): void {
   void audio.unlock();
+  if (audio.mode === 'pop') audio.setMode('tower');
   if (!internals.running) {
     internals.startRun(audio.now() + 0.02, false);
     if (internals.biomeId !== currentBiome) audio.handle('biome_entered', { id: currentBiome });
@@ -240,6 +242,7 @@ function applyAmbience(): void {
 // ------------------------------------------------------------ status
 
 const expected = Object.keys(SOUNDS).filter((n) => {
+  if (modeScope(n)) return false; // Blockling Pop's own bake when Pop opens
   const sc = biomeScope(n);
   const win = biomeWindow(1);
   return !sc || sc.some((b) => win.includes(b));
@@ -693,6 +696,7 @@ function applyMusic(): void {
 /** Ends the run the sketchbook keeps going, so a screen's music can play. */
 function toScreen(name: 'menu' | 'profile' | 'results' | 'none'): void {
   void audio.unlock();
+  if (audio.mode === 'pop') audio.setMode('tower');
   (audio as unknown as { attach(): void }).attach();
   if (name === 'results') music.showScreen('results', audio.now() + 0.05);
   else audio.screen(name);
@@ -756,9 +760,244 @@ function readBand(): void {
     L5: run && st.layers.riser,
   };
   for (const [k] of LAYERS) $(`layer-${k}`).classList.toggle('on', on[k]);
+  if (st.mode === 'popRun' || st.mode === 'pop' || st.mode === 'popResults') {
+    $('band-read').textContent = 'Playing Blockling Pop (below)';
+    return;
+  }
   const where = run ? `${biome(currentBiome).name} band` : st.mode === 'off' ? '' : st.mode === 'results' ? 'Results loop' : 'Meadow lullaby';
   const bars = st.mode === 'results' ? 8 : 32;
   $('band-read').textContent = st.mode === 'off' ? 'Not playing' : `${where} · bar ${(st.bar % bars) + 1} of ${bars} · ${st.voices} voices${bandOn ? '' : ' · muted'}`;
+}
+
+
+// ------------------------------------------------------------ Blockling Pop
+
+const POP_LAYERS = [
+  ['bed', 'Keys and bass'],
+  ['groove', 'Groove'],
+  ['lead', 'Lead'],
+  ['sparkle', 'Sparkle'],
+  ['tension', 'Tension'],
+  ['breather', 'Breather'],
+] as const;
+const POP_SKIES: [number, string][] = [[1, 'Meadow'], [2, 'Treetops'], [3, 'Cloudlands'], [5, 'Stratosphere'], [6, 'Orbit'], [8, 'Red Planet'], [10, 'Deep Cosmos']];
+const FAMILY_LABEL: Record<string, string> = { ground: 'Ground: keys, uke, walking bass', sky: 'Sky: vibes, harp, choir', space: 'Space: music box, analog pad, half-time' };
+let popBiomeId = 1;
+let popCp = 0;
+let popCombo = 0;
+let popMisses = 0;
+let popFillCells = 0;
+let popSlot = 0;
+
+const popRunning = () => music.state().mode === 'popRun';
+const firstCp = (id: number) => (id <= 1 ? 0 : id === 10 ? FIRST_DEEP_COSMOS_CHECKPOINT : biome(id - 1).lastCheckpoint);
+
+/** Pop mode on, and a run going (a fresh one if the last ended). */
+function ensurePop(): number {
+  void audio.unlock();
+  if (audio.mode !== 'pop') audio.setMode('pop');
+  const when = audio.now() + 0.02;
+  if (!popRunning()) {
+    popCombo = popMisses = 0;
+    audio.handle('pop_run_start', { biome: popBiomeId, cp: popCp, fill: popFillCells / 81 }, when);
+    bandOn = true;
+    applyMusic();
+  }
+  return when;
+}
+
+function setPopFill(cells: number, when = audio.now()): void {
+  popFillCells = Math.max(0, Math.min(81, Math.round(cells)));
+  const pct = Math.round((popFillCells / 81) * 100);
+  $<HTMLInputElement>('pop-fill').value = String(pct);
+  $('pop-fill-val').textContent = `${pct}%`;
+  audio.handle('pop_fill', { fill: popFillCells / 81 }, when);
+}
+
+const POP_SHAPES = ['Pip', 'Domino', 'Trio', 'Elbow', 'O', 'I', 'L', 'J', 'T', 'S', 'Z', 'Plank', 'P', 'U', 'V', 'Arch', 'Plus'];
+
+/** A shape stamped down; `lines` pop with it (0 for a miss). */
+function popMove(lines: number, when: number): void {
+  const shape = POP_SHAPES[Math.floor(Math.random() * POP_SHAPES.length)];
+  audio.handle('pop_pickup', { shape }, when);
+  audio.handle('pop_ghost', { lines }, when + 0.15);
+  if (lines) audio.handle('pop_would_pop', { count: lines }, when + 0.16);
+  const at = when + 0.45;
+  audio.handle('pop_place', { shape, cells: 4, combo: popCombo }, at);
+  if (lines) {
+    popCombo++;
+    popMisses = 0;
+    audio.handle('pop_lines', { count: lines, combo: popCombo, cells: lines * 9, lines: Array(lines).fill(9), hitstop: lines >= 3 ? 80 : lines === 2 ? 60 : 40 }, at);
+    if (popCombo >= 2) audio.handle('pop_combo', { combo: popCombo }, at);
+    setPopFill(popFillCells + 4 - lines * 9, at);
+  } else {
+    if (popCombo > 0 && ++popMisses >= 3) {
+      audio.handle('pop_combo_end', { combo: popCombo }, at);
+      popCombo = popMisses = 0;
+    }
+    setPopFill(popFillCells + 4, at);
+  }
+}
+
+interface PopPad { label: string; ev: string; run: (t: number) => void }
+const POP_PADS: PopPad[] = [
+  { label: 'Pick up a Pip', ev: 'pop_pickup', run: (t) => audio.handle('pop_pickup', { shape: 'Pip' }, t) },
+  { label: 'Pick up a Plank', ev: 'pop_pickup', run: (t) => audio.handle('pop_pickup', { shape: 'Plank' }, t) },
+  { label: 'Ghost snaps', ev: 'pop_ghost', run: (t) => [0, 0.09, 0.18].forEach((d) => audio.handle('pop_ghost', { lines: 0 }, t + d)) },
+  {
+    label: 'Would pop', ev: 'pop_would_pop', run: (t) => {
+      audio.handle('pop_ghost', { lines: 2 }, t);
+      audio.handle('pop_would_pop', { count: 2 }, t);
+      audio.handle('pop_would_pop', { count: 0 }, t + 1.5);
+    },
+  },
+  { label: 'Drop back', ev: 'pop_drop_back', run: (t) => audio.handle('pop_drop_back', {}, t) },
+  { label: 'New tray', ev: 'pop_tray', run: (t) => audio.handle('pop_tray', { n: 2 }, t) },
+  { label: 'Bag swap', ev: 'pop_bag', run: (t) => audio.handle('pop_bag', {}, t) },
+  {
+    label: "Can't fit", ev: 'pop_cant_fit', run: (t) => {
+      audio.handle('pop_tray', { n: 2 }, t - 0.01);
+      audio.handle('pop_cant_fit', { slot: popSlot++ % 3 }, t);
+    },
+  },
+  { label: 'Bubble lands', ev: 'pop_bubble', run: (t) => audio.handle('pop_bubble', { kind: 'undo' }, t) },
+  { label: 'Bubble covered', ev: 'pop_bubble_got', run: (t) => audio.handle('pop_bubble_got', { kind: 'undo' }, t) },
+  { label: 'Power earned', ev: 'pop_power_got', run: (t) => audio.handle('pop_power_got', { kind: 'sweep', why: 'big' }, t) },
+  { label: 'Undo', ev: 'pop_power undo', run: (t) => audio.handle('pop_power', { kind: 'undo' }, t) },
+  {
+    label: 'Spin', ev: 'pop_power spin', run: (t) => {
+      audio.handle('pop_power', { kind: 'spin' }, t);
+      [0.5, 0.8, 1.1].forEach((d) => audio.handle('pop_spin', {}, t + d));
+    },
+  },
+  { label: 'Sweep', ev: 'pop_power sweep', run: (t) => audio.handle('pop_power', { kind: 'sweep', cells: Array(9).fill(0) }, t) },
+  {
+    label: 'Meteor', ev: 'pop_power meteor', run: (t) => {
+      audio.handle('pop_aim', { kind: 'meteor' }, t);
+      [0.3, 0.45, 0.6].forEach((d) => audio.handle('pop_aim_move', {}, t + d));
+      audio.handle('pop_power', { kind: 'meteor' }, t + 1);
+      audio.handle('pop_meteor_hit', { cells: Array(9).fill(0) }, t + 1.26);
+    },
+  },
+  { label: 'Fresh Deal', ev: 'pop_power fresh', run: (t) => audio.handle('pop_power', { kind: 'fresh' }, t) },
+  { label: 'Power refused', ev: 'pop_power_refused', run: (t) => audio.handle('pop_power_refused', {}, t) },
+  { label: 'Second Wind ready', ev: 'pop_wind_ready', run: (t) => audio.handle('pop_wind_ready', { why: 'cp' }, t) },
+  {
+    label: 'Second Wind', ev: 'pop_second_wind', run: (t) => {
+      audio.handle('pop_wind_armed', {}, t);
+      audio.handle('pop_second_wind', { cells: Array(27).fill(0) }, t + 0.6);
+    },
+  },
+];
+
+function buildPop(): void {
+  const box = $('pop-layers');
+  for (const [k, label] of POP_LAYERS) {
+    const el = document.createElement('span');
+    el.className = 'layer';
+    el.id = `pop-layer-${k}`;
+    el.textContent = label;
+    box.append(el);
+  }
+  const btn = (id: string, fn: (t: number) => void) => {
+    $(id).addEventListener('pointerdown', (e) => press(e.currentTarget as HTMLElement));
+    $(id).addEventListener('click', () => fn(ensurePop()));
+  };
+  btn('pop-start', () => undefined);
+  btn('pop-place', (t) => popMove(0, t));
+  btn('pop-1', (t) => popMove(1, t));
+  btn('pop-2', (t) => popMove(2, t));
+  btn('pop-3', (t) => popMove(3, t));
+  btn('pop-miss', (t) => [0, 0.8, 1.6].forEach((d) => popMove(0, t + d)));
+  btn('pop-clear', (t) => {
+    popMove(1, t);
+    audio.handle('pop_all_clear', {}, t + 0.45);
+    setPopFill(0, t + 0.45);
+  });
+  btn('pop-over', (t) => {
+    audio.handle('pop_no_room', {}, t);
+    audio.handle('pop_run_over', { cause: 'noroom' }, t + 0.6);
+    popCombo = 0;
+    setTimeout(() => setPopFill(0), 1000);
+  });
+  $<HTMLInputElement>('pop-fill').addEventListener('input', (e) => {
+    const t = ensurePop();
+    setPopFill((Number((e.target as HTMLInputElement).value) / 100) * 81, t);
+  });
+  const skies = $('pop-biomes');
+  for (const [id, name] of POP_SKIES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn';
+    b.textContent = name;
+    b.addEventListener('click', () => {
+      popBiomeId = id;
+      popCp = firstCp(id);
+      if (!popRunning()) return void ensurePop();
+      const t = audio.now() + 0.02;
+      audio.handle('pop_checkpoint', { n: popCp }, t);
+      audio.handle('biome_entered', { id }, t + 0.01);
+    });
+    skies.append(b);
+  }
+  const cosmos = document.createElement('button');
+  cosmos.type = 'button';
+  cosmos.className = 'btn';
+  cosmos.textContent = 'Six checkpoints on';
+  cosmos.addEventListener('click', () => {
+    const t = ensurePop();
+    popCp += popBiomeId === 10 ? 6 : 1;
+    audio.handle('pop_checkpoint', { n: popCp }, t);
+    if (popBiomeId < 10 && popCp >= biome(popBiomeId).lastCheckpoint) audio.handle('biome_entered', { id: ++popBiomeId }, t + 0.01);
+  });
+  skies.append(cosmos);
+  const pads = $('pop-pads');
+  for (const p of POP_PADS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'pad';
+    b.setAttribute('style', hueVars('gumdrop'));
+    b.innerHTML = `<span>${p.label}</span><code>${p.ev}</code>`;
+    b.addEventListener('pointerdown', () => press(b));
+    b.addEventListener('click', () => p.run(ensurePop()));
+    pads.append(b);
+  }
+  const lounge = (screen: 'pop' | 'popResults') => {
+    void audio.unlock();
+    // a run on: close it quietly first (leaving Pop), then the lounge
+    if (popRunning() || audio.mode !== 'pop') {
+      if (audio.mode === 'pop') audio.setMode('tower');
+      (audio as unknown as { attach(): void }).attach();
+      audio.setMode('pop');
+    }
+    audio.screen(screen);
+    bandOn = true;
+    applyMusic();
+  };
+  $('pop-hub').addEventListener('click', () => lounge('pop'));
+  $('pop-results').addEventListener('click', () => lounge('popResults'));
+  $('pop-menu').addEventListener('click', () => toScreen('menu'));
+  setInterval(readPop, 200);
+}
+
+function readPop(): void {
+  const st = music.state();
+  const run = st.mode === 'popRun';
+  const L = st.layers;
+  const on: Record<string, boolean> = {
+    bed: run || st.mode === 'pop' || st.mode === 'popResults',
+    groove: run ? L.groove : st.mode === 'pop', lead: run ? L.lead : st.mode === 'pop',
+    sparkle: run && L.sparkle, tension: run && L.tension, breather: run && L.breather,
+  };
+  for (const [k] of POP_LAYERS) $(`pop-layer-${k}`).classList.toggle('on', !!on[k]);
+  const read = $('pop-read');
+  if (run) {
+    const rot = popBiomeId === 10 ? cosmosRotation(popCp) : 0;
+    const family = FAMILY_LABEL[popFamily(popBiomeId, rot)] + (popBiomeId === 10 ? ', over a nebula choir' : '');
+    read.textContent = `${biome(popBiomeId).name} · ${family} · bar ${(st.bar % 32) + 1} · combo ${popCombo} · ${Math.round((popFillCells / 81) * 100)}% full · ${st.voices} voices${bandOn ? '' : ' · muted'}`;
+  } else if (st.mode === 'pop') read.textContent = `Pop hub lounge · bar ${(st.bar % 32) + 1} of 32`;
+  else if (st.mode === 'popResults') read.textContent = `Pop results loop · bar ${(st.bar % 8) + 1} of 8`;
+  else read.textContent = 'Not playing';
 }
 
 // ------------------------------------------------------------ wiring
@@ -766,6 +1005,7 @@ function readBand(): void {
 buildBoard();
 buildBiomes();
 buildBand();
+buildPop();
 buildMoments();
 renderLadder();
 applyMusic();

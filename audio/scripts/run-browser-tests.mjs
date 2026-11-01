@@ -33,6 +33,18 @@ if (haveSim) {
   simCode = sim.outputFiles[0].text;
 }
 
+// Blockling Pop's sim is plain TypeScript (no packages), so its end-to-end test runs whenever it is there
+const haveSimPop = existsSync(join(gameDir, 'src/pop/sim/pop.ts'));
+let popSimCode = '';
+if (haveSimPop) {
+  const sim = await build({
+    entryPoints: [join(root, 'test/browser/popsim-harness.ts')],
+    bundle: true, format: 'iife', target: 'es2022', write: false, logLevel: 'warning',
+    alias: { '@pop': join(gameDir, 'src/pop') },
+  });
+  popSimCode = sim.outputFiles[0].text;
+}
+
 // CHROMIUM_PATH overrides the browser Playwright would pick
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
 const page = await browser.newPage();
@@ -40,6 +52,7 @@ page.on('pageerror', (e) => console.error('page error:', e.message));
 await page.setContent('<!doctype html><html><body></body></html>');
 await page.addScriptTag({ content: code });
 if (simCode) await page.addScriptTag({ content: simCode });
+if (popSimCode) await page.addScriptTag({ content: popSimCode });
 
 const checks = {
   worker(r) {
@@ -260,6 +273,132 @@ checks.sim = (r) => {
   assert.ok(r.played.wood > 0 && r.played.stone > 0, `pieces sound like wood and slabs like stone (${JSON.stringify(r.played)})`);
 };
 
+// Blockling Pop (Pop plan, Music and sound)
+const near = (a, b, tol, what) => assert.ok(a !== undefined && Math.abs(a - b) <= tol, `${what} at ${b.toFixed(2)} s (got ${a})`);
+
+checks.pop = (r) => {
+  assert.equal(r.nonFinite, 0, 'no NaN in the mix');
+  assert.ok(r.peak <= 1, `the band never exceeds full scale (peak ${r.peak.toFixed(3)})`);
+  assert.equal(r.bpm, 96, 'Pop plays at 96 BPM');
+  assert.equal(r.misses, 0, `every note was baked in time (${r.missed.join(' ')})`);
+  assert.ok(r.peakVoices <= 16, `the band stays within its 16 voices (${r.peakVoices})`);
+  const times = (what) => r.log.filter((e) => e.what === what).map((e) => e.t);
+  const at = (what, i = 0) => times(what)[i];
+  // the first downbeat waited for the bed to bake, then a bar every 2.5 s
+  const bar0 = at('groove on') - 2.5;
+  assert.ok(bar0 > 0.1 && bar0 < 1.1, `the run's first bar starts within a second (${bar0})`);
+  const bar = (n) => bar0 + n * 2.5;
+  near(at('groove on'), bar(1), 0.011, 'the groove comes in on the bar after the first pop');
+  near(at('lead on'), bar(3), 0.011, 'the lead comes in at combo 3');
+  near(at('sparkle on'), bar(5), 0.011, 'sparkle comes in at combo 6');
+  near(at('sparkle off'), bar(6), 0.011, 'sparkle leaves when the combo ends');
+  near(at('lead off'), bar(7), 0.011, 'the lead holds two bars after the combo, then leaves');
+  near(at('tension on'), bar(8), 0.011, 'tension comes in at 70% full');
+  assert.ok(times('groove off').some((t) => Math.abs(t - bar(8)) < 0.011), 'the groove thins under tension');
+  near(at('tension off'), bar(10), 0.011, 'tension holds at 60% full and lifts below 55%');
+  near(at('breather on'), bar(11), 0.011, 'the breather comes in when the board drops under 20%');
+  near(at('breather off'), bar(15), 0.011, 'the breather lasts 4 bars');
+  // All Clear at 39 s: the fanfare on the next beat, two bars, then the breather
+  const fan = at('fanfare');
+  assert.ok(fan > 39.04 && fan <= 39.04 + 0.625 + 0.01, `the fanfare starts on the next beat after the All Clear (${fan})`);
+  const beats = (fan - bar0) / 0.625;
+  assert.ok(Math.abs(beats - Math.round(beats)) < 0.02, `the fanfare lands on the band's beat grid (${beats.toFixed(3)} beats)`);
+  near(at('sparkle on', 1), fan, 0.011, 'the fanfare brings in the sparkle');
+  near(at('breather on', 1), fan + 5, 0.011, 'the breather follows two bars of fanfare');
+  // run over at 55 s: tape stop, "nice try" from 55.9 s for two bars, then Pop's results loop
+  near(at('tape stop'), 55, 0.011, 'the tape stop');
+  near(at('nice try'), 55.9, 0.011, '"nice try"');
+  near(at('popResults'), 60.9, 0.011, "Pop's results loop after two bars of nice try");
+  assert.equal(r.mode, 'popResults');
+  const L = r.levels;
+  assert.ok(L.groove > L.bed && L.full > L.groove, `each layer adds to the mix (bed ${L.bed}, groove ${L.groove}, full ${L.full} dB)`);
+  assert.ok(L.breather < L.groove - 3, `the breather is a breath (${L.breather} against ${L.groove} dB)`);
+  assert.ok(L.fanfare > L.groove, `the fanfare is the loudest moment (${L.fanfare} dB)`);
+  for (const k of ['tension', 'niceTry', 'results']) assert.ok(L[k] > -40 && L[k] < -20, `${k} is heard at a lounge level (${L[k]} dB)`);
+};
+
+checks.popsfx = (r) => {
+  const on = r.on, off = r.off;
+  for (const x of [on, off]) {
+    assert.equal(x.nonFinite, 0, 'no NaN in the mix');
+    assert.ok(x.peak <= 1, `the mix never exceeds full scale (peak ${x.peak.toFixed(3)})`);
+  }
+  const boops = on.plays.filter((p) => p.name === 'pop.boop');
+  assert.ok(boops.length === 2 && boops[0].rate > 1.3 && boops[1].rate < 0.85, `a Pip squeaks and a Plank grumbles when picked up (${boops.map((b) => b.rate.toFixed(2))})`);
+  const snaps = on.plays.filter((p) => p.name === 'pop.snap');
+  assert.equal(snaps.length, 2, 'two ghost snaps 20 ms apart make one sound');
+  assert.ok(snaps[1].rate > snaps[0].rate, 'a ghost that would pop lines snaps higher');
+  assert.ok(on.shimmerAt.held && !on.shimmerAt.placed, 'the would-pop shimmer plays while held and stops on the drop');
+  assert.equal(on.plays.filter((p) => p.name === 'pop.shimmer').length, 1, 'one shimmer while the count changes');
+  assert.equal(on.placeNotes, 1, 'a placement plays one landing note');
+  // the glissando: two lines, the first notes at once, then 39 ms steps from the end of the 60 ms freeze
+  // each step plays both lines (a third apart); the lone high note is the two-line pop's sparkle
+  const per = new Map();
+  for (const n of on.gliss) per.set(n.when, (per.get(n.when) ?? 0) + 1);
+  const steps = [...per].filter(([, c]) => c === 2).map(([t]) => t).sort((a, b) => a - b);
+  assert.equal(steps.length, 9, `nine steps for two 9-cell lines (${steps.length})`);
+  assert.equal(steps[0], 2, 'the first note sounds at once');
+  near(steps[1], 2 + 0.06 + 0.039, 0.0005, 'the second note after the freeze');
+  for (let k = 2; k < 9; k++) near(steps[k] - steps[k - 1], 0.039, 0.0005, `step ${k} 39 ms later`);
+  const g = on.grid, sixteenth = g.beat / 4;
+  const answer = on.answer.filter((c) => c.inst !== 'keys');
+  assert.ok(answer.length >= 1, 'the board answers the pop');
+  for (const c of on.answer) {
+    const k = (c.when - g.t0) / sixteenth;
+    assert.ok(c.when >= 2.04 && Math.abs(k - Math.round(k)) < 1e-3, `the answer lands on the next sixteenth (${c.when.toFixed(4)}, ${k.toFixed(3)} sixteenths)`);
+  }
+  assert.ok(on.plays.filter((p) => p.name === 'pop.uh').length === 1, 'a shape that stops fitting says "uh" once');
+  assert.equal(on.plays.filter((p) => p.name === 'ui.error').length, 1, '"No room!" plays once, not again at the run over');
+  assert.ok(on.said.includes('aww'), 'the Blocklings go "aww" at the end');
+  for (const h of ['light', 'select', 'medium', 'heavyDouble', 'error']) assert.ok(on.haptics.includes(h), `haptic ${h}`);
+  // juice off: what happened stays, the flourishes go
+  for (const n of ['pop.boop', 'pop.snap', 'pop.shimmer', 'row.clack', 'pop.plip', 'ui.error']) assert.ok(off.plays.some((p) => p.name === n), `juice off keeps ${n}`);
+  assert.equal(off.plays.filter((p) => p.name === 'pop.plip').length, 9, 'juice off still plays the wave');
+  assert.ok(off.gliss.length === 0 && off.answer.length === 0 && off.placeNotes === 0, 'juice off drops the board notes');
+  assert.ok(!off.plays.some((p) => p.name.startsWith('voice.') || p.name === 'pop.uh'), 'juice off drops the voices');
+  assert.equal(on.misses + off.misses, 0, 'the band missed no notes');
+};
+
+checks.popscreens = (r) => {
+  const at = (what, i = 0) => r.log.filter((e) => e.what === what).map((e) => e.t)[i];
+  assert.equal(r.nonFinite, 0, 'no NaN in the mix');
+  assert.equal(r.misses, 0, 'the lounge and the run missed no notes');
+  near(at('menu'), 0.1, 0.011, 'the menu plays the lullaby');
+  near(at('pop'), 3, 0.011, 'the Pop hub plays the lounge');
+  near(at('pop start'), 8, 0.011, 'a run starts its band');
+  near(at('popResults'), 18.9, 0.011, "the run's results loop");
+  near(at('pop', 1), 23, 0.011, 'back to the hub');
+  near(at('menu', 1), 26, 0.011, 'out to the menu');
+  // results to the hub: the same lounge on one clock, carrying on from the loop's bar
+  const [before, after, next] = r.bars.hub;
+  assert.ok(after === before && next === before, `the lounge carries on from the results loop (bar ${before} -> ${after}, ${next})`);
+  assert.ok(Math.min(...r.around) > -40, `no gap from the results to the hub (${r.around.join(', ')} dB)`);
+  assert.equal(r.bars.menu[0], 0, 'the main menu crossfades to its own lullaby');
+  for (const [k, v] of Object.entries(r.levels)) assert.ok(v > -40, `${k} is playing (${v} dB)`);
+  assert.equal(r.mode, 'menu');
+};
+
+checks.popsim = (r) => {
+  assert.equal(r.nonFinite, 0, 'no NaN in the mix');
+  assert.ok(r.peak <= 1, `the mix never exceeds full scale (peak ${r.peak.toFixed(3)})`);
+  assert.ok(r.nearClip < 100, `the limiter is rarely hit (${r.nearClip} samples at 0.99+)`);
+  assert.ok(r.counts.pop_place > 50 && r.counts.pop_lines > 10, `the bot played (${r.counts.pop_place} placements, ${r.counts.pop_lines} pops)`);
+  assert.ok(r.runs.length >= 2 && r.counts.pop_run_over >= 1, `the bot played more than one run (${r.runs.length})`);
+  assert.ok(r.rms > 0.005, 'the run is audible');
+  for (const [cat, n] of Object.entries(r.voices.peak)) assert.ok(n <= r.voices.limits[cat], `${cat} voices ${n} within cap`);
+  assert.ok(r.voices.total <= r.voices.limits.total, 'total voices within cap');
+  assert.ok(r.cpu.meanMs < 0.25, `an event costs ${r.cpu.meanMs.toFixed(3)} ms on average`);
+  assert.equal(r.music.misses, 0, `every band note was baked in time (${r.music.missed.join(' ')})`);
+  assert.ok(r.music.peakVoices <= 16, `the band stays within its 16 voices (${r.music.peakVoices})`);
+  assert.equal(r.starts, r.runs.length, 'the band starts with every run');
+  assert.equal(r.niceTries, r.counts.pop_run_over, '"nice try" after every run over');
+  for (const l of ['groove', 'lead']) assert.ok(r.layers.includes(l), `the ${l} layer played (${r.layers.join(', ')})`);
+  assert.ok(r.bands.length >= 1, `a new biome brought its band (${r.bands.join(', ')})`);
+  // Pop holds fewer effects than the tower and a bigger note cache: the same 60 MB budget
+  assert.ok(r.memoryMB < 60, `decoded audio stays under 60 MB in Pop (${r.memoryMB} MB)`);
+  assert.equal(r.mode, 'pop');
+};
+
 let failed = 0;
 const only = process.argv.slice(2);
 for (const [name, check] of Object.entries(checks)) {
@@ -268,9 +407,13 @@ for (const [name, check] of Object.entries(checks)) {
     console.log(`skip sim: Gameplay's sim was not found at ${gameDir} (run npm install there first)`);
     continue;
   }
+  if (name === 'popsim' && !haveSimPop) {
+    console.log(`skip popsim: Blockling Pop's sim was not found at ${gameDir}/src/pop/sim`);
+    continue;
+  }
   const t0 = Date.now();
   try {
-    const r = await page.evaluate(([n, w]) => (n === 'sim' ? window.simScenario(150, 11) : window.scenarios[n](w)), [name, workerCode]);
+    const r = await page.evaluate(([n, w]) => (n === 'sim' ? window.simScenario(150, 11) : n === 'popsim' ? window.popSimScenario(150, 5) : window.scenarios[n](w)), [name, workerCode]);
     check(r);
     console.log(`ok   ${name} (${Date.now() - t0} ms) ${summary(name, r)}`);
   } catch (e) {
@@ -291,6 +434,10 @@ function summary(name, r) {
   if (name === 'hold') return `music ${r.on.base} dB, hold ${r.on.start}, full ring ${r.on.full}, knock ${r.on.knock}, after ${r.on.after}; juice off full ring ${r.off.full}, Zen ${r.zen.full}`;
   if (name === 'music') return `levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v.rmsDb}`).join(', ')} dB; ${r.stats.notes} notes, ${r.stats.stolen} stolen, ${r.stats.dropped} dropped, peak ${r.stats.peakVoices} voices`;
   if (name === 'screens') return `menu ${r.menuDb} dB, profile ${r.profileDb} dB, back ${r.backDb} dB, after ${r.afterDb} dB; bars ${r.bars.join('/')}; results ${r.results.before} -> menu ${r.results.after}`;
+  if (name === 'pop') return `layers ${r.log.filter((e) => / on$|fanfare|nice try|popResults/.test(e.what)).map((e) => `${e.what.replace(/ on$/, '')} ${e.t}`).join(', ')}; levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v}`).join(', ')} dB`;
+  if (name === 'popsfx') return `gliss ${r.on.gliss.length} notes, answer at ${r.on.answer.map((c) => c.when.toFixed(3)).join('/')}, juice off ${r.off.plays.length} sounds`;
+  if (name === 'popscreens') return `${r.log.map((e) => `${e.what} ${e.t}`).join(', ')}; levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v}`).join(', ')} dB`;
+  if (name === 'popsim') return `${r.runs.length} runs (${r.runs.map((x) => `${x.moves} moves, ${x.lines} lines, cp ${x.cp}`).join('; ')}), layers ${r.layers.join('/')}, bands ${r.bands.join('/') || 'one'}, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB`;
   if (name === 'loudness') return `${r.softDb} / ${r.midDb} / ${r.hardDb} dB, below-screen ${r.belowDb} dB`;
   return JSON.stringify(r).slice(0, 120);
 }

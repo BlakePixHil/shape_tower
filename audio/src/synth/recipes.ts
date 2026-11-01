@@ -572,6 +572,136 @@ export const SOUNDS: Record<string, SoundDef> = {
     render: (sr: number, rng: Rng, v: number) => finish(renderVoice(sr, rng, syllables(rng), [1, 1.06, 0.95][v], [1, 1.04, 0.97][v]), sr, 0.8),
   } satisfies SoundDef])),
 
+  // Blockling Pop (Pop plan, Music and sound): baked only while Pop is open (bank.prepareMode), at half rate
+  'pop.boop': {
+    // picking a shape up: a soft round boop with a little upward lift; the director pitches it per shape
+    rate: 0.5,
+    variants: 3,
+    render: (sr, rng) => {
+      const sec = 0.12;
+      const n = Math.round(sr * sec);
+      const f0 = rand(rng, 500, 540);
+      const y = osc(n, sr, (t) => f0 * (1 + 0.22 * (1 - Math.exp(-t / 0.02))), 'sine');
+      mixInto(y, osc(n, sr, (t) => 2 * f0 * (1 + 0.22 * (1 - Math.exp(-t / 0.02))), 'sine'), sr, 0, 0.12);
+      shape(y, sr, (t) => Math.min(1, t / 0.006) * Math.exp(-t / 0.045));
+      return finish(y, sr, 0.8);
+    },
+  },
+  'pop.snap': {
+    // the ghost snapping to a cell: a small dry wooden click
+    rate: 0.5,
+    variants: 3,
+    render: (sr, rng) => finish(tick(sr, rng, rand(rng, 2100, 2500), 0.006, 0.04), sr, 0.7),
+  },
+  'pop.shimmer': {
+    // the lines a held shape would pop are glowing: a soft glitter that loops while it's held there
+    rate: 0.5,
+    variants: 1, loop: true,
+    render: (sr, rng) => {
+      const sec = 1.6;
+      const y = sparkles(sr, rng, sec, 22, 2600, 5600);
+      mixInto(y, shape(biquad(noise(Math.round(sr * sec), rng), sr, 'bandpass', 4200, 2), sr, () => 0.25), sr, 0, 1);
+      shape(y, sr, (t) => 0.85 + 0.15 * Math.sin(TAU * 2.5 * t));
+      return loopify(normalize(y, 0.5), sr, 0.25);
+    },
+  },
+  'pop.plip': {
+    // one cell popping: a bubbly plip, a quick upward chirp
+    rate: 0.5,
+    variants: 4,
+    render: (sr, rng) => {
+      const n = Math.round(sr * 0.07);
+      const f0 = rand(rng, 650, 800);
+      const y = osc(n, sr, (t) => f0 * (1 + 1.1 * (1 - Math.exp(-t / 0.012))), 'sine');
+      shape(y, sr, (t) => Math.min(1, t / 0.002) * Math.exp(-t / 0.022));
+      return finish(y, sr, 0.75);
+    },
+  },
+  'pop.tick': {
+    // the combo growing: a bright tuned tick, pitched up a step for each combo step
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      const n = Math.round(sr * 0.14);
+      const y = partials(n, sr, [{ f: 1760, a: 1, tau: 0.04 }, { f: 3520, a: 0.35, tau: 0.02 }, { f: 5280, a: 0.12, tau: 0.01 }], rng);
+      mixInto(y, burst(sr, rng, 0.5, 9000), sr, 0, 0.25);
+      return finish(y, sr, 0.7);
+    },
+  },
+  'pop.fizz': {
+    // the combo running out: a soft fizz of tiny bubbles settling, never a sad sting
+    rate: 0.5,
+    variants: 2,
+    render: (sr, rng) => {
+      const sec = 0.65;
+      const n = Math.round(sr * sec);
+      const y = biquad(crackle(n, sr, rng, 260, (t) => Math.exp(-t / 0.22)), sr, 'bandpass', (t) => 4200 - 2200 * (t / sec), 0.9);
+      mixInto(y, shape(biquad(noise(n, rng), sr, 'highpass', 3500, 0.7), sr, (t) => 0.12 * Math.min(1, t / 0.02) * Math.exp(-t / 0.2)), sr, 0, 1);
+      return finish(y, sr, 0.5);
+    },
+  },
+  'pop.rewind': {
+    // Undo: a tape rewinding, a falling whoosh with quick chirps running backwards
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      const sec = 0.45;
+      const y = sweep(sr, rng, sec, 3200, 600, 1.8, (t) => Math.min(1, t / 0.05) * Math.max(0, 1 - t / sec));
+      for (let i = 0; i < 6; i++) {
+        const f = 1800 - i * 220;
+        mixInto(y, shape(osc(Math.round(sr * 0.05), sr, (t) => f * (1 - 2 * t), 'sine'), sr, (t) => Math.exp(-t / 0.012)), sr, i * 0.06, 0.35);
+      }
+      return finish(y, sr, 0.6);
+    },
+  },
+  'pop.whoosh': {
+    // Spin's turn and the checkpoint's whoosh: a short air arc
+    rate: 0.5,
+    variants: 2,
+    render: (sr, rng) => finish(sweep(sr, rng, 0.24, rand(rng, 500, 650), 2600, 1.6, ahr(0.07, 0.03, 0.24)), sr, 0.55),
+  },
+  'pop.flick': {
+    // a card landing in the tray: three come with every new tray
+    rate: 0.5,
+    variants: 3,
+    render: (sr, rng) => {
+      const n = Math.round(sr * 0.06);
+      const y = biquad(burst(sr, rng, 4, 11000, n), sr, 'bandpass', rand(rng, 2600, 3600), 1.4);
+      mixInto(y, thunk(sr, rng, rand(rng, 300, 360), 0.06, 1800), sr, 0.004, 0.3);
+      return finish(y, sr, 0.6);
+    },
+  },
+  'pop.shuffle': {
+    // Fresh Deal: a riffle of cards, faster as it goes, and a tap as the deck squares up
+    rate: 0.5,
+    variants: 1,
+    render: (sr, rng) => {
+      const y = alloc(sr, 0.6);
+      let t = 0;
+      for (let i = 0; i < 16; i++) {
+        mixInto(y, biquad(burst(sr, rng, 3, 11000, Math.round(sr * 0.03)), sr, 'bandpass', rand(rng, 2800, 4200), 1.2), sr, t, rand(rng, 0.5, 0.9));
+        t += 0.032 - i * 0.0012;
+      }
+      mixInto(y, thunk(sr, rng, 280, 0.12, 2200), sr, t + 0.05, 0.6);
+      return finish(y, sr, 0.6);
+    },
+  },
+  'pop.boing': {
+    // let go off the board: the shape springs back to the tray with a rubbery boing
+    rate: 0.5,
+    variants: 2,
+    render: (sr, rng, v) => impactRecipe('rubber', 1)(sr, rng, v),
+  },
+  'pop.uh': {
+    // a tray shape that can't fit anywhere: one low, puzzled "uh"
+    rate: 0.4,
+    variants: 2,
+    render: (sr, rng, v) => {
+      const p = 250 + 20 * rng();
+      return finish(renderVoice(sr, rng, [{ at: 0, dur: 0.24, f0: [p, p * 1.02, p * 0.86], vowels: ['uh', 'uh', 'u'], breath: 0.03 }], [1, 0.94][v], 1.08), sr, 0.8);
+    },
+  },
+
   // power-ups and Second Wind (6.11)
   'bubble.spawn': {
     rate: 0.5,
