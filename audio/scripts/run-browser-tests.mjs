@@ -58,8 +58,11 @@ const checks = {
   worker(r) {
     assert.equal(r.baking, 'worker', 'the bank bakes in the worker');
     assert.ok(r.sameNames && r.compared > 100 && r.maxDiff === 0, `worker audio is identical to main-thread audio (${r.compared} buffers, max diff ${r.maxDiff})`);
-    assert.ok(r.workerStall < 60, `baking in the worker never blocks the main thread for long (worst ${r.workerStall} ms)`);
-    assert.ok(r.threadStall > r.workerStall, 'the worker blocks the main thread less than baking in place');
+    // the median of three bakes' worst stalls, so one GC pause or busy moment can't fail it; the limit is
+    // 60 ms, or 2% of baking in place in the same run (about 3 s) when a loaded machine slows both
+    const limit = Math.max(60, Math.round(0.02 * r.threadStall));
+    assert.ok(r.workerStall < limit, `baking in the worker never blocks the main thread for long (median worst stall ${r.workerStall} ms of ${r.workerStalls.join('/')}, limit ${limit} ms)`);
+    assert.ok(r.threadStall > 10 * r.workerStall, `the worker blocks the main thread far less than baking in place (${r.workerStall} against ${r.threadStall} ms)`);
     assert.equal(r.fallback, 'main thread', 'a broken worker falls back to main-thread baking');
   },
   bank(r) {
@@ -438,7 +441,7 @@ await browser.close();
 process.exitCode = failed ? 1 : 0;
 
 function summary(name, r) {
-  if (name === 'worker') return `worker bake ${r.workerMs} ms (longest main-thread stall ${r.workerStall} ms) vs main thread ${r.threadMs} ms (stall ${r.threadStall} ms)`;
+  if (name === 'worker') return `worker bake ${r.workerMs} ms (longest main-thread stall ${r.workerStalls.join('/')} ms, median ${r.workerStall}) vs main thread ${r.threadMs} ms (stall ${r.threadStall} ms)`;
   if (name === 'sim') return `${r.runs.length} runs, ${r.counts.contact_hit} hits (${Object.entries(r.played).map(([m, n]) => `${m} ${n}`).join(', ')}), ${r.counts.piece_settled ?? 0} settles, ${r.counts.power_used ?? 0} powers and ${r.counts.second_wind ?? 0} Second Winds used, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB; ${Object.entries(r.ms).map(([k, v]) => `${k} ${(v / 1000).toFixed(1)} s`).join(", ")}`;
   if (name === 'bank') return `bake ${r.buildMs} ms, ${r.names} sounds, memory per biome ${r.memoryMB.join('/')} MB`;
   if (name === 'run') return `peak ${r.all.peak.toFixed(3)}, voices ${r.caps.total}/${r.capLimits.total}, contact ${r.contactCpuMs.mean.toFixed(3)} ms`;
