@@ -63,6 +63,32 @@ A new biome's band takes over at the next bar line with a 2-bar intro, every 72 
 
 The band's notes bake ahead: the current biome's at entry, and the next biome's on the climb to the boundary checkpoint. A note that isn't baked yet is skipped (never rendered on the spot) and counted in `debugState().music.misses`.
 
+### Blockling Pop (Pop plan, Music and sound)
+
+```ts
+audio.setMode('pop');                         // as Pop's screen opens; 'tower' as it closes (closes a Pop run quietly)
+audio.handle('pop_run_start', { biome: 1, cp: 0, fill: 0 });
+audio.handle('pop_lines', { count: 2, combo: 3, lines: [9, 9], hitstop: 60 });
+audio.screen('pop');                          // the Pop hub's lounge; Pop's results loop starts itself after pop_run_over
+```
+
+In Pop mode `handle()` takes Pop's own events (`POP_EVENTS` in `src/types.ts`, with their payloads) and ignores the tower's. Pop's `pop.*` sounds bake when Pop opens, and the tower's own (creaks, scrapes, hold, gusts, ambience sweeteners) are let go until it closes. Biome ids are 1-based, as in the tower; `pop_pickup`'s shape is a key or its index.
+
+The score is a laid-back toy-box lounge at 96 BPM with a light swing (`src/music/styles-pop.ts`, `src/music/popcomposer.ts`), played by the tower's band plus soft electric keys, every note at half rate. Four families follow the sky: Ground (Meadow, Treetops: keys, uke, walking bass, brushes and snaps; the board plays marimba), Sky (Cloudlands to Stratosphere: vibes, harp, a soft choir; glass bells), Space (Orbit to Ringed Giant: music box, analog pad, sub bass, half-time drums; celesta) and Deep Cosmos, which rotates the three over a nebula choir. Each biome keeps its key and its own tunes. Layers follow the board on bar lines:
+
+| Layer | Plays | Comes in |
+|---|---|---|
+| Bed | keys and bass | from the start (the first downbeat waits up to 1 s for its notes) |
+| Groove | drums and support | after the first pop |
+| Lead | melody | combo 3 or more, held 2 bars |
+| Sparkle | arpeggios and a glockenspiel | combo 6 or more, and the All Clear |
+| Tension | heartbeat kick, tonic pedal, minor pad (the groove thins) | board 70% full; lifts below 55% |
+| Breather | pad and kalimba, 4 bars | the board drops under 20% (16 bars apart at most) |
+
+An All Clear plays an instant hit and a crowd roar, then a 2-bar fanfare from the next beat, then the breather. Run over is the tower's tape stop, 2 bars of "nice try" in the current family, then Pop's results loop (the lounge's Meadow arrangement, as in the hub). Puzzles play bed and groove only. Placements walk up the board's pentatonic scale (and climb while a combo is alive) over a keys stab; a pop plays a glissando, the first note at once and then one note per cell 39 ms apart from the end of the freeze, each line a third above the last, and the answer lands on the next sixteenth. `MUSIC_TUNING.pop` holds the thresholds.
+
+**Juice off** in Pop keeps the pick-up, ghost and would-pop sounds, the impact, the clack and the plip wave, "No room!" and the tumble, and drops the board's notes, the keys stab, the voices, the fireworks and the haptics. The band plays its bed, groove and lead throughout and stops following the board.
+
 ### Shape voices (audio section 6.8)
 
 Gibberish reactions from a small formant synthesizer (`src/synth/voice.ts`): "wheee" on a long hard drop, a falling "wheee" off the tower, "oof" on a hard landing (`piece_landed.impact` 0.6 or more), "uh-oh" when danger starts, a chorus of "yay" at a checkpoint and "aww" at game over. One every 4 s at most, on the voices bus (its own slider), pitched per shape from `piece_spawned.shape` and `piece_landed.shape`.
@@ -110,10 +136,10 @@ The director only ever asks the bank for a sound by name, so nothing else change
 | `src/mixer.ts` | Buses, snapshots, ducking, the shared reverb and the master limiter |
 | `src/voices.ts` | Voice caps, priorities and stealing |
 | `src/haptics.ts` | Haptic patterns and the Capacitor and `navigator.vibrate` backends |
-| `src/music/` | Keys and scales, the landing-note ladder, and the soundtrack: biome bands, composer and engine |
+| `src/music/` | Keys and scales, the landing-note ladder, and the soundtrack: biome bands, composer and engine, and Blockling Pop's lounge (`styles-pop.ts`, `popcomposer.ts`) |
 | `src/synth/` | The DSP toolkit, instruments (with the band and drum kit), the voice synthesizer and every sound recipe |
 | `src/biomes.ts` | Per-biome key, material, ambience and reverb |
-| `test/unit/` | Node tests: ladder, voices, haptics, settings, every sound renders clean, the composer |
+| `test/unit/` | Node tests: ladder, voices, haptics, settings, every sound renders clean, the composer, Pop's score |
 | `test/browser/` | Headless Chromium tests on an `OfflineAudioContext` |
 | `sketchbook/` | The Sound Sketchbook page |
 
@@ -126,7 +152,7 @@ npm test     # typecheck, unit tests, then the browser tests in headless Chromiu
 
 `npm run build:sketchbook` builds the Sound Sketchbook (`dist/sketchbook.html`), one page where every sound and the main moments can be played by hand through the real director.
 
-The browser tests render real mixes offline and check them: a scripted run through every system, a 150-hit collapse, a resting tower, loudness by impact speed, mono, bad payloads, danger hysteresis, worker baking, memory per biome, impacts by placement biome, every power-up moment, back-to-back runs with no `run_start`, the soundtrack through a whole run (layers on bar lines, the tension takeover, a breakdown, the riser, a biome handover, the tape stop and the results loop), the screen music, the juice switch, a restart from pause, the shape voices, achievement toasts and the run-over strip, a gust warning that a hold cancels, and the checkpoint hold draining the music as its ring fills. When `../game` is present with its packages installed, they also play Gameplay's real sim with a bot the way the game does (a new sim per run, connected after its constructor) and check the audio of every run, the band included. The bot also collects and uses power-ups, and uses Second Wind on its last heart.
+The browser tests render real mixes offline and check them: a scripted run through every system, a 150-hit collapse, a resting tower, loudness by impact speed, mono, bad payloads, danger hysteresis, worker baking, memory per biome, impacts by placement biome, every power-up moment, back-to-back runs with no `run_start`, the soundtrack through a whole run (layers on bar lines, the tension takeover, a breakdown, the riser, a biome handover, the tape stop and the results loop), the screen music, the juice switch, a restart from pause, the shape voices, achievement toasts and the run-over strip, a gust warning that a hold cancels, and the checkpoint hold draining the music as its ring fills. For Blockling Pop they check the layers against the board, the All Clear's fanfare on the next beat, the run over into the results loop, the glissando's timing, juice off, and the screens from the menu into the Pop hub and back. Whenever `../game/src/pop/sim` is there (it needs no packages) they play Gameplay's Pop sim with a bot through the Pop view's event mapping and check the mix, the band and memory. When `../game` is present with its packages installed, they also play Gameplay's real sim with a bot the way the game does (a new sim per run, connected after its constructor) and check the audio of every run, the band included. The bot also collects and uses power-ups, and uses Second Wind on its last heart.
 
 Current numbers (headless Chromium in the cloud container):
 
@@ -134,4 +160,5 @@ Current numbers (headless Chromium in the cloud container):
 - The band schedules 1,600 to 1,700 notes over a 2.5-minute bot session with none missed, and never uses more than 16 voices. It sits at about -23 dB RMS with every layer in, under the effects.
 - Baking the bank takes about 1.6 s. With the worker, the main thread never stalls for more than one frame.
 - Handling one event costs about 0.03 ms.
+- Blockling Pop holds 17.5 MB of effects and up to 32 MB of notes (two families' bands with the board's notes). A 2.5-minute Pop bot session (a head-start power, Spin and Second Wind, two biomes and a run over) peaks at about 51 MB, plays about 1,500 band notes with none missed, and an event costs about 0.2 ms on average.
 - A 150-hit collapse peaks at 0.88 of full scale, never clips, and stays within the voice caps (8 impacts, 32 total).

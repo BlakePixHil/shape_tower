@@ -692,6 +692,176 @@ const scenarios = {
     const buf = await ctx.startRendering();
     return { cancelledDb: db(analyse(buf, 1.8, 2.5).rms), builtDb: db(analyse(buf, 5.8, 6.5).rms), nonFinite: analyse(buf).nonFinite };
   },
+
+  /**
+   * Blockling Pop's score (Pop plan, Music and sound): the bed from the start, the groove after the
+   * first pop, the lead at combo 3, sparkle at 6, tension at 70% full lifting below 55%, the breather
+   * under 20%, an All Clear's fanfare from the next beat and the breather after it, then the run over:
+   * the tape stop, two bars of "nice try" and Pop's results loop.
+   */
+  async pop() {
+    const { ctx, d } = await makeDirector(64);
+    for (const bus of ['sfx', 'ui', 'ambience', 'voices'] as const) d.mixer.setVolume(bus, 0, 0);
+    d.setMode('pop', 0);
+    await d.bank.prepareMode('pop');
+    const lines = (combo: number, count = 1) => ['pop_lines', { count, combo, lines: Array(count).fill(9), hitstop: 40 }] as const;
+    const ev: [number, string, Record<string, unknown>?][] = [
+      [0.1, 'pop_run_start', { biome: 1, cp: 0, fill: 0 }],
+      [1, 'pop_place', { shape: 'L', cells: 4 }], [1.5, ...lines(1)], [4, ...lines(2)], [6, ...lines(3)],
+      [8.5, ...lines(4)], [10.5, ...lines(5)], [12, ...lines(6, 2)], [14, 'pop_combo_end', { combo: 6 }],
+      [18.5, 'pop_fill', { fill: 0.75 }], [21, 'pop_fill', { fill: 0.6 }], [24, 'pop_fill', { fill: 0.5 }],
+      [26, 'pop_fill', { fill: 0.3 }], [27, 'pop_fill', { fill: 0.15 }],
+      [39, ...lines(1)], [39, 'pop_all_clear', {}], [39, 'pop_fill', { fill: 0 }],
+      [55, 'pop_run_over', { cause: 'noroom' }],
+    ];
+    let i = 0, peakVoices = 0;
+    const bpm: number[] = [];
+    for (let k = 1; k <= 640; k++) {
+      const t = k / 10;
+      while (i < ev.length && ev[i][0] <= t) {
+        d.handle(ev[i][1], ev[i][2] ?? {}, ev[i][0]);
+        if (ev[i][1] === 'pop_run_start' || ev[i][1] === 'pop_run_over') await d.music.prewarm();
+        i++;
+      }
+      d.tick(t);
+      peakVoices = Math.max(peakVoices, d.music.state().voices);
+      if (k === 100) bpm.push(d.music.state().bpm);
+    }
+    const st = d.music.state();
+    const buf = await ctx.startRendering();
+    const level = (a: number, b: number) => db(analyse(buf, a, b).rms);
+    const all = analyse(buf);
+    return {
+      log: d.music.log, bpm: bpm[0], misses: st.misses, missed: st.missed, stolen: st.stolen, peakVoices,
+      nonFinite: all.nonFinite, peak: all.peak, mode: d.music.mode,
+      levels: {
+        bed: level(0.5, 2.5), groove: level(3, 7.5), full: level(13, 15), tension: level(20.5, 24.5), afterTension: level(25.5, 27.5),
+        breather: level(28.5, 37), fanfare: level(39.6, 44.4), niceTry: level(56, 60.5), results: level(61.5, 64),
+      },
+    };
+  },
+
+  /**
+   * Pop's effects: the pick-up's pitch follows the shape, the ghost's snap is rate-limited, the
+   * would-pop shimmer starts and stops, a pop plays its glissando (the first note at once, then 39 ms
+   * steps from the end of the freeze) and the answer on the next sixteenth. With juice off only the
+   * sounds that say what happened are left.
+   */
+  async popsfx() {
+    const out: Record<string, unknown> = {};
+    for (const on of [true, false]) {
+      const { ctx, d } = await makeDirector(8);
+      d.setJuice(on);
+      d.setMode('pop', 0);
+      await d.bank.prepareMode('pop');
+      const plays: { name: string; when: number; rate: number }[] = [];
+      const notes: { midi: number; when: number }[] = [];
+      const chords: { when: number; inst: string }[] = [];
+      const haptics: string[] = [];
+      const said: string[] = [];
+      const x = d as unknown as Record<string, (...a: any[]) => any>;
+      const wrap = (k: string, rec: (...a: any[]) => void) => {
+        const orig = x[k].bind(d);
+        x[k] = (...a: any[]) => {
+          rec(...a);
+          return orig(...a);
+        };
+      };
+      wrap('play', (name: string, o: { when?: number; rate?: number } = {}) => plays.push({ name, when: o.when ?? 0, rate: o.rate ?? 1 }));
+      wrap('popNote', (_inst: string, midi: number, o: { when?: number } = {}) => notes.push({ midi, when: o.when ?? 0 }));
+      wrap('popChord', (inst: string, _m: number[], o: { when?: number } = {}) => chords.push({ when: o.when ?? 0, inst }));
+      wrap('playChord', (inst: string, _m: number[], o: { when?: number } = {}) => chords.push({ when: o.when ?? 0, inst }));
+      x.haptic = (name: string) => haptics.push(name);
+      wrap('say', (name: string) => said.push(name));
+      const shimmerAt: Record<string, boolean> = {};
+      const R = () => (d as unknown as { popRun: { shimmer: unknown } }).popRun;
+      d.handle('pop_run_start', { biome: 1, cp: 0, fill: 0 }, 0.1);
+      await d.music.prewarm();
+      d.handle('pop_pickup', { shape: 0 }, 0.5); // Pip, by number
+      d.handle('pop_pickup', { shape: 'Plank' }, 0.9);
+      d.handle('pop_ghost', { lines: 0 }, 1.2);
+      d.handle('pop_ghost', { lines: 0 }, 1.22);
+      d.handle('pop_ghost', { lines: 2 }, 1.3);
+      d.handle('pop_would_pop', { count: 2 }, 1.4);
+      d.handle('pop_would_pop', { count: 3 }, 1.5);
+      shimmerAt.held = !!R().shimmer;
+      const notesBefore = notes.length;
+      d.handle('pop_place', { shape: 'L', cells: 4, combo: 0 }, 2);
+      shimmerAt.placed = !!R().shimmer;
+      const placeNotes = notes.length - notesBefore;
+      const popFrom = notes.length;
+      d.handle('pop_lines', { count: 2, combo: 1, cells: 17, lines: [9, 9], hitstop: 60 }, 2);
+      const gliss = notes.slice(popFrom).filter((n) => n.when < 2.6);
+      const answer = chords.filter((c) => c.when > 2 && c.when < 2.6);
+      // the band's grid as the pop played: where its bars start, and the beat
+      const grid = { t0: (d.music as unknown as { t0: number }).t0, beat: 60 / d.music.state().bpm };
+      d.handle('pop_cant_fit', { slot: 1 }, 4);
+      d.handle('pop_cant_fit', { slot: 1 }, 4.1);
+      d.handle('pop_no_room', {}, 5);
+      d.handle('pop_run_over', { cause: 'noroom' }, 5.1);
+      for (let k = 1; k <= 80; k++) d.tick(k / 10);
+      const buf = await ctx.startRendering();
+      const all = analyse(buf);
+      const st = d.music.state();
+      out[on ? 'on' : 'off'] = {
+        plays, gliss, answer, placeNotes, haptics, said, shimmerAt, peak: all.peak, nonFinite: all.nonFinite, grid, misses: st.misses,
+      };
+    }
+    return out;
+  },
+
+  /**
+   * Pop's screens: from the menu's lullaby into the Pop hub's lounge (a crossfade, as a mode starts),
+   * a run, its results loop, back to the hub without the lounge starting over, then out to the menu.
+   */
+  async popscreens() {
+    const { ctx, d } = await makeDirector(31);
+    d.screen('menu', 0.1);
+    await d.music.prewarm();
+    const bars: Record<string, number[]> = {};
+    const mark = (name: string) => (bars[name] = [...(bars[name] ?? []), d.music.state().bar]);
+    for (let k = 1; k <= 310; k++) {
+      const t = k / 10;
+      if (k === 30) {
+        d.setMode('pop', t);
+        d.screen('pop', t);
+        await d.music.prewarm();
+      }
+      if (k === 80) {
+        // the game starts a run: silence, then the run's band
+        d.screen('none', t);
+        d.handle('pop_run_start', { biome: 1, cp: 0, fill: 0 }, t);
+        await d.music.prewarm();
+      }
+      if (k === 100) d.handle('pop_lines', { count: 1, combo: 1, lines: [9] }, t);
+      if (k === 130) {
+        d.handle('pop_run_over', { cause: 'end' }, t);
+        await d.music.prewarm();
+      }
+      if (k === 230) {
+        mark('hub');
+        d.screen('pop', t);
+        mark('hub');
+      }
+      if (k === 260) {
+        d.setMode('tower', t);
+        d.screen('menu', t);
+        mark('menu');
+      }
+      d.tick(t);
+      if (k === 230) mark('hub');
+    }
+    const st = d.music.state();
+    const buf = await ctx.startRendering();
+    const a = analyse(buf);
+    const level = (x: number, y: number) => db(analyse(buf, x, y).rms);
+    // the quietest half second either side of the results-to-hub switch: no gap
+    const around = a.windows.slice(44, 50);
+    return {
+      log: d.music.log, bars, misses: st.misses, mode: d.music.mode, nonFinite: a.nonFinite, around,
+      levels: { menu: level(0.5, 2.9), hub: level(3.6, 7.8), run: level(8.5, 12.8), results: level(19.5, 22.9), hubAgain: level(23.1, 25.9), menuAgain: level(26.6, 30.5) },
+    };
+  },
 };
 
 /** Records the name of every sound the director plays. */
