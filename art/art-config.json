@@ -551,6 +551,70 @@
         ]
       ],
       "custom": null
+    },
+    {
+      "key": "Pip",
+      "name": "Rosebud Pip",
+      "tier": 0,
+      "light": "#FFC9DE",
+      "base": "#FF8DB8",
+      "shade": "#E0558A",
+      "material": null,
+      "cells": [
+        [
+          0,
+          0
+        ]
+      ],
+      "custom": null
+    },
+    {
+      "key": "Trio",
+      "name": "Mint Trio",
+      "tier": 0,
+      "light": "#C2FBE8",
+      "base": "#5EE8B8",
+      "shade": "#25B585",
+      "material": null,
+      "cells": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          2,
+          0
+        ]
+      ],
+      "custom": null
+    },
+    {
+      "key": "Elbow",
+      "name": "Lilac Elbow",
+      "tier": 0,
+      "light": "#EEDCFF",
+      "base": "#C9A2FF",
+      "shade": "#9A6FE0",
+      "material": null,
+      "cells": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          0
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "custom": null
     }
   ],
   "boulderDiameter": 1.5,
@@ -768,7 +832,10 @@
       "undo": "#B18CFF",
       "glue": "#FFAA2B",
       "slowmo": "#7FD8FF",
-      "wind": "#7FD8FF"
+      "wind": "#7FD8FF",
+      "spin": "#FF6FB5",
+      "meteor": "#FF7A3C",
+      "fresh": "#5B9BFF"
     }
   },
   "cosmos": {

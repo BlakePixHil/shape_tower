@@ -7,6 +7,19 @@ import type { InstrumentId } from '../synth/instruments';
 
 export type SupportPattern = 'arp' | 'strum' | 'offbeat' | 'sparkle' | 'bells';
 export type BassPattern = 'bounce' | 'roots' | 'walk' | 'pulse' | 'long';
+/** How the pad part plays: held chords (the tower), or Blockling Pop's keys: café stabs, a sway, a slow bloom. */
+export type PadPattern = 'hold' | 'comp' | 'sway' | 'bloom';
+
+/** Blockling Pop's extra voices for a style (styles-pop.ts). */
+export interface PopVoices {
+  family: 'ground' | 'sky' | 'space';
+  /** the board's instrument: landing notes, the pop glissando and its answer */
+  board: InstrumentId;
+  boardLow: number;
+  /** the Sparkle layer's arpeggios */
+  sparkle: InstrumentId;
+  sparkleLow: number;
+}
 
 export interface Kit {
   kick: number;
@@ -41,6 +54,20 @@ export interface MusicStyle {
   mix: { pad: number; bass: number; support: number; drums: number; lead: number };
   /** whose tunes to play (a biome id); Deep Cosmos's home rotation plays the Meadow's */
   tune?: number;
+  /** tempo (default 100, the tower's) */
+  bpm?: number;
+  /** default 'hold' */
+  padPattern?: PadPattern;
+  /** the pad plays seventh chords */
+  sevenths?: boolean;
+  /** a held pad under a patterned one (Pop's choir and analog pads) */
+  hold?: InstrumentId;
+  holdLow?: number;
+  /** swing the lead and the pad's off-beats too, not just support and drums */
+  swingAll?: boolean;
+  /** every note bakes at half rate (Pop) */
+  low?: boolean;
+  pop?: PopVoices;
 }
 
 const kit = (kick: number, snare: number, hat: number, ...perc: number[]): Kit => ({ kick, snare, hat, perc });

@@ -101,6 +101,8 @@ if (bubble.done) bubble.destroy();                  // after 0.6 s (collect) or 
 
 `tex.powerIcon(kind)` is any icon as an atlas frame, `POWER.bubbleIcon` (0.8) blocks across. Kinds are the sim's (`clean`, `quickset`, `undo`, `glue`, `slowmo`) plus `wind` for Second Wind. `POWER_COLORS` has each power's color.
 
+Blockling Pop's powers are `POP_POWER_ICONS`: `undo`, `spin` (a Blockling in turning arrows, pink), `clean` (Sweep), `meteor` (a stone meteor on a flame tail, orange) and `fresh` (Fresh Deal: a fanned hand of tray cards, blue), with Second Wind's `wind` as is. `drawPowerIcon`, `bakePowerIcon`, `powerIconUrl` and `bakeBubble` take any of them, and `powerBarCss()` washes `data-kind="spin|meteor|fresh"` slots too. `POWER_KINDS` and `POWER_ICON_NAMES` stay the tower's (its sim and atlas use them).
+
 The power bar is DOM, so the kit gives it images and CSS:
 
 - `powerIconUrl(kind, cssPx)` is a cached PNG URL at the device's resolution (`prewarmUi()` bakes the HUD's sizes ahead; see Screens). Put `<img class="st-icon" src=...>` in a slot (54 px slot: `powerIconUrl(kind, 40)`; 62 px Second Wind: `powerIconUrl('wind', 46)`; a 16 px one fits the Glue and Slow-Mo chips).
@@ -117,7 +119,7 @@ Effects, as particle textures (`tex.vfx(name)`):
 | Slow-Mo | A `ripple` tinted `POWER_COLORS.slowmo` when it starts, then `stardust` in the same color drifting up off the falling shape. |
 | Second Wind | A `ripple` tinted `POWER_COLORS.wind`, then 12 to 16 `gust` streaks (white) crossing the screen left to right at about 20 blocks per second. |
 
-The preview's `powers=1` shows all of it live, with a DOM power bar in every state; `pstrip=1` shows frozen frames of the bubble's spawn, collect and fade.
+The preview's `powers=1` shows all of it live, with a DOM power bar in every state, then Pop's five as slots and bubbles (`big=1` adds them at 64 px); `pstrip=1` shows frozen frames of the bubble's spawn, collect and fade.
 
 ### Backdrop
 

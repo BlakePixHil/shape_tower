@@ -57,6 +57,13 @@ export const PATTERNS = {
   medium: { events: [{ t: 0, i: 0.55, s: 0.5 }] },
   double: { events: [{ t: 0, i: 0.5, s: 0.5 }, { t: 90, i: 0.5, s: 0.5 }] },
   light: { events: [{ t: 0, i: 0.25, s: 0.6 }] },
+  // Blockling Pop (Pop plan, Music and sound): a selection tick as the ghost snaps, heavy on a pop,
+  // a double pulse for a multi-line pop, success (played three times) for an All Clear, error at No room
+  select: { events: [{ t: 0, i: 0.15, s: 1 }], optional: true },
+  heavy: { events: [{ t: 0, i: 0.9, s: 0.5 }] },
+  heavyDouble: { events: [{ t: 0, i: 0.9, s: 0.5 }, { t: 110, i: 0.8, s: 0.5 }] },
+  success: { events: [{ t: 0, i: 0.5, s: 0.8 }, { t: 110, i: 0.8, s: 0.8 }] },
+  error: { events: [{ t: 0, i: 0.6, s: 0.3 }, { t: 100, i: 0.6, s: 0.3 }, { t: 200, i: 0.8, s: 0.3 }] },
 } satisfies Record<string, HapticPattern>;
 
 export type PatternName = keyof typeof PATTERNS;

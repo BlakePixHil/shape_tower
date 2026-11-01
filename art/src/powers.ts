@@ -1,4 +1,5 @@
-// Power-up art (gameplay.md §13): icons for the five powers and Second Wind, the power bubble, and
+// Power-up art (gameplay.md §13): icons for the five powers and Second Wind (plus Blockling Pop's Spin,
+// Meteor and Fresh Deal, Pop plan §7), the power bubble, and
 // the CSS for the game's DOM power bar. Icons are stickers like the rest of the UI (art-direction.md
 // §8): flat fills with a light lip and an Ink outline, so they read on the Paper slot buttons and
 // inside the translucent bubbles alike. Each icon draws in a unit box, so one drawing serves every size.
@@ -10,8 +11,12 @@ import { canvasUrl } from './urls.ts';
 
 export const POWER_KINDS = ['clean', 'quickset', 'undo', 'glue', 'slowmo'] as const;
 export type PowerKind = (typeof POWER_KINDS)[number];
-/** Everything with an icon: the five powers and Second Wind. */
-export type PowerIcon = PowerKind | 'wind';
+/** Blockling Pop's five powers (Pop plan §7), in slot order: Undo and Clean (Sweep) are the tower's, the others Pop's own. */
+export const POP_POWER_ICONS = ['undo', 'spin', 'clean', 'meteor', 'fresh'] as const;
+export type PopPowerIcon = (typeof POP_POWER_ICONS)[number];
+/** Everything with an icon: the tower's five powers, Second Wind, and Pop's own three. */
+export type PowerIcon = PowerKind | 'wind' | PopPowerIcon;
+/** The tower's icons (its powers and Second Wind), which its texture atlas bakes; Pop's are in POP_POWER_ICONS. */
 export const POWER_ICON_NAMES: PowerIcon[] = [...POWER_KINDS, 'wind'];
 
 /** Each power's color, for its bubble rim, its effects and its slot. The same values as the game's. */
@@ -22,6 +27,9 @@ export const POWER_COLORS: Record<PowerIcon, string> = {
   glue: '#FFAA2B',
   slowmo: '#7FD8FF',
   wind: '#7FD8FF',
+  spin: '#FF6FB5',
+  meteor: '#FF7A3C',
+  fresh: '#5B9BFF',
 };
 
 export const POWER = {
@@ -170,7 +178,101 @@ function drawWind(c: Ctx): void {
   c.fillStyle = 'rgba(255,255,255,0.85)'; c.beginPath(); c.ellipse(0.28, -0.33, 0.035, 0.022, -0.6, 0, TAU); c.fill();
 }
 
-const DRAW: Record<PowerIcon, (c: Ctx) => void> = { clean: drawClean, quickset: drawQuickset, undo: drawUndo, glue: drawGlue, slowmo: drawSlowmo, wind: drawWind };
+/** A fat arrow along `line`, ending in a head (Ink edge, then `col`, then a light streak along its top). */
+function fatArrow(c: Ctx, line: Path2D, head: Path2D, W: number, col: string, hi?: Path2D, hiCol = '#FFFFFF'): void {
+  c.lineJoin = 'round'; c.lineCap = 'round';
+  c.strokeStyle = INK; c.lineWidth = W + O * 2; c.stroke(line);
+  c.fillStyle = INK; c.fill(head); c.lineWidth = O * 2; c.stroke(head);
+  c.strokeStyle = col; c.lineWidth = W; c.stroke(line);
+  c.fillStyle = col; c.fill(head);
+  if (hi) { c.strokeStyle = hiCol; c.lineWidth = W * 0.28; c.stroke(hi); }
+}
+
+/** Spin (Pop): a gold Elbow Blockling, grinning, inside two pink arrows turning clockwise. */
+function drawSpin(c: Ctx): void {
+  const col = POWER_COLORS.spin, W = 0.1, R = 0.355;
+  for (const [a0, a1] of [[Math.PI * 0.98, Math.PI * 1.68], [Math.PI * -0.02, Math.PI * 0.68]]) {
+    const line = new Path2D(); line.arc(0, 0, R, a0, a1);
+    const tx = -Math.sin(a1), ty = Math.cos(a1), nx = Math.cos(a1), ny = Math.sin(a1), hx = nx * R, hy = ny * R;
+    const head = new Path2D();
+    head.moveTo(hx + tx * 0.17, hy + ty * 0.17); head.lineTo(hx + nx * 0.13 - tx * 0.02, hy + ny * 0.13 - ty * 0.02); head.lineTo(hx - nx * 0.13 - tx * 0.02, hy - ny * 0.13 - ty * 0.02); head.closePath();
+    const hi = new Path2D(); hi.arc(0, 0, R + W * 0.22, a0 + 0.25, a1 - 0.35);
+    fatArrow(c, line, head, W, col, hi, '#FFD3EA');
+  }
+  // The Blockling: three cells in an L, tilted as if mid-turn.
+  const s = 0.19, L = new Path2D();
+  L.moveTo(0, 0); L.lineTo(2 * s, 0); L.lineTo(2 * s, s); L.lineTo(s, s); L.lineTo(s, 2 * s); L.lineTo(0, 2 * s); L.closePath();
+  const A = -14, X = -0.17, Y = -0.14, body = turn(L, A, X, Y);
+  part(c, body, '#FFCC33', '#FFE58F', '#E0A100', 0.035);
+  c.save(); c.translate(X, Y); c.rotate((A * Math.PI) / 180);
+  c.strokeStyle = 'rgba(176,120,0,0.55)'; c.lineWidth = 0.022; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(s, 0.03); c.lineTo(s, s - 0.01); c.moveTo(0.03, s); c.lineTo(s - 0.01, s); c.stroke();
+  // Face on the corner cell: open eyes looking the way it turns, and a grin.
+  c.fillStyle = INK;
+  for (const x of [0.065, 0.13]) { c.beginPath(); c.ellipse(x + 0.005, 0.075, 0.021, 0.029, 0, 0, TAU); c.fill(); }
+  c.beginPath(); c.moveTo(0.058, 0.12); c.quadraticCurveTo(0.1, 0.17, 0.142, 0.12); c.closePath(); c.fill();
+  c.restore();
+}
+
+/** Meteor (Pop): a lumpy stone meteor streaking down to the left on a flame tail. */
+function drawMeteor(c: Ctx): void {
+  const rx = -0.13, ry = 0.15, rr = 0.2, deg = -46;
+  const flame = (w: number, len: number) => {
+    const f = new Path2D();
+    f.moveTo(0, -w); f.quadraticCurveTo(len * 0.45, -w * 1.05, len * 0.62, -w * 0.55); f.lineTo(len * 0.55, -w * 0.32);
+    f.quadraticCurveTo(len * 0.8, -w * 0.3, len, 0); f.quadraticCurveTo(len * 0.6, w * 0.55, len * 0.48, w * 0.5); f.lineTo(len * 0.52, w * 0.78);
+    f.quadraticCurveTo(len * 0.3, w * 1.05, 0, w); f.arc(0, 0, w, Math.PI / 2, -Math.PI / 2); f.closePath();
+    return turn(f, deg, rx, ry);
+  };
+  part(c, flame(0.235, 0.82), '#FF7A3C', '#FFB36B', '#D9501A', 0.03);
+  const mid = flame(0.16, 0.62); c.fillStyle = '#FFD95A'; c.fill(mid);
+  const core = flame(0.09, 0.44); c.fillStyle = '#FFF6C8'; c.fill(core);
+  // The rock: a lumpy disc of stone with craters.
+  const rock = new Path2D();
+  for (let i = 0; i < 11; i++) { const a = (i / 11) * TAU, d = rr * (0.9 + 0.1 * Math.sin(i * 2.3 + 1)); if (i) rock.lineTo(rx + Math.cos(a) * d, ry + Math.sin(a) * d); else rock.moveTo(rx + Math.cos(a) * d, ry + Math.sin(a) * d); }
+  rock.closePath();
+  c.save(); c.lineJoin = 'round'; c.lineWidth = 0.05; c.strokeStyle = '#9A8478'; c.stroke(rock); c.restore();
+  part(c, rock, '#9A8478', '#C9B6A8', '#6E5A4E', 0.04);
+  c.fillStyle = 'rgba(70,50,40,0.45)';
+  for (const [x, y, r] of [[-0.06, 0.04, 0.05], [0.04, 0.12, 0.032], [-0.08, 0.15, 0.028]]) { c.beginPath(); c.arc(rx + x, ry + y, r, 0, TAU); c.fill(); }
+  c.fillStyle = 'rgba(255,255,255,0.55)'; c.beginPath(); c.ellipse(rx - 0.07, ry - 0.1, 0.05, 0.028, -0.5, 0, TAU); c.fill();
+  // Speed lines beside the tail.
+  c.strokeStyle = INK; c.lineWidth = 0.045; c.lineCap = 'round';
+  for (const [x0, y0, l] of [[-0.06, -0.3, 0.14], [0.2, 0.08, 0.16]]) { c.beginPath(); c.moveTo(x0, y0); c.lineTo(x0 + l * 0.69, y0 - l * 0.72); c.stroke(); }
+}
+
+/** Fresh Deal (Pop): a hand of three tray cards fanned out, each holding a little shape, and a sparkle. */
+function drawFresh(c: Ctx): void {
+  // Cards hang from a pivot below them (px, py), like a hand of cards; `top` is how far the card's top is from it.
+  const cw = 0.32, ch = 0.46, gap = 0.24, top = gap + ch, px = 0, py = 0.5, m = 0.08;
+  const card = rrPath(-cw / 2, -top, cw, ch, 0.06);
+  const hand: [number, string, [number, number][], number][] = [
+    [-24, '#5EE8B8', [[0, 0], [1, 0], [0, 1]], 0.07],
+    [24, '#FF8DB8', [[0, 0], [1, 0]], 0.07],
+    [0, '#A35CFF', [[0, 0], [1, 0], [2, 0], [1, 1]], 0.14],
+  ];
+  for (const [deg, col, cells, dy] of hand) {
+    part(c, turn(card, deg, px, py), '#FFF7E8', '#FFFFFF', '#E6D8BE', 0.03);
+    const w = Math.max(...cells.map(([x]) => x)) + 1;
+    c.save(); c.translate(px, py); c.rotate((deg * Math.PI) / 180); c.translate((-w * m) / 2, -top + dy);
+    for (const [x, y] of cells) {
+      const q = rrPath(x * m, y * m, m, m, 0.016);
+      c.fillStyle = col; c.fill(q); c.lineWidth = 0.022; c.strokeStyle = INK; c.lineJoin = 'round'; c.stroke(q);
+      c.fillStyle = 'rgba(255,255,255,0.55)'; c.fillRect(x * m + 0.014, y * m + 0.012, m * 0.45, 0.014);
+    }
+    c.restore();
+  }
+  // A band in the power's colour along the front card's foot, and sparkles for the new deal.
+  const band = rrPath(-cw / 2 + 0.05, py - gap - 0.1, cw - 0.1, 0.055, 0.025);
+  c.fillStyle = POWER_COLORS.fresh; c.fill(band); ink(c, band, 0.025);
+  for (const [x, y, r, f] of [[0.36, -0.38, 0.12, SIGNAL.gold], [-0.4, -0.36, 0.08, '#FFFFFF']] as [number, number, number, string][]) {
+    const t = twinkle(x, y, r); c.fillStyle = f; c.fill(t); ink(c, t, O * 0.75);
+  }
+}
+
+const DRAW: Record<PowerIcon, (c: Ctx) => void> = {
+  clean: drawClean, quickset: drawQuickset, undo: drawUndo, glue: drawGlue, slowmo: drawSlowmo, wind: drawWind, spin: drawSpin, meteor: drawMeteor, fresh: drawFresh,
+};
 
 /** Draw icon `kind` centred at (x, y), `size` px across. */
 export function drawPowerIcon(c: Ctx, kind: PowerIcon, x: number, y: number, size: number): void {
@@ -198,8 +300,8 @@ export function powerIconUrl(kind: PowerIcon, cssPx: number, dpr = typeof window
 
 // ---- the bubble ----
 
-/** The power bubble's body: a soap bubble tinted in the power's color, with white and colored rims and an Ink edge. Origin: centre. */
-export function bakeBubble(kind: PowerKind, s: number): HTMLCanvasElement {
+/** The power bubble's body: a soap bubble tinted in the power's color, with white and colored rims and an Ink edge. Origin: centre. Takes any power icon (Pop's too). */
+export function bakeBubble(kind: PowerIcon, s: number): HTMLCanvasElement {
   const pt = s / 32, r = POWER.bubbleR * s, size = Math.ceil(2 * r + 6 * pt), cv = makeCanvas(size, size), c = ctx2d(cv), m = size / 2, col = POWER_COLORS[kind];
   const disc = (rad: number) => { c.beginPath(); c.arc(m, m, rad, 0, TAU); };
   disc(r); c.fillStyle = 'rgba(255,255,255,0.14)'; c.fill();
@@ -239,7 +341,7 @@ const wash = (col: string, t: number) => labToHex(mixLab(oklab(PAPER), oklab(col
  * `spent` (it blows away over 450 ms; hide it after).
  */
 export function powerBarCss(): string {
-  const slots = POWER_KINDS.map(k => `.st-slot[data-kind="${k}"] { background: radial-gradient(circle at 50% 36%, #FFFFFF 0 26%, ${wash(POWER_COLORS[k], 0.2)} 62%, ${wash(POWER_COLORS[k], 0.45)} 100%); }`).join('\n');
+  const slots = ([...POWER_KINDS, 'spin', 'meteor', 'fresh'] as PowerIcon[]).map(k => `.st-slot[data-kind="${k}"] { background: radial-gradient(circle at 50% 36%, #FFFFFF 0 26%, ${wash(POWER_COLORS[k], 0.2)} 62%, ${wash(POWER_COLORS[k], 0.45)} 100%); }`).join('\n');
   const sky = 'rgba(127,216,255,', gold = 'rgba(255,194,61,';
   return `${slots}
 .st-icon { width: ${POWER.iconFill * 100}%; height: ${POWER.iconFill * 100}%; display: block; pointer-events: none; -webkit-user-drag: none; user-select: none; }

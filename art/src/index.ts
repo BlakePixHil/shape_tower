@@ -17,7 +17,7 @@ export { bakeDustDevil, bakeMoon, bakeOrbit, bakeRedPlanet, bakeRingArc, bakeRin
 export { COSMOS_PALETTES, LANDMARKS, bakeCosmos, bakeLandmark, type CosmosPalette, type Landmark, type LandmarkPose } from './cosmos.ts';
 export { STAR_LAYERS, bakeStarTile, type StarLayer } from './stars.ts';
 export { VFX, VFX_NAMES, bakeVfx, type VfxName } from './vfx.ts';
-export { POWER, POWER_COLORS, POWER_ICON_NAMES, POWER_KINDS, bakeBubble, bakeBubbleGloss, bakePowerIcon, drawPowerIcon, powerBarCss, powerIconUrl, type PowerIcon, type PowerKind } from './powers.ts';
+export { POP_POWER_ICONS, POWER, POWER_COLORS, POWER_ICON_NAMES, POWER_KINDS, bakeBubble, bakeBubbleGloss, bakePowerIcon, drawPowerIcon, powerBarCss, powerIconUrl, type PopPowerIcon, type PowerIcon, type PowerKind } from './powers.ts';
 export { BUNTING_KEYS, CHECKPOINT, bakeFlag, bakeGlint, bakeGlowBand, bakeHoldTick, bakeLabel, bakePbDash, bakePbFlag, bakePennant, bakePlaque, bakeRopeTile } from './checkpoint.ts';
 export { WIND, WIND_VARIANTS, bakeWind, windDrifters, type WindKind, type WindTex } from './wind.ts';
 export { COLUMN_FRAMES, HAZARD, HAZARD_TEX, JUNK_KINDS, JUNK_LIGHT, bakeHazard, type HazardTex, type JunkKind } from './hazards.ts';

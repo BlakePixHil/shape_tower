@@ -15,9 +15,12 @@ export type InstrumentId =
   | 'whistle' | 'bellLow' | 'clonk' | 'gong' | 'twang'
   | BandInstrument;
 
-/** Fraction of the context's sample rate a note bakes at: the band's instruments use half. */
-export function instrumentRate(inst: InstrumentId): number {
-  return (BAND as readonly string[]).includes(inst) ? BAND_RATE : 1;
+/**
+ * Fraction of the context's sample rate a note bakes at: the band's instruments use half, and so does
+ * any instrument asked for `low` (Blockling Pop bakes every note at half rate).
+ */
+export function instrumentRate(inst: InstrumentId, low = false): number {
+  return low || (BAND as readonly string[]).includes(inst) ? BAND_RATE : 1;
 }
 
 export const MATERIAL_INSTRUMENT: Record<Material, { inst: InstrumentId; octave: number }> = {

@@ -295,6 +295,43 @@ input[type="checkbox"] { accent-color: var(--violet); width: 18px; height: 18px;
     </div>
   </section>
 
+  <section class="panel" aria-labelledby="pop-h">
+    <div class="band">
+      <div style="display:grid;gap:6px">
+        <h2 id="pop-h">Blockling Pop</h2>
+        <p class="soft">The grid puzzle mode has its own laid-back toy-box lounge at 96 BPM with a light swing. It loops forever and follows the board: the groove comes in with the first pop, the lead at combo 3, sparkles at combo 6, a heartbeat when the board is 70% full and a breather when it drops under 20%. Pops play notes on the board's instrument, always in key.</p>
+      </div>
+      <div class="btnrow">
+        <button class="btn perfect" id="pop-start" type="button">Start a Pop run</button>
+        <button class="btn" id="pop-place" type="button">Place a shape</button>
+        <button class="btn" id="pop-1" type="button">Pop a line</button>
+        <button class="btn" id="pop-2" type="button">Pop 2 lines</button>
+        <button class="btn" id="pop-3" type="button">Pop 3 lines</button>
+        <button class="btn" id="pop-miss" type="button">Miss three times</button>
+        <button class="btn clean" id="pop-clear" type="button">All Clear</button>
+        <button class="btn messy" id="pop-over" type="button">No room</button>
+      </div>
+      <div class="layers" id="pop-layers"></div>
+      <p class="soft" id="pop-read">Not playing</p>
+      <div class="danger-ctl">
+        <h3>How full the board is</h3>
+        <div class="tension-read"><span id="pop-fill-val">0%</span></div>
+        <input id="pop-fill" type="range" min="0" max="100" value="0" aria-label="How full the board is">
+        <div class="scale" aria-hidden="true"><span style="left:0;transform:none">0%</span><span style="left:20%">20% breather</span><span style="left:55%">55%</span><span style="left:70%">70% tension</span><span style="left:100%;transform:translateX(-100%)">100%</span></div>
+      </div>
+      <h3>The sky above the board</h3>
+      <div class="btnrow" id="pop-biomes"></div>
+      <h3>Pop's effects</h3>
+      <div class="pads" id="pop-pads"></div>
+      <h3>Outside a run</h3>
+      <div class="btnrow">
+        <button class="btn" id="pop-hub" type="button">Pop hub lounge</button>
+        <button class="btn" id="pop-results" type="button">Pop results loop</button>
+        <button class="btn" id="pop-menu" type="button">Back to the title lullaby</button>
+      </div>
+    </div>
+  </section>
+
   <section class="panel" aria-labelledby="mix-h">
     <div style="display:grid;gap:14px">
       <h2 id="mix-h">Listening</h2>

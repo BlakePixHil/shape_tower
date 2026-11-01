@@ -120,4 +120,9 @@ export const REACTIONS: Record<string, (rng: Rng) => Syllable[]> = {
 /** Which voice each shape has: semitones up or down, so small shapes squeak and long ones grumble. */
 export const SHAPE_VOICE: Record<string, number> = {
   Domino: 5, Z: 3, J: 2, I: 1, T: 0, L: -1, S: -2, O: -3, Plank: -5,
+  // the later tower shapes, and Blockling Pop's three small ones (Pip squeaks highest)
+  P: -2, U: -3, V: -1, Arch: -4, Plus: -4, Pip: 7, Elbow: 6, Trio: 4,
 };
+
+/** Blockling Pop's shapes by number (game/src/pop/sim/shapes.ts POP_KEYS), so an event can name one either way. */
+export const POP_SHAPE_KEYS = ['Pip', 'Domino', 'Trio', 'Elbow', 'O', 'I', 'L', 'J', 'T', 'S', 'Z', 'Plank', 'P', 'U', 'V', 'Arch', 'Plus'] as const;
