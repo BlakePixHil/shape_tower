@@ -31,7 +31,8 @@ That's all the game has to do. The director listens to every JuiceBus event in g
 ### Music outside a run, menus and settings
 
 ```ts
-audio.screen('menu');       // the title lullaby; also 'profile' (lighter) and 'none' (silence). Results music starts itself after run_over
+audio.screen('menu');       // the title lullaby; also 'profile' and 'none' (silence). Results music starts itself after run_over
+                            // moving between screens never restarts it: the lullaby keeps its clock until a run or 'none'
 audio.ui('tap');            // also: tap2, back, toggleOn, toggleOff, slider, tab, open, close, error, pause, resume, start, badge, unlock
 audio.setVolume('music', 0.7);   // 'music' | 'sfx' | 'voices', 0 to 1
 audio.setHapticsLevel('light');  // 'off' | 'light' | 'full' (Android starts on light)
