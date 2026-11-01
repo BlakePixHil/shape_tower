@@ -160,5 +160,5 @@ Current numbers (headless Chromium in the cloud container):
 - The band schedules 1,600 to 1,700 notes over a 2.5-minute bot session with none missed, and never uses more than 16 voices. It sits at about -23 dB RMS with every layer in, under the effects.
 - Baking the bank takes about 1.6 s. With the worker, the main thread never stalls for more than one frame.
 - Handling one event costs about 0.03 ms.
-- Blockling Pop holds 17.5 MB of effects and up to 32 MB of notes (two families' bands with the board's notes). A 2.5-minute Pop bot session peaks at about 42 MB, plays about 1,550 band notes with none missed, and an event costs about 0.17 ms on average.
+- Blockling Pop holds 17.5 MB of effects and up to 32 MB of notes (two families' bands with the board's notes). A 2.5-minute Pop bot session (a head-start power, Spin and Second Wind, two biomes and a run over) peaks at about 51 MB, plays about 1,500 band notes with none missed, and an event costs about 0.2 ms on average.
 - A 150-hit collapse peaks at 0.88 of full scale, never clips, and stays within the voice caps (8 impacts, 32 total).

@@ -41,9 +41,12 @@ interface Move { slot: number; x: number; y: number }
   let fitsWas = [true, true, true, true];
   let next = 0.2; // when the bot's next move starts
   let overAt = -1;
+  /** powers the bot used, by kind */
+  const powers: Record<string, number> = {};
 
   const startRun = (t: number) => {
-    sim = new PopSim({ seed: seed * 1000 + runs.length, newPlayer: false });
+    // a level 6 player: a head-start power, and Second Wind ready in every other run (milestone 3 sims)
+    sim = new PopSim({ seed: seed * 1000 + runs.length, newPlayer: false, headStart: true, windReady: runs.length % 2 === 1 } as ConstructorParameters<typeof PopSim>[0]);
     seenTray = sim.trays;
     fitsWas = [true, true, true, true];
     runs.push({ from: t, moves: 0, lines: 0, cp: 0, clears: 0, cause: null });
@@ -85,7 +88,38 @@ interface Move { slot: number; x: number; y: number }
             send(at, 'pop_bag');
             break;
           case 'pop_no_room':
-            send(at, 'pop_no_room');
+            send(at, 'pop_no_room', { waiting: p.waiting });
+            break;
+          // milestone 3 (rules 2): bubbles, powers and Second Wind, as the view sends them
+          case 'pop_bubble':
+            send(at, 'pop_bubble', { kind: p.kind, why: p.why });
+            break;
+          case 'pop_bubble_got':
+            send(at, 'pop_bubble_got', { kind: p.kind });
+            break;
+          case 'pop_bubble_gone':
+            send(at, 'pop_bubble_gone');
+            break;
+          case 'pop_power_got':
+            if (p.why !== 'head') send(at, 'pop_power_got', { kind: p.kind, why: p.why });
+            break;
+          case 'pop_power': {
+            const cells = Array.isArray(p.cells) ? p.cells.length : undefined;
+            send(at, 'pop_power', cells === undefined ? { kind: p.kind } : { kind: p.kind, cells });
+            // the meteor lands at the end of its 260 ms streak
+            if (p.kind === 'meteor') send(at + 0.26, 'pop_meteor_hit', { cells });
+            powers[p.kind as string] = (powers[p.kind as string] ?? 0) + 1;
+            break;
+          }
+          case 'pop_spin':
+            send(at, 'pop_spin', { slot: p.slot });
+            break;
+          case 'pop_wind_ready':
+            send(at, 'pop_wind_ready', { why: p.why });
+            break;
+          case 'pop_second_wind':
+            send(at, 'pop_second_wind', { cells: (p.cells as number[]).length });
+            powers.wind = (powers.wind ?? 0) + 1;
             break;
           case 'run_over':
             run.cause = p.cause as string;
@@ -100,6 +134,35 @@ interface Move { slot: number; x: number; y: number }
     return (t2: number) => (at = t2);
   };
   let setAt = startRun(0.1);
+
+  /** Uses Second Wind or a held power (milestone 3 sims), aiming Sweep and Meteor at the first target that takes. */
+  const usePower = (s: PopSim, t: number): boolean => {
+    const S = s as unknown as { powers?: (string | null)[]; wind?: string; canPower?(i: number): boolean; canSpin?(i: number): boolean };
+    if (!S.powers) return false;
+    setAt(t + 0.5);
+    if (S.wind === 'ready' && !legalMoves(s).length) {
+      send(t, 'pop_wind_armed');
+      if (s.apply({ t: 'wind' })) return true;
+    }
+    for (let i = 0; i < 2; i++) {
+      const kind = S.powers[i];
+      if (!kind || !S.canPower?.(i)) continue;
+      if (kind === 'sweep' || kind === 'meteor') {
+        send(t, 'pop_aim', { kind });
+        for (let k = 0; k < 3; k++) send(t + 0.1 + k * 0.1, 'pop_aim_move');
+        const n = kind === 'sweep' ? 27 : CELLS;
+        for (let a = 0; a < n; a++) if (s.apply({ t: 'power', slot: i, arg: a })) return true;
+        send(t + 0.45, 'pop_aim_cancel');
+        continue;
+      }
+      if (s.apply({ t: 'power', slot: i })) {
+        // Spin on: turn a tray shape twice
+        if (kind === 'spin') for (let k = 0; k < 2; k++) { setAt(t + 0.7 + k * 0.25); if (S.canSpin?.(0)) s.apply({ t: 'spin', slot: 0 }); }
+        return true;
+      }
+    }
+    return false;
+  };
 
   /** Plays the bot up to audio time `until`, queueing what the view would send. */
   const plan = (until: number) => {
@@ -123,7 +186,17 @@ interface Move { slot: number; x: number; y: number }
         continue;
       }
       const all: Move[] = legalMoves(s);
-      const mv: Move | null = rng() < 0.65 ? greedyMove(s) : all.length ? all[Math.floor(rng() * all.length)] : null;
+      // stuck (the run waits for a power or End run), or now and then anyway: a power
+      if (!all.length || (rng() < 0.12 && usePower(s, t))) {
+        if (!all.length && !usePower(s, t)) {
+          setAt(t);
+          s.apply({ t: 'end' });
+        }
+        next = t + 1.2;
+        continue;
+      }
+      // careful for the first minute and a half (a long climb), careless after it (a run over and a new run)
+      const mv: Move | null = rng() < (t < 85 ? 0.85 : 0.3) ? greedyMove(s) : all[Math.floor(rng() * all.length)];
       if (!mv) { next = t + 0.5; continue; }
       const sl = s.slot(mv.slot);
       send(t, 'pop_pickup', { shape: sl?.s ?? 0 });
@@ -221,11 +294,13 @@ interface Move { slot: number; x: number; y: number }
     counts, peak: pk, nonFinite, nearClip, rms: Math.sqrt(sum / (2 * a.length)),
     voices: { peak, total: maxVoices, limits: { ...FULL_CAPS, total: FULL_GLOBAL_CAP } },
     cpu: { meanMs: total / Math.max(1, handled), worstMs: worst, events: handled, cost },
-    runs,
+    // runs the render reached (the bot plans a little ahead)
+    runs: runs.filter((r) => r.from < seconds),
     music: d.music.state(),
     layers: [...new Set(log.filter((w) => w.endsWith(' on')).map((w) => w.slice(0, -3)))],
     bands: log.filter((w) => w.startsWith('band ')).map((w) => w.slice(5)),
     starts: log.filter((w) => w === 'pop start').length,
+    powers,
     niceTries: log.filter((w) => w === 'nice try').length,
     memoryMB,
     mode: d.mode,

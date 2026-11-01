@@ -1593,7 +1593,7 @@ export class AudioDirector {
         this.onPopPower(str(p, 'kind', ''), p, when);
         break;
       case 'pop_meteor_hit':
-        this.onMeteorHit(Array.isArray(p?.cells) ? p.cells.length : 6, when);
+        this.onMeteorHit(cellCount(p, 6), when);
         break;
       case 'pop_power_refused':
         this.play('rotate.blocked', { bus: 'ui', when, gainDb: -12, rate: 0.8, category: 'ui', priority: 2, slowmo: false });
@@ -1634,7 +1634,7 @@ export class AudioDirector {
         this.haptic('light');
         break;
       case 'pop_second_wind':
-        this.onPopSecondWind(Array.isArray(p?.cells) ? p.cells.length : 27, when);
+        this.onPopSecondWind(cellCount(p, 27), when);
         break;
       // shared with the tower
       case 'pause':
@@ -1876,7 +1876,7 @@ export class AudioDirector {
         this.haptic('light');
         break;
       case 'sweep': {
-        const cells = Array.isArray(p?.cells) ? p.cells.length : 9;
+        const cells = cellCount(p, 9);
         this.play('sweep', { when, gainDb: -13 + 5 * clamp(cells / 18, 0, 1), category: 'misc', priority: 2 });
         // the line's Blocklings tumble off the board, going "whee"
         if (this.say('whee', when + 0.12, { force: true })) this.say('whee', when + 0.3, { force: true, gainDb: -16 });
@@ -1966,6 +1966,13 @@ const POP_STEP = 0.039;
 
 /** Where each popping line's glissando starts above the first: root, third, fifth (pentatonic steps). */
 const POP_HARMONY = [0, 2, 3];
+
+/** How many cells an event covers: the view sends a count, the sim a list. */
+function cellCount(p: Payload, fallback: number): number {
+  const v = p?.cells;
+  if (Array.isArray(v)) return v.length;
+  return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : fallback;
+}
 
 /** A Pop shape named by key ('Plank') or by number (POP_KEYS order). */
 function popShape(v: unknown): string {

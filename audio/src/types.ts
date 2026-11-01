@@ -87,9 +87,9 @@ export const POP_EVENTS = [
   'pop_no_room', 'pop_run_over', // {waiting?}, {cause}
   // milestone 3: bubbles, powers and Second Wind
   'pop_bubble', 'pop_bubble_got', 'pop_bubble_gone', 'pop_power_got', // {kind, why}, {kind}, -, {kind, why}
-  'pop_power', 'pop_meteor_hit', 'pop_power_refused', // {kind: undo|spin|sweep|meteor|fresh, cells?}, {cells}, -
+  'pop_power', 'pop_meteor_hit', 'pop_power_refused', // {kind: undo|spin|sweep|meteor|fresh, cells? (a count)}, {cells}, -
   'pop_aim', 'pop_aim_move', 'pop_aim_cancel', 'pop_spin', // {kind}, -, -, -
-  'pop_wind_ready', 'pop_wind_armed', 'pop_second_wind', // {why}, -, {cells}
+  'pop_wind_ready', 'pop_wind_armed', 'pop_second_wind', // {why}, -, {cells (a count)}
   'pause', 'resume', 'xp_tick', 'level_up', 'unlock', 'achievement',
 ] as const;
 

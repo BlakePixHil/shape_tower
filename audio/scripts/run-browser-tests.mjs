@@ -394,6 +394,8 @@ checks.popsim = (r) => {
   assert.equal(r.niceTries, r.counts.pop_run_over, '"nice try" after every run over');
   for (const l of ['groove', 'lead']) assert.ok(r.layers.includes(l), `the ${l} layer played (${r.layers.join(', ')})`);
   assert.ok(r.bands.length >= 1, `a new biome brought its band (${r.bands.join(', ')})`);
+  // milestone 3 sims: the bot uses its head-start power, Spin and Second Wind
+  if (r.counts.pop_bubble) assert.ok(Object.keys(r.powers).length > 0 && r.counts.pop_power_got !== 0, `the bot used powers (${JSON.stringify(r.powers)})`);
   // Pop holds fewer effects than the tower and a bigger note cache: the same 60 MB budget
   assert.ok(r.memoryMB < 60, `decoded audio stays under 60 MB in Pop (${r.memoryMB} MB)`);
   assert.equal(r.mode, 'pop');
@@ -437,7 +439,7 @@ function summary(name, r) {
   if (name === 'pop') return `layers ${r.log.filter((e) => / on$|fanfare|nice try|popResults/.test(e.what)).map((e) => `${e.what.replace(/ on$/, '')} ${e.t}`).join(', ')}; levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v}`).join(', ')} dB`;
   if (name === 'popsfx') return `gliss ${r.on.gliss.length} notes, answer at ${r.on.answer.map((c) => c.when.toFixed(3)).join('/')}, juice off ${r.off.plays.length} sounds`;
   if (name === 'popscreens') return `${r.log.map((e) => `${e.what} ${e.t}`).join(', ')}; levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v}`).join(', ')} dB`;
-  if (name === 'popsim') return `${r.runs.length} runs (${r.runs.map((x) => `${x.moves} moves, ${x.lines} lines, cp ${x.cp}`).join('; ')}), layers ${r.layers.join('/')}, bands ${r.bands.join('/') || 'one'}, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB`;
+  if (name === 'popsim') return `${r.runs.length} runs (${r.runs.map((x) => `${x.moves} moves, ${x.lines} lines, cp ${x.cp}`).join('; ')}), layers ${r.layers.join('/')}, bands ${r.bands.join('/') || 'one'}, powers ${Object.entries(r.powers).map(([k, v]) => `${k} ${v}`).join('/') || 'none'}, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB`;
   if (name === 'loudness') return `${r.softDb} / ${r.midDb} / ${r.hardDb} dB, below-screen ${r.belowDb} dB`;
   return JSON.stringify(r).slice(0, 120);
 }
