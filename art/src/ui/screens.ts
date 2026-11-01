@@ -334,9 +334,12 @@ export interface MenuMode {
   icon: UiIcon;
   /** Level that unlocks it; locked below that, with a "Lv N" tag. */
   unlockAt?: number;
+  /** Spans the whole row (Blockling Pop, a mode of its own rather than a way to play the tower). */
+  wide?: boolean;
 }
 
 export const MENU_MODES: MenuMode[] = [
+  { id: 'pop', name: 'Blockling Pop', sub: 'Fit shapes, pop lines', icon: 'shapes', unlockAt: 2, wide: true },
   { id: 'daily', name: 'Daily Tower', sub: 'Same tower for all', icon: 'daily', unlockAt: 3 },
   { id: 'zen', name: 'Zen', sub: 'Just build', icon: 'zen', unlockAt: 8 },
 ];
@@ -369,7 +372,7 @@ function ring(f: number): string {
 export function mainMenu(d: MenuData): HTMLElement {
   const modes = (d.modes ?? MENU_MODES).map(m => {
     const locked = m.unlockAt !== undefined && d.level < m.unlockAt;
-    return `<button type="button" class="ui-mode${locked ? ' locked' : ''}" data-action="${m.id}"${locked ? ` data-locked="${m.unlockAt}" aria-disabled="true"` : ''}>
+    return `<button type="button" class="ui-mode${m.wide ? ' wide' : ''}${locked ? ' locked' : ''}" data-action="${m.id}"${locked ? ` data-locked="${m.unlockAt}" aria-disabled="true"` : ''}>
       ${icon(m.icon, 34)}<div><b>${esc(m.name)}</b><span>${locked ? `Unlocks at level ${m.unlockAt}` : esc(m.sub)}</span></div>
       ${locked ? `<span class="ui-lock">${icon('lock', 16)}${m.unlockAt}</span>` : ''}</button>`;
   }).join('');

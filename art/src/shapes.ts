@@ -39,6 +39,11 @@ export const ART_SHAPES: Record<string, ArtShape> = {
   Boulder: S('Boulder', 'Boulder', 5, ['#A9AFC0', '#6E7487', '#4A4F60'], null, { custom: 'boulder', material: 'basalt' }),
   Arch: S('Arch', 'Brick Arch', 6, ['#F09A7C', '#D2694A', '#A3452C'], [[0, 0], [2, 0], [0, 1], [1, 1], [2, 1]], { material: 'brick' }),
   Plus: S('Plus', 'Star Plus', 6, ['#FFFFFF', '#E9E6FA', '#B9B2DE'], [[1, 0], [0, 1], [1, 1], [2, 1], [1, 2]], { material: 'gem' }),
+  // Blockling Pop's three small Blocklings (Pop plan §4): grid fillers, in hues lighter than the tower's.
+  // Tier 0 so nothing treats them as late shapes; the tower never deals them.
+  Pip: S('Pip', 'Rosebud Pip', 0, ['#FFC9DE', '#FF8DB8', '#E0558A'], [[0, 0]]),
+  Trio: S('Trio', 'Mint Trio', 0, ['#C2FBE8', '#5EE8B8', '#25B585'], [[0, 0], [1, 0], [2, 0]]),
+  Elbow: S('Elbow', 'Lilac Elbow', 0, ['#EEDCFF', '#C9A2FF', '#9A6FE0'], [[0, 0], [1, 0], [0, 1]]),
 };
 
 /** Boulder diameter in blocks (Gameplay §4.1). */
