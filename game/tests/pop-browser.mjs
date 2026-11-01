@@ -292,6 +292,18 @@ for (const vp of [{ width: 448, height: 825, dpr: 2.25 }, { width: 360, height: 
   }
   step(`on a ${vp.width} × ${vp.height} phone the pause, score and area pill keep inside the board frame, the count and name inside the pill (long names, big scores too)`,
     cases.every(c => c.ok) && /^0\/\d+Meadow$/.test(cases[0].text), JSON.stringify(cases));
+  if (vp.width === 448) {
+    // Blake (2026-11-01 13:01): Pop's pause button had a see-through background; the tower's is filled off-white.
+    // Pop's button must wear the tower's fill, border, corner, shadow and size (hud.ts .st-iconbtn).
+    const look = await page.evaluate(() => {
+      const keys = ['backgroundColor', 'borderTopWidth', 'borderTopStyle', 'borderTopColor', 'borderTopLeftRadius', 'boxShadow', 'width', 'height'];
+      const css = el => { const s = getComputedStyle(el); return Object.fromEntries(keys.map(k => [k, s[k]])); };
+      const tower = document.querySelector('[data-id="pause"].st-iconbtn');
+      return { pop: css(document.querySelector('.pop-top [data-act="pause"]')), tower: tower ? css(tower) : null };
+    });
+    step('Pop\'s pause button looks like the tower\'s: filled off-white, same border, corner, shadow and 44 px size',
+      !!look.tower && look.pop.backgroundColor === 'rgb(255, 247, 232)' && JSON.stringify(look.pop) === JSON.stringify(look.tower), JSON.stringify(look));
+  }
   step(`no page errors on the ${vp.width} wide top bar`, errors.length === 0, errors.slice(0, 3).join(' | '));
   await ctx.close();
 }
