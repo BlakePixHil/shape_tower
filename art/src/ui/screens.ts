@@ -15,6 +15,7 @@ import { achievementsRow } from './achievements.ts';
 import { badgeTier, badgeUrl, newTitleAt, titleFor } from './badge.ts';
 import { type UiIcon, uiIconUrl } from './icons.ts';
 import { logoElement } from './logo.ts';
+import { popLogoElement } from '../pop/logo.ts';
 import { HATS, type Hat, drawHat, hatInfo, hatUrl } from './hats.ts';
 import { postcardElement } from './postcard.ts';
 import { SLOT_NAMES, passRewardAt } from '../cosmetics.ts';
@@ -336,10 +337,12 @@ export interface MenuMode {
   unlockAt?: number;
   /** Spans the whole row (Blockling Pop, a mode of its own rather than a way to play the tower). */
   wide?: boolean;
+  /** Shows that mode's logo in place of the icon and name ('pop': the Blockling Pop logo, with the sub line under it). */
+  art?: 'pop';
 }
 
 export const MENU_MODES: MenuMode[] = [
-  { id: 'pop', name: 'Blockling Pop', sub: 'Fit shapes, pop lines', icon: 'shapes', unlockAt: 2, wide: true },
+  { id: 'pop', name: 'Blockling Pop', sub: 'Fit shapes, pop lines', icon: 'shapes', unlockAt: 2, wide: true, art: 'pop' },
   { id: 'daily', name: 'Daily Tower', sub: 'Same tower for all', icon: 'daily', unlockAt: 3 },
   { id: 'zen', name: 'Zen', sub: 'Just build', icon: 'zen', unlockAt: 8 },
 ];
@@ -371,10 +374,11 @@ function ring(f: number): string {
  */
 export function mainMenu(d: MenuData): HTMLElement {
   const modes = (d.modes ?? MENU_MODES).map(m => {
-    const locked = m.unlockAt !== undefined && d.level < m.unlockAt;
-    return `<button type="button" class="ui-mode${m.wide ? ' wide' : ''}${locked ? ' locked' : ''}" data-action="${m.id}"${locked ? ` data-locked="${m.unlockAt}" aria-disabled="true"` : ''}>
-      ${icon(m.icon, 34)}<div><b>${esc(m.name)}</b><span>${locked ? `Unlocks at level ${m.unlockAt}` : esc(m.sub)}</span></div>
-      ${locked ? `<span class="ui-lock">${icon('lock', 16)}${m.unlockAt}</span>` : ''}</button>`;
+    const locked = m.unlockAt !== undefined && d.level < m.unlockAt, sub = locked ? `Unlocks at level ${m.unlockAt}` : esc(m.sub);
+    const body = m.art ? `<div class="ui-mode-art" data-art="${m.art}"></div><div><b class="ui-hide">${esc(m.name)}</b><span>${sub}</span></div>`
+      : `${icon(m.icon, 34)}<div><b>${esc(m.name)}</b><span>${sub}</span></div>`;
+    return `<button type="button" class="ui-mode${m.wide ? ' wide' : ''}${m.art ? ' art' : ''}${locked ? ' locked' : ''}" data-action="${m.id}"${locked ? ` data-locked="${m.unlockAt}" aria-disabled="true"` : ''}>
+      ${body}${locked ? `<span class="ui-lock">${icon('lock', 16)}${m.unlockAt}</span>` : ''}</button>`;
   }).join('');
   const root = el(`<div class="ui ui-menu">
     <div class="ui-menu-top">
@@ -394,6 +398,12 @@ export function mainMenu(d: MenuData): HTMLElement {
     </div>
   </div>`);
   root.querySelector('.ui-menu-logo')!.replaceWith(logoElement({ tile: 58, still: d.still }));
+  // The card's hidden <b> names the mode, so the logo itself is decoration there.
+  for (const a of root.querySelectorAll<HTMLElement>('.ui-mode-art[data-art="pop"]')) {
+    const logo = popLogoElement({ width: 250, still: d.still || !!a.closest('.locked') });
+    logo.removeAttribute('role'); logo.removeAttribute('aria-label'); logo.setAttribute('aria-hidden', 'true');
+    a.replaceWith(logo);
+  }
   return root;
 }
 
