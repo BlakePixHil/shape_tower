@@ -47,7 +47,7 @@ export { UI_ICONS, bakeUiIcon, drawUiIcon, uiIconUrl, type UiIcon } from './ui/i
 export { BADGE_TIERS, TITLES, badgeFrame, badgeTier, badgeUrl, bakeBadge, drawBadge, newTitleAt, setBadgeFrame, titleFor, type BadgeFrame, type BadgeTier } from './ui/badge.ts';
 export { LOGO_ROWS, bakeLogo, logoElement, logoPeekerUrl, logoTileUrl } from './ui/logo.ts';
 export { POP_FILLS, POP_LOGO_ASPECT, POP_TILES, bakePopLogo, bakePopWord, drawPopWord, popLogoElement, popLogoUrl, popWordUrl, type PopWordOptions } from './pop/logo.ts';
-export { POP_GLYPHS, popGlyph } from './pop/letters.ts';
+export { POP_GLYPHS, popGlyph, popGlyphWidth } from './pop/letters.ts';
 export { bakePostcard, postcardElement, postcardUrl, type PostcardOptions } from './ui/postcard.ts';
 export { RAIL_COLORS, altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail, type OffscreenChipOptions, type RailState } from './ui/rail.ts';
 export { HAZARDS, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob, setPlumb, setWindsock, windsock, type HazardChipOptions, type HazardType } from './ui/hazard.ts';

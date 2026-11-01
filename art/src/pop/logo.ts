@@ -11,7 +11,7 @@ import { ART_SHAPES, pose } from '../shapes.ts';
 import { part, rrPath, twinkle } from '../sticker.ts';
 import { type Ctx, ctx2d, makeCanvas } from '../util.ts';
 import { canvasUrl } from '../urls.ts';
-import { CAP, popGlyph } from './letters.ts';
+import { CAP, popGlyph, popGlyphWidth } from './letters.ts';
 
 const DPR = (): number => (typeof window !== 'undefined' ? Math.min(3, window.devicePixelRatio || 1) : 1);
 
@@ -21,15 +21,15 @@ const DPR = (): number => (typeof window !== 'undefined' ? Math.min(3, window.de
 /** Small tilts (degrees) and lifts (in caps) that make a word bounce; letter i takes entry i mod 9. */
 const BOUNCE: [number, number][] = [[-5, 0.05], [4, -0.06], [-3, 0.03], [5, -0.05], [-4, 0.06], [3, -0.03], [-5, 0.05], [4, -0.06], [-2, 0.02]];
 
-/** A word's layout: each letter's centre x and the whole width, in px for capital height `cap`. */
+/** A word's layout: each letter's centre x and the whole width, in px for capital height `cap`. Widths only (no Path2D), so the logo's layout below can run at import, in Node too. */
 function wordLayout(text: string, cap: number): { xs: (number | null)[]; w: number } {
   const k = cap / CAP, track = 0.13 * cap, xs: (number | null)[] = [];
   let x = 0;
   for (const ch of text) {
-    const g = popGlyph(ch);
-    if (!g) { xs.push(null); x += 0.42 * cap; continue; }
+    const gw = popGlyphWidth(ch);
+    if (gw === null) { xs.push(null); x += 0.42 * cap; continue; }
     if (x > 0) x += track;
-    xs.push(x + (g.w * k) / 2); x += g.w * k;
+    xs.push(x + (gw * k) / 2); x += gw * k;
   }
   return { xs, w: x };
 }

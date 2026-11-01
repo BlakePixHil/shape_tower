@@ -46,6 +46,11 @@ export const POP_GLYPHS: Record<string, [number, string]> = {
 /** Capital height in glyph units: H spans -341 to 358. */
 export const CAP = 700;
 
+/** The width of `ch` (upper-cased) in glyph units, or null if Pop's lettering doesn't have it. Builds no Path2D, so layout works in Node. */
+export function popGlyphWidth(ch: string): number | null {
+  return POP_GLYPHS[ch.toUpperCase()]?.[0] ?? null;
+}
+
 let paths: Map<string, Path2D> | undefined;
 
 /** The outline of `ch` (upper-cased), or null for a character Pop's lettering doesn't have (a space is a gap). */
