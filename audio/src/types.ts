@@ -90,6 +90,8 @@ export const POP_EVENTS = [
   'pop_power', 'pop_meteor_hit', 'pop_power_refused', // {kind: undo|spin|sweep|meteor|fresh, cells? (a count)}, {cells}, -
   'pop_aim', 'pop_aim_move', 'pop_aim_cancel', 'pop_spin', // {kind}, -, -, -
   'pop_wind_ready', 'pop_wind_armed', 'pop_second_wind', // {why}, -, {cells (a count)}
+  // rules 3: split pieces left touching merge into whole shapes; the view stamps them `delay` ms later
+  'pop_merge', // {count (merges this move), cells (total), delay ms}
   'pause', 'resume', 'xp_tick', 'level_up', 'unlock', 'achievement',
 ] as const;
 

@@ -1636,6 +1636,9 @@ export class AudioDirector {
       case 'pop_second_wind':
         this.onPopSecondWind(cellCount(p, 27), when);
         break;
+      case 'pop_merge':
+        this.onPopMerge(p, when);
+        break;
       // shared with the tower
       case 'pause':
       case 'resume':
@@ -1723,6 +1726,27 @@ export class AudioDirector {
   }
 
   /** A shape stamped onto the board: its skin's impact, then (juice) a keys stab and a landing note. */
+  /**
+   * Split pieces merged into whole Blocklings (rules 3). The view stamps them `delay` ms after the move
+   * (about 360 with juice, 0 without), so the click lands on the stamp: a low wooden snap for each merge,
+   * 50 ms apart, with a soft card tap under it and a light tick in the hand with juice. It comes about
+   * one move in five, so it stays well under the pop.
+   */
+  private onPopMerge(p: Payload, when: number): void {
+    const count = clamp(Math.round(num(p, 'count', 1)), 1, 3);
+    const cells = Math.max(0, num(p, 'cells', 4 * count));
+    const at = when + clamp(num(p, 'delay', 0), 0, 1500) / 1000;
+    if (!this.cool.ready('popmerge', at, 0.12)) return;
+    // a merge bigger than a tetromino each lands up to 2 dB firmer
+    const lift = 2 * clamp((cells / count - 4) / 4, 0, 1);
+    for (let i = 0; i < count; i++) {
+      this.play('pop.snap', { when: at + i * 0.05, gainDb: -12 + lift - 1.5 * i, rate: 0.62 * semis(2 * i), category: 'misc', priority: 3, slowmo: false });
+    }
+    if (!this.juice) return;
+    this.play('pop.flick', { when: at + 0.004, gainDb: -21 + lift, rate: 0.8, category: 'misc', priority: 4 });
+    this.haptic('light', 0.6, at - when);
+  }
+
   private onPopPlace(p: Payload, when: number): void {
     const R = this.popRun;
     this.wouldPop(0, when);
