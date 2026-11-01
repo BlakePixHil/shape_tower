@@ -23,7 +23,7 @@ import { demoTower } from './tower.ts';
 import {
   bakeAppIcon, bakePanorama, bakeShareCard, bakeSplash, panoramaBiome,
   altitudeRail, checkpointChip, offscreenChip, setOffscreenChip, setRail,
-  ALL_HATS, BADGE_TIERS, BIOMES, HATS, INK, UI_ICONS, avatarPanel, avatarUrl, hatUrl, readAvatar, biomeCard, badgeUrl, bakeLogo, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
+  ALL_HATS, BADGE_TIERS, BIOMES, HATS, INK, UI_ICONS, avatarPanel, avatarUrl, hatUrl, readAvatar, biomeCard, badgeUrl, bakeLogo, bakePopLogo, POP_FILLS, popLogoElement, popWordUrl, injectUiCss, levelUp, logoElement, mainMenu, onAction, pauseCard,
   postcardElement, profilePanel, readSettings, setXpBar, settingsPanel, showAllXpLines, showXpLine, summaryCard, titleFor, uiIconUrl, xpBar,
   armDailyScored, armReport, dailyCard, dailyMenuDot, nameCard, PORTRAIT_ART, setDailyTab, setNameHint,
   type LadderPanelData,
@@ -220,6 +220,13 @@ function sheet(name: string): void {
     root.querySelector('.pv-logo')!.appendChild(logoElement({ tile: 56, still }));
     const cv = bakeLogo(640); cv.style.width = '320px';
     root.querySelector('.pv-bake')!.appendChild(cv);
+    root.querySelector('.pv-bake')!.insertAdjacentHTML('afterend', `<h3>Blockling Pop logo (DOM at 320 and 220, the Blocklings pop out)</h3><div class="pv-pop" style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:6px 0 10px"></div>
+      <h3>Pop logo baked still, and its lettering for banners</h3><div class="pv-popbake" style="display:flex;flex-direction:column;align-items:center;gap:10px"></div>`);
+    root.querySelector('.pv-pop')!.append(popLogoElement({ width: 320, still }), popLogoElement({ width: 220, still }));
+    const pb = bakePopLogo(640); pb.style.width = '320px';
+    const word = (t: string, cap: number, fill?: string[]) => { const i = document.createElement('img'); i.src = popWordUrl(t, cap, undefined, { fill }); i.style.height = `${cap * 1.75}px`; return i; };
+    const wordC = (t: string, cap: number) => word(t, cap, POP_FILLS);
+    root.querySelector('.pv-popbake')!.append(pb, word('ALL CLEAR!', 40), word('COMBO X3', 28), wordC('ALL CLEAR!', 34), word('0123456789', 22), word('ABCDEFGHIJKLM', 22), word('NOPQRSTUVWXYZ', 22));
     const cards = root.querySelector('.pv-cards')!;
     BIOMES.forEach((_, i) => cards.appendChild(postcardElement({ biome: i, width: 104, date: i < 2 ? '21 OCT 2026' : undefined })));
     cards.appendChild(postcardElement({ biome: 7, width: 104, locked: true }));

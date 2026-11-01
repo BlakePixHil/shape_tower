@@ -102,7 +102,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   // Blockling Pop (Pop plan §12). Read from the Pop sim's events by pop/achievements.ts. The five without
   // `local` are in the store consoles; puzzle ones come only from puzzles.
   A('pop', 'pop_first', 'Pop!', 'Pop your first line in Blockling Pop', 'bronze', 'row'),
-  A('pop', 'pop_double', 'Double Trouble', 'Pop 2 lines with one shape', 'bronze', 'row'),
+  A('pop', 'pop_double', 'Double Trouble', 'Pop 2 lines with one shape', 'bronze', 'shapes'),
   A('pop', 'pop_daily', 'Daily Popper', 'Finish a scored Daily Pop', 'bronze', 'daily'),
   A('pop', 'pop_10k', 'Five Digits', 'Score 10,000 in one Endless Pop run', 'bronze', 'score', { local: true }),
   A('pop', 'pop_bag', 'Saved by the Bag', 'When no tray shape fits, place the bagged shape and pop a line', 'bronze', 'bag', { local: true }),
