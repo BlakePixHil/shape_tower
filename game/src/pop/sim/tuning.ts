@@ -2,8 +2,13 @@
 // tuning.ts is. A change here changes how runs deal and score, so bump POP_RULES with it: saved runs
 // and run records carry the rules they were played under and only replay under the same ones.
 
-/** The rules version a run record is played under. Bump it whenever a change below alters a replay. */
-export const POP_RULES = 1;
+/**
+ * The rules version a run record is played under. Bump it whenever a change below alters a replay.
+ * 1: milestone 1's core. 2: power bubbles, the five powers, Second Wind and the retuned deal (milestone 3).
+ */
+export const POP_RULES = 2;
+/** Rules versions that still replay (a run saved under an older version resumes under its own rules). */
+export const POP_RULES_KNOWN: readonly number[] = [1, 2];
 
 export interface WeightRow {
   keys: string[];
@@ -41,6 +46,8 @@ export interface PopTuning {
   nudgeEnd: number;
   nudgeFrom: number;
   nudgeTo: number;
+  /** Rule 3's line-maker keeps to rule 6's size budget too (rules 2; rules 1 deals didn't check). */
+  nudgeBudget: boolean;
   /** Rule 4, rescue: at this board fill or more, one small shape half the time. */
   rescueFill: number;
   rescueChance: number;
@@ -61,9 +68,22 @@ export interface PopTuning {
   xpCp: number;
   xpPlace: number;
   xpClear: number;
+  /** Power bubbles (Pop plan §7): placements between bubbles (gap ± spread, while a slot is free), and how many placements one lasts. */
+  bubbleGap: number;
+  bubbleSpread: number;
+  bubbleLife: number;
+  /** A checkpoint drops a bubble every this many checkpoints (1: every one). */
+  bubbleCps: number;
+  /** Lines popped by one placement that put a power straight into a free slot (a Triple), as an All Clear does. */
+  grantLines: number;
+  /** Board fill from which Meteor and Sweep are likelier picks. */
+  powerFull: number;
+  /** The checkpoint that earns Second Wind (or a power, when it's already ready, used or off). */
+  windCp: number;
 }
 
-export const POP_TUNING: PopTuning = {
+/** Milestone 1's numbers (rules 1), kept so runs saved under them replay exactly. */
+export const POP_TUNING_V1: PopTuning = {
   linesPerCp: 8,
   sparks: 2,
   linePoints: [0, 100, 250, 450, 700],
@@ -80,6 +100,7 @@ export const POP_TUNING: PopTuning = {
   nudgeEnd: 0.1,
   nudgeFrom: 5,
   nudgeTo: 12,
+  nudgeBudget: false,
   rescueFill: 0.6,
   rescueChance: 0.5,
   pairCp: 6,
@@ -104,7 +125,49 @@ export const POP_TUNING: PopTuning = {
   xpCp: 40,
   xpPlace: 1,
   xpClear: 100,
+  bubbleGap: 10,
+  bubbleSpread: 2,
+  bubbleLife: 6,
+  bubbleCps: 1,
+  grantLines: 3,
+  powerFull: 0.6,
+  windCp: 2,
 };
+
+/**
+ * The numbers runs play under now (rules 2). Milestone 3's balance pass (QA's bots, pop-tune.ts): the
+ * greedy bot's runs were twice the plan's 120-180 placements, and Second Wind and powers made them
+ * longer again, so bigger shapes open sooner, small ones thin out, trays carry more cells, and
+ * bubbles come about every 24 placements and every second checkpoint. Greedy bot: median about 143
+ * placements; with powers and Second Wind, about 350 (Second Wind alone about 240).
+ */
+export const POP_TUNING: PopTuning = {
+  ...POP_TUNING_V1,
+  nudgeBudget: true,
+  trayMin: 7,
+  trayMax: 13,
+  trayMaxLate: 15,
+  lateCp: 4,
+  fiveLateCp: 3,
+  weights: [
+    { keys: ['Pip'], open: 0, from: 0.5, to: 0.2, by: 6 },
+    { keys: ['Domino'], open: 0, from: 1, to: 0.5, by: 6 },
+    { keys: ['Trio', 'Elbow'], open: 0, from: 1.4, to: 0.9, by: 6 },
+    { keys: ['O', 'I', 'L', 'J', 'T'], open: 0, from: 2, to: 2, by: 6 },
+    { keys: ['S', 'Z'], open: 1, from: 1.4, to: 1.9, by: 4 },
+    { keys: ['Plank'], open: 1, from: 1.2, to: 1.8, by: 5 },
+    { keys: ['P', 'U', 'V'], open: 2, from: 1.1, to: 1.7, by: 6 },
+    { keys: ['Arch', 'Plus'], open: 3, from: 1, to: 1.6, by: 7 },
+  ],
+  bubbleGap: 24,
+  bubbleSpread: 4,
+  bubbleLife: 5,
+  bubbleCps: 2,
+  grantLines: 4,
+};
+
+/** The tuning a rules version plays under. */
+export const tuningFor = (rules: number): PopTuning => (rules === 1 ? POP_TUNING_V1 : POP_TUNING);
 
 /** A shape's deal weight with `cp` checkpoints claimed (0 while it is still closed). */
 export function shapeWeight(t: PopTuning, key: string, cp: number): number {

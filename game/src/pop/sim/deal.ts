@@ -150,6 +150,7 @@ export function dealTray(ctx: DealContext): Slot[] {
         const sh = pool[(start + k) % pool.length];
         const others = tray.filter((_, i) => i !== slot);
         if (!allowed(ctx, others, sh)) continue;
+        if (t.nudgeBudget && others.reduce((a, x) => a + POP_SHAPES[x.s].size, 0) + sh.size > (ctx.cp >= t.lateCp ? t.trayMaxLate : t.trayMax)) continue;
         const turn0 = ctx.turns.int(sh.turns.length);
         const hit = sh.turns.map((_, j) => sh.turns[(turn0 + j) % sh.turns.length]).find(tr => completesLine(ctx.board, { s: sh.id, q: tr.q }));
         if (hit) { tray[slot] = { s: sh.id, q: hit.q }; break; }

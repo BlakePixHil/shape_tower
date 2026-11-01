@@ -14,7 +14,7 @@ import type { Sim } from './sim/sim.ts';
 import { biomeFor, type Tuning } from './sim/tuning.ts';
 import type { LabState } from './view/panel.ts';
 import type { RunOpts } from './view/scene.ts';
-import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, saveProfile, spendDailyWind, updateStreak } from './view/profile.ts';
+import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, popWindReady, saveProfile, spendDailyWind, spendPopWind, updateStreak } from './view/profile.ts';
 import { Screens, type ProfileIdentity, type SettingsShop, type UiSound } from './view/screens.ts';
 import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor } from './view/settings.ts';
 import { ENDLESS, type RunMode } from './view/modes.ts';
@@ -480,13 +480,18 @@ async function boot(): Promise<void> {
   let pop: PopView | null = null;
   let popStarted = Date.now();
   let popRecord: PopRunRecord | null = null;
+  /** This run started with the day's free Pop Second Wind, not yet spent (it is at the first placement). */
+  let popDailyWind = false;
   const popView = (): PopView => pop ??= new PopView(document.body, {
     audio: () => audio(),
     reducedMotion: () => settings.reduceMotion,
     juice: () => true, // Gate 1's juice test is the tower's; Pop's runs keep their effects
     best: () => profile.pop.best,
     onPause: () => popPause(),
-    onChange: sim => writePopSave(sim, pop?.playMs ?? 0, popStarted),
+    onChange: sim => {
+      writePopSave(sim, pop?.playMs ?? 0, popStarted);
+      if (popDailyWind && sim.placements > 0) { popDailyWind = false; spendPopWind(profile); }
+    },
     onOver: sim => popOver(sim),
   });
 
@@ -502,8 +507,14 @@ async function boot(): Promise<void> {
     runSim = null;
     const saved = fresh ? null : loadPopSave();
     let sim = saved ? replay(saved.rec) : null;
+    popDailyWind = false;
     if (!sim || sim.over) {
-      sim = new PopSim({ seed: (Math.random() * 2 ** 32) >>> 0, newPlayer: profile.pop.runs < POP_TUNING.mercyRuns });
+      // Second Wind starts ready with the $1.99 upgrade, or for the day's first Endless Pop run; level 6 starts with a power.
+      const always = store.ent.windAlways;
+      popDailyWind = !always && popWindReady(profile);
+      sim = new PopSim({
+        seed: (Math.random() * 2 ** 32) >>> 0, newPlayer: profile.pop.runs < POP_TUNING.mercyRuns, headStart: profile.level >= 6, windReady: always || popDailyWind,
+      });
       popStarted = Date.now();
       writePopSave(sim, 0, popStarted);
     } else popStarted = saved!.startedAt;
@@ -553,6 +564,8 @@ async function boot(): Promise<void> {
     P.biome = Math.max(P.biome, sim.biome + 1);
     P.clears += sim.clears;
     P.totalLines += sim.lines;
+    P.powers += sim.powersUsed;
+    P.bubbles += sim.bubblesGot;
     updateStreak(profile);
     grantStreaks(profile);
     const paid = payAchievements(profile);

@@ -10,10 +10,14 @@
 // checkpoint pill, the shockwave ring and zoom punch, the combo chip's glow, sparks and rainbow, the
 // All Clear (slow-mo, board bounce, cannons, the tray jumping), the filling board's red edge, and the
 // run over's slow-mo and tumble. Effects run on their own clock (`vt`), so slow-mo never touches input.
+// Milestone 3 (Pop plan §7, §8): power bubbles on the board, the two power slots and Second Wind at the
+// bottom left (the tower's two taps), aiming Sweep and Meteor on the board, Spin's taps on the tray,
+// each power's animation, and No room waiting with End run while a power could help.
 
 import { BIOMES, INK, bakePostcard, cellsPose, silhouette, uiIconUrl, type Expression } from '@art/index.ts';
 import { CELLS, LINE_CELLS } from '../sim/board.ts';
-import { BAG, type PopEvent, type PopIntent, type PopSim } from '../sim/pop.ts';
+import { BAG, type PopEvent, type PopIntent, type PopPower, type PopSim } from '../sim/pop.ts';
+import { POP_POWER_COLORS, POP_POWER_NAMES, POP_POWER_TAGS, bakePopBubble, bakePopIcon, drawPopIcon, popIconUrl } from './icons.ts';
 import { POP_KEYS, POP_SHAPES, type Turn } from '../sim/shapes.ts';
 import type { Slot } from '../sim/deal.ts';
 import { FLUSH, PopArt, bakeBagBox, bakeBoard, shapeColors } from './draw.ts';
@@ -30,7 +34,12 @@ import { PopFrames } from '../save.ts';
  *     the first note at once, then 39 ms steps from the end of the hitstop, like the wave)
  *   pop_combo {combo} · pop_combo_end {combo} · pop_all_clear · pop_checkpoint {n} · biome_entered {id}
  *   pop_tray {n} · pop_bag · pop_cant_fit {slot} · pop_fill {fill 0-1, after every move}
- *   pop_no_room (the "No room!" moment) · pop_run_over {cause} (as the run ends: the tumble starts)
+ *   pop_no_room {waiting: a power could help, so the run waits} · pop_run_over {cause} (as the run ends: the tumble starts)
+ * Milestone 3's powers (kinds: undo, spin, sweep, meteor, fresh):
+ *   pop_bubble {kind} (lands) · pop_bubble_got {kind} (covered: into a slot) · pop_bubble_gone (expired)
+ *   pop_power_got {kind, why: big | clear | cp | head} · pop_power {kind} (used; Meteor's arrives as the
+ *   target is set, its impact 260 ms later as pop_meteor_hit) · pop_power_refused · pop_aim {kind} · pop_aim_cancel
+ *   pop_spin (a tap turns a shape) · pop_wind_ready {why: cp} · pop_wind_armed (first tap) · pop_second_wind
  * Biome ids are the tower's, 1-based (1 Meadow … 10 Deep Cosmos); the sim's are 0-based.
  */
 export interface PopAudio {
@@ -83,13 +92,37 @@ const CSS = `
 .pop-cp.bump { animation: pop-bump 240ms cubic-bezier(.3,1.6,.5,1); }
 .pop-bg { transform-origin: 50% 100%; transition: opacity 1.2s ease, transform 1.4s cubic-bezier(.4,0,.2,1); }
 .pop-label { position: absolute; font: 800 11px/1 var(--body, Nunito, sans-serif); letter-spacing: 0.08em; color: var(--ink, ${INK}); opacity: 0.75; transform: translateX(-50%); pointer-events: none; text-transform: uppercase; }
+.pop-pw { position: absolute; display: flex; gap: 6px; align-items: center; }
+.pop-pw .st-btn { pointer-events: auto; padding: 0; display: grid; place-items: center; position: relative; touch-action: manipulation; }
+.pop-pw .st-slot { width: var(--ps, 46px); height: var(--ps, 46px); border-radius: 13px; }
+.pop-pw .st-wind { width: var(--ws, 52px); height: var(--ws, 52px); }
+.pop-pw .st-slot.empty { background: rgba(255,247,232,0.35); border-style: dashed; box-shadow: none; pointer-events: none; }
+.pop-pw .st-slot.off:not(.empty) { filter: saturate(0.4) brightness(0.95); }
+.pop-pw .st-slot.aim { box-shadow: 0 4px 0 var(--ink, ${INK}), 0 0 0 4px #FFFFFF, 0 0 18px 8px rgba(255,224,138,0.95); transform: translateY(-3px); }
+.pop-pw .st-slot.glow, .pop-pw .st-wind.glow { animation: pop-pw-glow 900ms ease-in-out infinite; }
+.pop-pw .st-tag { font-size: 9px; bottom: -8px; }
+.pop-pw .st-slot.pop, .pop-pw .st-wind.pop { animation: pop-bump 320ms cubic-bezier(.3,1.6,.5,1); }
+.pop-pw .st-slot.nope, .pop-pw .st-wind.nope { animation: pop-nope 300ms; }
+@keyframes pop-pw-glow { 0%, 100% { box-shadow: 0 4px 0 var(--ink, ${INK}), 0 0 0 0 rgba(255,224,138,0); } 50% { box-shadow: 0 4px 0 var(--ink, ${INK}), 0 0 0 6px rgba(255,224,138,0.9), 0 0 20px 8px rgba(255,224,138,0.6); transform: scale(1.06); } }
+@keyframes pop-nope { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+.pop-end { position: absolute; left: 50%; transform: translate(-50%, -50%); display: none; pointer-events: auto; font-size: 18px !important; padding: 8px 20px !important; background: #FFC23D !important; }
+.pop-end.show { display: block; animation: pop-bump 320ms cubic-bezier(.3,1.6,.5,1); }
+.pop-hint { position: absolute; left: 50%; transform: translate(-50%, -50%); font: 800 14px/1.1 var(--body, Nunito, sans-serif); color: var(--ink, ${INK}); background: rgba(255,247,232,0.96); border: 2px solid var(--ink, ${INK}); border-radius: 999px; padding: 6px 12px; pointer-events: none; opacity: 0; transition: opacity 200ms; white-space: nowrap; }
+.pop-hint.show { opacity: 1; }
 `;
 
 interface Comp { s: number; piece: number; cells: [number, number][]; x: number; y: number; face: boolean; size: number }
 interface Held { slot: number; px: number; py: number; t0: number; ghost: { x: number; y: number } | null; lines: number[]; id: number }
 interface Spring { slot: number; x: number; y: number; scale: number; t0: number }
-interface Popping { cell: number; s: number; start: number; burst: boolean }
-interface Body { b: HTMLCanvasElement; x: number; y: number; vx: number; vy: number; rot: number; vr: number }
+interface Popping { cell: number; s: number; start: number; burst: boolean; smash?: boolean }
+/** A block flying off the board (the run over's tumble, a Sweep, Second Wind's gust); it waits until `at`. */
+interface Body { b: HTMLCanvasElement; x: number; y: number; vx: number; vy: number; rot: number; vr: number; at?: number; g?: number }
+/** Aiming Sweep (a row or column) or Meteor (a 3×3 block) on the board. */
+interface Aim { slot: number; kind: 'sweep' | 'meteor'; target: number; line: number | null; press: { x: number; y: number; cell: number; moved: boolean; onTarget: boolean } | null }
+/** A power's icon flying from the board into its slot. */
+interface IconFly { kind: PopPower; x0: number; y0: number; slot: number; t0: number }
+/** A shape leaving the tray (Fresh Deal, Second Wind) as the new ones flip in. */
+interface Leaving { s: number; q: number; x: number; y: number; scale: number; t0: number }
 /** A popped Blockling's face flying up to the checkpoint pill on an arc. */
 interface Flyer { s: number; x0: number; y0: number; t0: number; dur: number; lift: number }
 
@@ -142,7 +175,7 @@ export class PopView {
   private held: Held | null = null;
   private springs: Spring[] = [];
   private popping: Popping[] = [];
-  private flashes: { cells: number[]; t0: number }[] = [];
+  private flashes: { cells: number[]; t0: number; color?: string }[] = [];
   private stamps = new Map<number, number>(); // piece → when it landed
   private trayIn = -1e9;
   private shownScore = 0;
@@ -168,6 +201,28 @@ export class PopView {
   private lastCombo = 0;
   private fitsWas = [true, true, true, true];
   private wouldWas = 0;
+  // milestone 3: powers
+  private pwEl: HTMLDivElement;
+  private slotBtns: HTMLButtonElement[];
+  private windBtn: HTMLButtonElement;
+  private endBtn: HTMLButtonElement;
+  private hintEl: HTMLDivElement;
+  private pwKey = '';
+  private aim: Aim | null = null;
+  private pending: { slot: number; x: number; y: number; id: number } | null = null;
+  private windArmedUntil = 0;
+  private windSpentAt = -1e9;
+  private lastWind = '';
+  private bubbleAt = new Map<number, number>(); // bubble cell → when it landed
+  private gone: { cell: number; kind: PopPower; t0: number }[] = [];
+  private spinAt = [-1e9, -1e9, -1e9, -1e9];
+  private meteors: { cell: number; t0: number; hit: boolean; cells: number[] }[] = [];
+  private sweeps: { line: number; t0: number }[] = [];
+  private gustAt = -1e9;
+  private rewindAt = -1e9;
+  private iconFlys: IconFly[] = [];
+  private leaving: Leaving[] = [];
+  private firstBubble = true;
 
   constructor(parent: HTMLElement, hooks: PopHooks) {
     this.hooks = hooks;
@@ -199,7 +254,25 @@ export class PopView {
     this.bagLabel = document.createElement('div');
     this.bagLabel.className = 'pop-label';
     this.bagLabel.textContent = 'Bag';
-    this.root.append(this.cv, top, this.comboEl, this.nextLabel, this.bagLabel);
+    // The power slots and Second Wind (Pop plan §8: bottom left, where thumbs rest), End run for No room, and a hint line.
+    this.pwEl = document.createElement('div');
+    this.pwEl.className = 'pop-pw';
+    this.pwEl.innerHTML = `<button type="button" class="st-btn st-slot empty" aria-label="Empty power-up slot"></button>
+      <button type="button" class="st-btn st-slot empty" aria-label="Empty power-up slot"></button>
+      <button type="button" class="st-btn st-slot st-wind earn" aria-label="Second Wind"><img class="st-icon" alt=""><span class="st-tag">CP 2</span></button>`;
+    const btns = [...this.pwEl.querySelectorAll<HTMLButtonElement>('button')];
+    this.slotBtns = btns.slice(0, 2);
+    this.windBtn = btns[2];
+    this.slotBtns.forEach((b, i) => { b.onclick = () => this.tapPower(i); });
+    this.windBtn.onclick = () => this.tapWind();
+    this.endBtn = document.createElement('button');
+    this.endBtn.type = 'button';
+    this.endBtn.className = 'st-btn pop-end';
+    this.endBtn.textContent = 'End run';
+    this.endBtn.onclick = () => { if (this.sim?.stuck) this.intent({ t: 'end' }); };
+    this.hintEl = document.createElement('div');
+    this.hintEl.className = 'pop-hint';
+    this.root.append(this.cv, top, this.comboEl, this.nextLabel, this.bagLabel, this.pwEl, this.endBtn, this.hintEl);
     parent.appendChild(this.root);
     top.querySelector<HTMLElement>('[data-act="pause"]')!.onclick = () => { if (this.sim && !this.sim.over) hooks.onPause(); };
     this.cv.addEventListener('pointerdown', e => this.down(e));
@@ -235,6 +308,24 @@ export class PopView {
     this.lastCombo = sim.combo;
     this.seenTray = sim.trays;
     this.shownScore = sim.score;
+    this.aim = null;
+    this.pending = null;
+    this.windArmedUntil = 0;
+    this.windSpentAt = -1e9;
+    this.lastWind = sim.wind;
+    this.bubbleAt.clear();
+    for (const b of sim.bubbles) this.bubbleAt.set(b.cell, -1e9);
+    this.gone = [];
+    this.spinAt = [-1e9, -1e9, -1e9, -1e9];
+    this.meteors = [];
+    this.sweeps = [];
+    this.gustAt = -1e9;
+    this.rewindAt = -1e9;
+    this.iconFlys = [];
+    this.leaving = [];
+    this.firstBubble = sim.bubblesGot === 0;
+    this.pwKey = '';
+    this.hint('');
     this.root.style.display = '';
     this.layout();
     this.fx.clear();
@@ -258,12 +349,16 @@ export class PopView {
     cancelAnimationFrame(this.raf);
     if (this.sim) this.sim.sink = null;
     this.held = null;
+    this.aim = null;
+    this.pending = null;
+    this.hint('');
     this.hooks.audio()?.setMode?.('tower');
   }
 
   setPaused(on: boolean): void {
     this.paused = on;
     if (on && this.held) this.cancelHeld();
+    if (on) { this.pending = null; if (this.aim) this.aim.press = null; this.pointer = -1; }
   }
 
   // ---------------------------------------------------------------- layout
@@ -293,7 +388,19 @@ export class PopView {
     const botY = this.trayY + this.trayH + spare * 0.15 * k;
     const bagS = Math.round(cellC * 1.7 * k);
     this.bag = { x: this.W - bagS - Math.max(16 * k, (Wc / 3 - cellC * 1.7) / 2 * k), y: botY, s: bagS };
-    this.nextBox = { x: this.W / 2 - cellC * 2.6 * k, y: botY, w: cellC * 5.2 * k, h: bagS };
+    // The bottom row: the two power slots and Second Wind on the left, the next tray between them and the bag.
+    const psC = Math.round(cellC * 1.2), wsC = Math.round(cellC * 1.34), gapC = 6;
+    const groupC = psC * 2 + wsC + gapC * 2;
+    const leftC = Math.max(12, (Wc / 3 - groupC) / 2);
+    this.pwEl.style.setProperty('--ps', `${psC}px`);
+    this.pwEl.style.setProperty('--ws', `${wsC}px`);
+    this.pwEl.style.left = `${leftC}px`;
+    this.pwEl.style.top = `${(botY + bagS / 2) / k - wsC / 2}px`;
+    const nx0 = (leftC + groupC + 8) * k, nx1 = this.bag.x - 8 * k;
+    const nw = Math.max(cellC * 2.4 * k, Math.min(cellC * 5.2 * k, nx1 - nx0));
+    this.nextBox = { x: (nx0 + nx1) / 2 - nw / 2, y: botY, w: nw, h: bagS };
+    this.endBtn.style.top = `${(this.trayY + this.trayH / 2) / k}px`;
+    this.hintEl.style.top = `${Math.max(topC + 14, byC - padC - 22)}px`;
     this.art = new PopArt(this.cell, this.sim?.biome ?? 0);
     this.boardCv = bakeBoard(this.cell, this.pad);
     this.bagCv = [bakeBagBox(bagS, false), bakeBagBox(bagS, true)];
@@ -486,8 +593,67 @@ export class PopView {
         this.say('pop_bag', {}, au => au.handle('hold_swap', {}));
         break;
       case 'pop_no_room':
-        this.say('pop_no_room');
+        this.say('pop_no_room', { waiting: p.waiting });
         if (juice) this.fx.text('No room!', this.bx + this.cell * 4.5, this.by + this.cell * 4.5, { size: 48, fill: '#FF8FA3', rise: 0, life: 1500, pop: true });
+        if (p.waiting) this.hint('No room! Use a power, or End run');
+        break;
+      // ---- milestone 3: bubbles, powers and Second Wind
+      case 'pop_bubble': {
+        const cell = p.cell as number;
+        this.bubbleAt.set(cell, t);
+        this.say('pop_bubble', { kind: p.kind, why: p.why }, au => au.handle('bubble_spawned', {}));
+        if (this.firstBubble) {
+          this.firstBubble = false;
+          const [x, y] = this.cellCentre(cell);
+          this.fx.text('Cover it!', x, y - this.cell * 0.9, { size: 22, fill: '#FFFFFF', rise: 14, life: 1800, pop: true });
+        }
+        break;
+      }
+      case 'pop_bubble_got': {
+        const cell = p.cell as number, kind = p.kind as PopPower, slot = p.slot as number;
+        const [x, y] = this.cellCentre(cell);
+        this.bubbleAt.delete(cell);
+        if (juice) {
+          const col = POP_POWER_COLORS[kind];
+          this.fx.burst(x, y, this.cell, ['#FFFFFF', col, '#FFFFFF', '#CFF6FF'], 14);
+          this.fx.ring(x, y, this.cell * 1.3, { life: 320, width: this.cell * 0.12, color: '#FFFFFF' });
+        }
+        if (slot >= 0) this.iconFlys.push({ kind, x0: x, y0: y, slot, t0: t });
+        this.say('pop_bubble_got', { kind }, au => au.handle('power_collected', {}));
+        break;
+      }
+      case 'pop_bubble_gone':
+        this.bubbleAt.delete(p.cell as number);
+        this.gone.push({ cell: p.cell as number, kind: p.kind as PopPower, t0: t });
+        this.say('pop_bubble_gone', {}, au => au.handle('bubble_expired', {}));
+        break;
+      case 'pop_power_got': {
+        const kind = p.kind as PopPower, slot = p.slot as number;
+        if (p.why !== 'head') {
+          const [x, y] = [this.bx + this.cell * 4.5, this.by + this.cell * 4.5];
+          this.iconFlys.push({ kind, x0: x, y0: y, slot, t0: t + 350 });
+          if (juice) this.fx.text(`+ ${POP_POWER_NAMES[kind]}`, x, this.by + this.cell * 6, { size: 22, fill: '#FFFFFF', rise: 24, life: 1200, pop: true });
+          this.say('pop_power_got', { kind, why: p.why }, au => au.handle('power_granted', {}));
+        }
+        break;
+      }
+      case 'pop_power':
+        this.onPower(p, t, juice, calm);
+        break;
+      case 'pop_spin':
+        this.spinAt[p.slot as number] = t;
+        this.say('pop_spin', { slot: p.slot }, au => au.ui('tap2'));
+        break;
+      case 'pop_wind_ready':
+        if (juice) {
+          const r = this.windBtn.getBoundingClientRect();
+          this.fx.text('Second Wind ready!', Math.max(this.cell * 3, (r.left + r.width / 2) * this.k), (r.top - 12) * this.k, { size: 18, fill: '#CFF6FF', rise: 24, life: 1600, pop: true });
+        }
+        setTimeout(() => this.bumpBtn(this.windBtn), 400);
+        this.say('pop_wind_ready', { why: p.why }, au => au.handle('second_wind_ready', { how: 'earned' }));
+        break;
+      case 'pop_second_wind':
+        this.onWind(p, t, juice, calm);
         break;
       case 'run_over':
         this.overAt = t;
@@ -498,6 +664,105 @@ export class PopView {
         break;
     }
     this.hud();
+  }
+
+  /** A cell's centre on the board, device px. */
+  private cellCentre(c: number): [number, number] {
+    return [this.bx + ((c % 9) + 0.5) * this.cell, this.by + (((c / 9) | 0) + 0.5) * this.cell];
+  }
+
+  /** Blocks flying off the board from `cells` (Sweep, Second Wind): each starts after `delay(cell)` ms. */
+  private fling(cells: number[], shapes: number[], v: (c: number) => [number, number], delay: (c: number) => number, g = 1): void {
+    const pad = Math.ceil(0.2 * this.art.s);
+    cells.forEach((c, i) => {
+      const bk = this.art.cells(shapes[i], [[0, 0]], 'dizzy');
+      const [vx, vy] = v(c);
+      this.bodies.push({ b: bk.canvas, x: this.bx + (c % 9) * this.cell - pad, y: this.by + ((c / 9) | 0) * this.cell - pad, vx, vy, rot: 0, vr: (Math.random() - 0.5) * 0.012, at: this.vt + delay(c), g });
+    });
+  }
+
+  /** The old tray shapes in `slots` slide away as the new ones flip in. */
+  private dealAgain(old: ({ s: number; q: number } | null)[], slots: number[], t: number): void {
+    for (const i of slots) {
+      const o = old[i];
+      if (!o) continue;
+      const [x, y] = this.slotCentre(i);
+      const sh = POP_SHAPES[o.s], tt = sh.turns[sh.byQ[o.q & 3]];
+      this.leaving.push({ s: o.s, q: o.q, x, y, scale: this.slotScale(i, tt), t0: t });
+    }
+    this.trayIn = t + 120;
+  }
+
+  /** A power was used (the sim has already changed): its animation and sound. */
+  private onPower(p: Record<string, unknown>, t: number, juice: boolean, calm: boolean): void {
+    const kind = p.kind as PopPower;
+    this.bumpBtn(this.slotBtns[p.slot as number]);
+    switch (kind) {
+      case 'undo': {
+        // A tape rewind: the shape flies back to its slot and popped cells come back.
+        const removed = p.removed as number[];
+        const back = p.back as number;
+        this.rewindAt = t;
+        this.seenTray = this.sim!.trays;
+        if (removed.length) {
+          const cx = removed.reduce((a, c) => a + this.cellCentre(c)[0], 0) / removed.length;
+          const cy = removed.reduce((a, c) => a + this.cellCentre(c)[1], 0) / removed.length;
+          this.springs = this.springs.filter(sp => sp.slot !== back);
+          this.springs.push({ slot: back, x: cx, y: cy, scale: 1, t0: t });
+        }
+        const restored = p.restored as number[];
+        if (restored.length) this.flashes.push({ cells: restored, t0: t, color: '200,170,255' });
+        if (juice) this.fx.text('Rewind!', this.bx + this.cell * 4.5, this.by + this.cell * 3.4, { size: 34, fill: '#D9C6FF', rise: 12, life: 900, pop: true });
+        this.say('pop_power', { kind }, au => au.handle('power_used', { kind: 'undo' }));
+        break;
+      }
+      case 'spin':
+        this.hint('Tap a shape to turn it');
+        this.say('pop_power', { kind }, au => au.ui('open'));
+        break;
+      case 'sweep': {
+        const line = p.line as number, cells = p.cells as number[], shapes = p.shapes as number[];
+        const row = line < 9;
+        this.sweeps.push({ line, t0: t });
+        // The broom runs along the line in 320 ms; each Blockling tumbles off as it passes, going "whee".
+        const along = (c: number) => (row ? c % 9 : (c / 9) | 0);
+        const k = this.k;
+        this.fling(cells, shapes, () => (row ? [0.5 * k, -0.25 * k] : [(Math.random() - 0.5) * 0.15 * k, 0.15 * k]), c => along(c) * 32);
+        const [x, y] = this.cellCentre(LINE_CELLS[line][4]);
+        this.fx.text(`+${(p.points as number).toLocaleString('en-US')}`, x, y, { size: 26, fill: '#FFE08A', rise: 50, life: 1000 });
+        if (juice && !calm) this.fx.kick(0.3);
+        this.say('pop_power', { kind, cells: cells.length }, au => { au.handle('pieces_swept', { pieces: cells }); au.handle('power_used', { kind: 'clean' }); });
+        break;
+      }
+      case 'meteor': {
+        // The cells stay until the meteor lands (260 ms), then shatter into stone chips.
+        const cells = p.cells as number[], shapes = p.shapes as number[];
+        const hitAt = t + 260;
+        cells.forEach((c, i) => this.popping.push({ cell: c, s: shapes[i], start: hitAt, burst: false, smash: true }));
+        this.meteors.push({ cell: p.cell as number, t0: t, hit: false, cells });
+        this.say('pop_power', { kind }, au => au.handle('power_used', { kind: 'clean' }));
+        break;
+      }
+      case 'fresh':
+        this.dealAgain(p.old as ({ s: number; q: number } | null)[], p.slots as number[], t);
+        if (juice) this.fx.text('Fresh Deal!', this.W / 2, this.trayY - this.cell * 0.2, { size: 26, fill: '#CFF6FF', rise: 16, life: 900, pop: true });
+        this.say('pop_power', { kind }, au => au.ui('open'));
+        break;
+    }
+  }
+
+  /** Second Wind: a gust crosses the board and the chosen rows and columns blow away left to right, then a Fresh Deal. */
+  private onWind(p: Record<string, unknown>, t: number, juice: boolean, calm: boolean): void {
+    const cells = p.cells as number[], shapes = p.shapes as number[];
+    this.gustAt = t;
+    this.windSpentAt = now();
+    const k = this.k;
+    this.fling(cells, shapes, () => [(0.55 + Math.random() * 0.35) * k, -(0.1 + Math.random() * 0.25) * k], c => 120 + (c % 9) * 45, 0.45);
+    this.dealAgain(p.old as ({ s: number; q: number } | null)[], p.slots as number[], t + 400);
+    if (juice) this.fx.text('Second Wind!', this.bx + this.cell * 4.5, this.by + this.cell * 4.2, { size: 40, fill: '#CFF6FF', rise: 14, life: 1500, pop: true });
+    if (juice && !calm) this.fx.kick(0.35);
+    this.hint('');
+    this.say('pop_second_wind', { cells: cells.length }, au => au.handle('second_wind', {}));
   }
 
   /** The checkpoint pill's centre in device px (where faces fly to). */
@@ -533,6 +798,188 @@ export class PopView {
       if (juice && sim.combo > this.lastCombo) { el.classList.remove('tick'); void el.offsetWidth; el.classList.add('tick'); }
     } else el.classList.remove('on', 'warm', 'sparks', 'rainbow', 'tick');
     this.lastCombo = sim.combo;
+    this.powerBar();
+  }
+
+  // ---------------------------------------------------------------- powers and Second Wind (milestone 3)
+
+  /** The power slots, Second Wind's button and End run, kept in step with the sim (cheap when nothing changed). */
+  private powerBar(): void {
+    const sim = this.sim;
+    if (!sim) return;
+    const t = now();
+    const armed = t < this.windArmedUntil && sim.wind === 'ready';
+    const trouble = !sim.over && (sim.stuck || sim.filled / CELLS >= 0.75);
+    const can = [0, 1].map(i => sim.canPower(i));
+    const blowing = sim.wind === 'used' && t - this.windSpentAt < 450;
+    // A power on its way into a slot shows there once its icon lands.
+    const incoming = new Set(this.iconFlys.map(f => f.slot));
+    const shown = sim.powers.map((k, i) => (incoming.has(i) ? null : k));
+    const key = `${shown.join()}|${sim.wind}|${armed}|${trouble}|${this.aim?.slot ?? -1}|${sim.stuck}|${sim.over}|${can.join()}|${blowing}`;
+    if (key === this.pwKey) return;
+    this.pwKey = key;
+    shown.forEach((k, i) => {
+      const b = this.slotBtns[i];
+      if ((b.dataset.pop ?? '') !== (k ?? '')) {
+        if (k) {
+          b.dataset.pop = k;
+          b.innerHTML = `<img class="st-icon" alt="" src="${popIconUrl(k, 34)}"><span class="st-tag">${POP_POWER_TAGS[k]}</span>`;
+          b.style.background = `radial-gradient(circle at 50% 36%, #FFFFFF 0 26%, ${wash(POP_POWER_COLORS[k], 0.25)} 62%, ${wash(POP_POWER_COLORS[k], 0.5)} 100%)`;
+        } else { delete b.dataset.pop; b.innerHTML = ''; b.style.background = ''; }
+        b.setAttribute('aria-label', k ? POP_POWER_NAMES[k] : 'Empty power-up slot');
+      }
+      b.classList.toggle('empty', !k);
+      b.classList.toggle('off', !!k && !can[i]);
+      b.classList.toggle('aim', this.aim?.slot === i);
+      b.classList.toggle('glow', !!k && sim.stuck && (k === 'spin' ? sim.canRescue() : can[i]));
+    });
+    const w = this.windBtn;
+    const img = w.querySelector('img')!;
+    if (!img.src) img.src = popIconUrl('wind', 38);
+    if (blowing) setTimeout(() => { this.pwKey = ''; this.powerBar(); }, 470);
+    w.classList.toggle('spent', blowing);
+    w.style.display = sim.wind === 'off' || (sim.wind === 'used' && !blowing) ? 'none' : '';
+    w.classList.toggle('earn', sim.wind === 'earn');
+    w.classList.toggle('armed', armed);
+    w.classList.toggle('glow', sim.wind === 'ready' && trouble && !armed);
+    w.querySelector('.st-tag')!.textContent = sim.wind === 'earn' ? `CP ${sim.tuning.windCp}` : armed ? 'TAP AGAIN' : '2ND WIND';
+    this.endBtn.classList.toggle('show', sim.stuck && !sim.over);
+  }
+
+  private bumpBtn(b: HTMLElement, refused = false): void {
+    b.classList.remove('pop', 'nope');
+    void b.offsetWidth;
+    b.classList.add(refused ? 'nope' : 'pop');
+  }
+
+  private hint(text: string): void {
+    if (text) this.hintEl.textContent = text;
+    this.hintEl.classList.toggle('show', !!text);
+  }
+
+  private refused(b: HTMLElement): void {
+    this.bumpBtn(b, true);
+    this.say('pop_power_refused', {}, a => a.handle('power_refused', {}));
+  }
+
+  /** A tap on a power slot: Undo and Fresh Deal go at once, Spin turns on, Sweep and Meteor start aiming (a second tap cancels). */
+  private tapPower(i: number): void {
+    const sim = this.sim;
+    if (!sim || sim.over || this.paused) return;
+    const k = sim.powers[i];
+    if (!k) return;
+    if (this.aim) {
+      const same = this.aim.slot === i;
+      this.endAim();
+      if (same) { this.say('pop_aim_cancel', {}, a => a.ui('back')); return; }
+    }
+    if (this.held) this.cancelHeld();
+    if (!sim.canPower(i)) { this.refused(this.slotBtns[i]); return; }
+    if (k === 'sweep' || k === 'meteor') {
+      this.aim = { slot: i, kind: k, target: k === 'meteor' ? this.bestMeteor() : -1, line: null, press: null };
+      this.hint(k === 'sweep' ? 'Swipe along a row or column' : 'Drag the target, tap it to smash');
+      this.say('pop_aim', { kind: k }, a => a.ui('open'));
+      this.pwKey = '';
+      this.powerBar();
+      return;
+    }
+    if (!this.intent({ t: 'power', slot: i })) this.refused(this.slotBtns[i]);
+  }
+
+  private endAim(): void {
+    this.aim = null;
+    if (this.pointer !== -1 && !this.held && !this.pending) this.pointer = -1;
+    this.hint(this.sim?.spinning ? 'Tap a shape to turn it' : '');
+    this.pwKey = '';
+    this.powerBar();
+  }
+
+  /** Second Wind: the tower's two taps, the first arming it for 2.5 s. */
+  private tapWind(): void {
+    const sim = this.sim;
+    if (!sim || sim.over || this.paused) return;
+    if (sim.wind !== 'ready') { this.refused(this.windBtn); return; }
+    if (this.aim) this.endAim();
+    if (now() < this.windArmedUntil) {
+      this.windArmedUntil = 0;
+      if (this.held) this.cancelHeld();
+      this.intent({ t: 'wind' });
+    } else {
+      this.windArmedUntil = now() + 2500;
+      this.say('pop_wind_armed', {}, a => a.ui('tap2'));
+      setTimeout(() => { this.pwKey = ''; this.powerBar(); }, 2550);
+    }
+    this.pwKey = '';
+    this.powerBar();
+  }
+
+  /** Meteor's first target: the cell whose 3×3 block holds the most blocks, nearest the middle among ties. */
+  private bestMeteor(): number {
+    const sim = this.sim!;
+    let best = 40, bn = -1, bd = 99;
+    for (let c = 0; c < CELLS; c++) {
+      const n = sim.meteorCells(c).filter(x => sim.cellShape[x] >= 0).length;
+      const d = Math.abs((c % 9) - 4) + Math.abs(((c / 9) | 0) - 4);
+      if (n > bn || (n === bn && d < bd)) { best = c; bn = n; bd = d; }
+    }
+    return best;
+  }
+
+  /** The board cell under a point, or −1. */
+  private cellAt(x: number, y: number): number {
+    const cx = Math.floor((x - this.bx) / this.cell), cy = Math.floor((y - this.by) / this.cell);
+    return cx >= 0 && cy >= 0 && cx < 9 && cy < 9 ? cy * 9 + cx : -1;
+  }
+
+  /** Sweep's line for a press at `cell` that hasn't moved: the fuller of its row and column (the row on a tie). */
+  private fullerLine(cell: number): number {
+    const sim = this.sim!;
+    const n = (id: number) => LINE_CELLS[id].filter(c => sim.cellShape[c] >= 0).length;
+    const r = (cell / 9) | 0, col = 9 + (cell % 9);
+    return n(col) > n(r) ? col : r;
+  }
+
+  private aimDown(x: number, y: number, id: number): void {
+    const a = this.aim!, sim = this.sim!;
+    const cell = this.cellAt(x, y);
+    if (cell < 0) return;
+    this.pointer = id;
+    const onTarget = a.kind === 'meteor' && sim.meteorCells(a.target).includes(cell);
+    a.press = { x, y, cell, moved: false, onTarget };
+    if (a.kind === 'sweep') a.line = null;
+  }
+
+  private aimMove(x: number, y: number): void {
+    const a = this.aim!, pr = a.press;
+    if (!pr) return;
+    const dx = x - pr.x, dy = y - pr.y;
+    if (Math.hypot(dx, dy) > this.cell * 0.3) pr.moved = true;
+    if (!pr.moved) return;
+    if (a.kind === 'sweep') a.line = Math.abs(dx) >= Math.abs(dy) ? (pr.cell / 9) | 0 : 9 + (pr.cell % 9);
+    else {
+      const cx = Math.max(0, Math.min(8, Math.floor((x - this.bx) / this.cell))), cy = Math.max(0, Math.min(8, Math.floor((y - this.by) / this.cell)));
+      if (cy * 9 + cx !== a.target) { a.target = cy * 9 + cx; this.say('pop_aim_move', {}, au => au.ui('tap')); }
+    }
+  }
+
+  private aimUp(x: number, y: number): void {
+    const a = this.aim!, sim = this.sim!, pr = a.press;
+    a.press = null;
+    if (!pr) return;
+    if (a.kind === 'sweep') {
+      const line = pr.moved ? a.line : this.fullerLine(pr.cell);
+      a.line = null;
+      if (line === null || (!pr.moved && this.cellAt(x, y) < 0)) return;
+      if (!sim.canSweep(line)) { this.refused(this.slotBtns[a.slot]); return; }
+      const slot = a.slot;
+      if (this.intent({ t: 'power', slot, arg: line })) this.endAim();
+      return;
+    }
+    // Meteor: a tap on the target smashes it; a drag (or a tap elsewhere) moves it.
+    if (!pr.moved && !pr.onTarget) { a.target = pr.cell; this.say('pop_aim_move', {}, au => au.ui('tap')); return; }
+    if (pr.moved) { this.hint('Tap the target to smash'); return; }
+    if (!sim.canMeteor(a.target)) { this.refused(this.slotBtns[a.slot]); return; }
+    if (this.intent({ t: 'power', slot: a.slot, arg: a.target })) this.endAim();
   }
 
   // ---------------------------------------------------------------- input
@@ -566,11 +1013,23 @@ export class PopView {
     const sim = this.sim;
     if (!sim || sim.over || this.paused || this.pointer !== -1) return;
     const [x, y] = this.toDev(e);
+    if (this.aim) {
+      this.aimDown(x, y, e.pointerId);
+      if (this.pointer === e.pointerId) try { this.cv.setPointerCapture(e.pointerId); } catch { /* fine */ }
+      return;
+    }
     const slot = this.slotAt(x, y);
     if (slot < 0 || !sim.slot(slot) || this.springs.some(s => s.slot === slot)) return;
     this.pointer = e.pointerId;
     try { this.cv.setPointerCapture(e.pointerId); } catch { /* fine */ }
-    this.held = { slot, px: x, py: y, t0: now(), ghost: null, lines: [], id: e.pointerId };
+    // Spin on: a tap turns the shape; it's picked up only once the finger moves.
+    if (sim.spinning && sim.canSpin(slot)) { this.pending = { slot, x, y, id: e.pointerId }; return; }
+    this.pickUp(slot, x, y, e.pointerId);
+  }
+
+  private pickUp(slot: number, x: number, y: number, id: number): void {
+    const sim = this.sim!;
+    this.held = { slot, px: x, py: y, t0: now(), ghost: null, lines: [], id };
     this.lastMove = { x, t: now(), vx: 0 };
     this.lean = 0;
     this.track();
@@ -578,7 +1037,14 @@ export class PopView {
   }
 
   private move(e: PointerEvent): void {
-    if (!this.held || e.pointerId !== this.pointer) return;
+    if (e.pointerId !== this.pointer) return;
+    if (this.aim) { this.aimMove(...this.toDev(e)); return; }
+    if (this.pending) {
+      const [x, y] = this.toDev(e), pd = this.pending;
+      if (Math.hypot(x - pd.x, y - pd.y) > this.cell * 0.3) { this.pending = null; this.pickUp(pd.slot, x, y, pd.id); }
+      return;
+    }
+    if (!this.held) return;
     const [x, y] = this.toDev(e);
     const tn = now(), lm = this.lastMove, dtm = Math.max(4, tn - lm.t);
     lm.vx = lm.vx * 0.5 + ((x - lm.x) / dtm) * 0.5;
@@ -590,6 +1056,13 @@ export class PopView {
   private up(e: PointerEvent, cancel: boolean): void {
     if (e.pointerId !== this.pointer) return;
     this.pointer = -1;
+    if (this.aim) { if (cancel) this.aim.press = null; else this.aimUp(...this.toDev(e)); return; }
+    if (this.pending) {
+      const pd = this.pending;
+      this.pending = null;
+      if (!cancel) this.intent({ t: 'spin', slot: pd.slot });
+      return;
+    }
     const h = this.held, sim = this.sim;
     if (!h || !sim) return;
     this.held = null;
@@ -668,6 +1141,8 @@ export class PopView {
     this.hooks.onChange(sim);
     if (this.wouldWas) { this.wouldWas = 0; this.say('pop_would_pop', { count: 0 }); }
     this.say('pop_fill', { fill: sim.filled / CELLS });
+    if (!this.aim) this.hint(sim.spinning ? 'Tap a shape to turn it' : sim.stuck ? 'No room! Use a power, or End run' : '');
+    this.powerBar();
     // A tray shape that just stopped fitting says "uh" once.
     for (let i = 0; i <= BAG; i++) {
       const fits = !sim.slot(i) || sim.fitsAnywhere(i);
@@ -723,7 +1198,25 @@ export class PopView {
         this.hooks.onOver(sim);
       }
     }
-    for (const b of this.bodies) { b.vy += 0.0022 * this.k * sdt; b.x += b.vx * sdt; b.y += b.vy * sdt; b.rot += b.vr * sdt; }
+    for (const b of this.bodies) {
+      if (b.at !== undefined && vt < b.at) continue;
+      b.vy += 0.0022 * (b.g ?? 1) * this.k * sdt; b.x += b.vx * sdt; b.y += b.vy * sdt; b.rot += b.vr * sdt;
+    }
+    if (this.bodies.length && this.overAt < 0) this.bodies = this.bodies.filter(b => b.y < this.H + this.cell * 2 && b.x > -this.cell * 3 && b.x < this.W + this.cell * 3);
+    // Meteor: the strike lands 260 ms after the target is set.
+    for (const m of this.meteors) {
+      if (m.hit || vt < m.t0 + 260) continue;
+      m.hit = true;
+      const [x, y] = this.cellCentre(m.cell);
+      if (juice) {
+        this.fx.ring(x, y, this.cell * 2.6, { life: 420, width: this.cell * 0.3, color: '#FFE0A0' });
+        for (let i = 0; i < 3; i++) this.fx.dust(x + (i - 1) * this.cell, y + this.cell * 1.2, this.cell);
+        this.flashes.push({ cells: this.sim!.meteorCells(m.cell), t0: vt, color: '255,236,190' });
+        if (!this.hooks.reducedMotion()) { this.fx.kick(0.5); this.punch = { t0: vt, z: 0.04 }; }
+      }
+      this.say('pop_meteor_hit', { cells: m.cells.length }, au => au.handle('row_solid', { count: 2 }));
+    }
+    this.meteors = this.meteors.filter(m => vt < m.t0 + 900);
     this.draw(vt, juice);
   }
 
@@ -803,11 +1296,14 @@ export class PopView {
       const x = this.bx + (pp.cell % 9) * this.cell, y = this.by + ((pp.cell / 9) | 0) * this.cell;
       const u = t - pp.start;
       if (u >= 70) {
-        if (!pp.burst && juice) { const col = shapeColors(pp.s); this.fx.burst(x + this.cell / 2, y + this.cell / 2, this.cell, [col.base, col.light, col.base, '#FFFFFF']); }
+        if (!pp.burst && juice) {
+          const col = shapeColors(pp.s);
+          this.fx.burst(x + this.cell / 2, y + this.cell / 2, this.cell, pp.smash ? ['#A8927E', '#CDBBA7', '#7D6A58', col.base] : [col.base, col.light, col.base, '#FFFFFF'], pp.smash ? 9 : 7);
+        }
         return false;
       }
-      const bk = this.art.cells(pp.s, [[0, 0]], juice ? 'proud' : null);
-      const sc = u < 0 ? 1 : 1 + 0.2 * (u / 70);
+      const bk = this.art.cells(pp.s, [[0, 0]], juice ? (pp.smash ? 'worried' : 'proud') : null);
+      const sc = u < 0 ? 1 : pp.smash ? 1 - 0.3 * (u / 70) : 1 + 0.2 * (u / 70);
       c.save();
       c.translate(x + this.cell / 2, y + this.cell / 2);
       c.scale(sc, sc);
@@ -820,10 +1316,11 @@ export class PopView {
     this.flashes = this.flashes.filter(f => {
       const u = (t - f.t0) / 420;
       if (u >= 1) return false;
-      c.fillStyle = `rgba(255,240,170,${0.45 * (1 - u)})`;
+      c.fillStyle = `rgba(${f.color ?? '255,240,170'},${0.45 * (1 - u)})`;
       for (const cc of f.cells) c.fillRect(this.bx + (cc % 9) * this.cell, this.by + ((cc / 9) | 0) * this.cell, this.cell, this.cell);
       return true;
     });
+    this.drawPowers(t, juice, calm);
     // The ghost: the shape as it will sit, flush, at 35%, with a glowing outline.
     const h = this.held;
     if (h?.ghost) {
@@ -871,6 +1368,7 @@ export class PopView {
     this.fx.draw(c);
     c.setTransform(1, 0, 0, 1, 0, 0);
     this.drawFlyers(t);
+    this.drawIconFlys(t);
     // The held shape, over everything.
     if (h) {
       const sl = sim.slot(h.slot);
@@ -887,6 +1385,174 @@ export class PopView {
         c.restore();
       }
     }
+  }
+
+  /** Two white turning arrows going round a tray shape while Spin is on. */
+  private spinRing(cx: number, cy: number, t: number, r: number): void {
+    const c = this.c;
+    const a0 = (t / 900) % (Math.PI * 2);
+    c.save();
+    c.lineCap = 'round';
+    for (const off of [0, Math.PI]) {
+      const s0 = a0 + off, s1 = s0 + 1.9;
+      c.beginPath(); c.arc(cx, cy, r, s0, s1);
+      c.strokeStyle = 'rgba(34,24,58,0.55)'; c.lineWidth = this.cell * 0.13; c.stroke();
+      c.strokeStyle = '#FFFFFF'; c.lineWidth = this.cell * 0.07; c.stroke();
+      const hx = cx + Math.cos(s1) * r, hy = cy + Math.sin(s1) * r, tx = -Math.sin(s1), ty = Math.cos(s1), w = this.cell * 0.13;
+      c.beginPath();
+      c.moveTo(hx + tx * w * 1.3, hy + ty * w * 1.3);
+      c.lineTo(hx + Math.cos(s1) * w, hy + Math.sin(s1) * w);
+      c.lineTo(hx - Math.cos(s1) * w, hy - Math.sin(s1) * w);
+      c.closePath();
+      c.fillStyle = '#FFFFFF'; c.fill();
+      c.strokeStyle = 'rgba(34,24,58,0.55)'; c.lineWidth = this.cell * 0.03; c.stroke();
+    }
+    c.restore();
+  }
+
+  /** On the board: bubbles, aiming, and the powers' own moments (broom, meteor, gust, rewind). */
+  private drawPowers(t: number, juice: boolean, calm: boolean): void {
+    const c = this.c, sim = this.sim!, cell = this.cell;
+    // Bubbles float down onto their cell and wobble; a ring round each counts down its placements.
+    for (const b of sim.bubbles) {
+      const [x, y] = this.cellCentre(b.cell);
+      const at = this.bubbleAt.get(b.cell) ?? -1e9;
+      const u = Math.min(1, (t - at) / 340);
+      const drop = juice && !calm ? (1 - backOut(u)) * -cell * 0.9 : 0;
+      const bob = juice && !calm ? Math.sin(t / 330 + b.cell) * cell * 0.04 : 0;
+      const r = cell * 0.44;
+      const img = bakePopBubble(b.kind, Math.round(r));
+      const sc = juice ? 0.4 + 0.6 * Math.min(1, u * 1.4) : 1;
+      const blink = b.left <= 2 && juice && Math.sin(t / 90) > 0.3 ? 0.55 : 1;
+      c.save();
+      c.globalAlpha = blink;
+      c.translate(x, y + drop + bob);
+      c.scale(sc * (1 + Math.sin(t / 210 + b.cell) * 0.03), sc * (1 - Math.sin(t / 210 + b.cell) * 0.03));
+      c.drawImage(img, -img.width / 2, -img.height / 2);
+      c.restore();
+      c.beginPath();
+      c.arc(x, y + drop + bob, r + cell * 0.06, -Math.PI / 2, -Math.PI / 2 + (Math.PI * 2 * b.left) / sim.tuning.bubbleLife);
+      c.strokeStyle = 'rgba(255,255,255,0.95)';
+      c.lineWidth = Math.max(2, cell * 0.06);
+      c.lineCap = 'round';
+      c.stroke();
+    }
+    this.gone = this.gone.filter(g => {
+      const u = (t - g.t0) / 450;
+      if (u >= 1) return false;
+      const [x, y] = this.cellCentre(g.cell);
+      const img = bakePopBubble(g.kind, Math.round(cell * 0.44));
+      c.save();
+      c.globalAlpha = 1 - u;
+      c.translate(x, y - u * cell * 0.4);
+      c.scale(1 - u * 0.6, 1 - u * 0.6);
+      c.drawImage(img, -img.width / 2, -img.height / 2);
+      c.restore();
+      return true;
+    });
+    // Aiming: the board dims; Sweep lights the line under the swipe, Meteor shows its target.
+    const a = this.aim;
+    if (a) {
+      c.fillStyle = 'rgba(34,24,58,0.16)';
+      c.fillRect(this.bx, this.by, cell * 9, cell * 9);
+      const lit = (cells: number[], rgb: string, al: number) => { c.fillStyle = `rgba(${rgb},${al})`; for (const cc of cells) c.fillRect(this.bx + (cc % 9) * cell, this.by + ((cc / 9) | 0) * cell, cell, cell); };
+      const pulse = 0.3 + 0.12 * Math.sin(t / 110);
+      if (a.kind === 'sweep' && a.press) {
+        if (a.line !== null) lit(LINE_CELLS[a.line], '120,255,200', pulse + 0.15);
+        else { lit(LINE_CELLS[(a.press.cell / 9) | 0], '120,255,200', pulse * 0.6); lit(LINE_CELLS[9 + (a.press.cell % 9)], '120,255,200', pulse * 0.6); }
+      }
+      if (a.kind === 'meteor') {
+        lit(sim.meteorCells(a.target), '255,110,70', pulse);
+        const [x, y] = this.cellCentre(a.target);
+        c.save();
+        c.translate(x, y);
+        c.rotate(t / 700);
+        c.strokeStyle = '#FFFFFF';
+        c.lineWidth = Math.max(2, cell * 0.08);
+        c.setLineDash([cell * 0.35, cell * 0.2]);
+        c.beginPath(); c.arc(0, 0, cell * 1.55, 0, Math.PI * 2); c.stroke();
+        c.setLineDash([]);
+        for (let k = 0; k < 4; k++) { c.rotate(Math.PI / 2); c.beginPath(); c.moveTo(cell * 0.35, 0); c.lineTo(cell * 0.85, 0); c.stroke(); }
+        c.restore();
+      }
+    }
+    // Sweep: the broom runs along the line.
+    this.sweeps = this.sweeps.filter(sw => {
+      const u = (t - sw.t0) / 340;
+      if (u >= 1) return false;
+      const row = sw.line < 9, i = row ? sw.line : sw.line - 9;
+      const along = -0.5 + u * 10;
+      const x = this.bx + (row ? along : i + 0.5) * cell, y = this.by + (row ? i + 0.5 : along) * cell;
+      c.save();
+      c.translate(x, y);
+      if (!row) c.rotate(Math.PI / 2);
+      drawPopIcon(c, 'sweep', 0, 0, cell * 1.5);
+      c.restore();
+      return true;
+    });
+    // Meteor: a stone with a flame trail streaks in from the top right and lands on the target.
+    for (const m of this.meteors) {
+      const u = (t - m.t0) / 260;
+      if (u < 0 || u >= 1) continue;
+      const [x1, y1] = this.cellCentre(m.cell);
+      const x0 = x1 + cell * 6, y0 = y1 - cell * 9;
+      const e = u * u;
+      const x = x0 + (x1 - x0) * e, y = y0 + (y1 - y0) * e;
+      const g = c.createLinearGradient(x, y, x + cell * 2.2, y - cell * 3.3);
+      g.addColorStop(0, 'rgba(255,200,80,0.95)');
+      g.addColorStop(1, 'rgba(255,90,40,0)');
+      c.strokeStyle = g;
+      c.lineWidth = cell * 0.5;
+      c.lineCap = 'round';
+      c.beginPath(); c.moveTo(x, y); c.lineTo(x + cell * 2.2, y - cell * 3.3); c.stroke();
+      drawPopIcon(c, 'meteor', x, y, cell * 1.2);
+    }
+    // Second Wind: white gusts sweep across the board.
+    const gu = (t - this.gustAt) / 900;
+    if (gu >= 0 && gu < 1 && juice) {
+      c.save();
+      c.strokeStyle = `rgba(255,255,255,${0.85 * (1 - gu)})`;
+      c.lineWidth = cell * 0.12;
+      c.lineCap = 'round';
+      for (let k = 0; k < 6; k++) {
+        const y = this.by + cell * (0.8 + k * 1.5), x = this.bx - cell * 2 + (gu * 1.3 + (k % 3) * 0.12) * cell * 12;
+        c.beginPath();
+        c.moveTo(x - cell * 2.5, y);
+        c.quadraticCurveTo(x, y - cell * 0.4, x + cell * 0.6, y - cell * 0.1);
+        c.arc(x + cell * 0.6, y - cell * 0.45, cell * 0.35, Math.PI / 2, -Math.PI, true);
+        c.stroke();
+      }
+      c.restore();
+    }
+    // Undo: a lilac rewind wash over the board.
+    const ru = (t - this.rewindAt) / 380;
+    if (ru >= 0 && ru < 1) {
+      c.fillStyle = `rgba(178,140,255,${0.3 * (1 - ru)})`;
+      c.fillRect(this.bx - this.pad, this.by - this.pad, cell * 9 + this.pad * 2, cell * 9 + this.pad * 2);
+    }
+  }
+
+  /** Power icons flying from the board into their slot, which bounces as one lands. */
+  private drawIconFlys(t: number): void {
+    if (!this.iconFlys.length) return;
+    const c = this.c;
+    let landed = false;
+    this.iconFlys = this.iconFlys.filter(f => {
+      const u = (t - f.t0) / 520;
+      if (u < 0) return true;
+      const r = this.slotBtns[f.slot].getBoundingClientRect();
+      const tx = (r.left + r.width / 2) * this.k, ty = (r.top + r.height / 2) * this.k;
+      if (u >= 1) { this.bumpBtn(this.slotBtns[f.slot]); landed = true; return false; }
+      const e = u * u * (3 - 2 * u);
+      const mx = (f.x0 + tx) / 2, my = Math.min(f.y0, ty) - this.cell * 2;
+      const x = (1 - e) * (1 - e) * f.x0 + 2 * (1 - e) * e * mx + e * e * tx;
+      const y = (1 - e) * (1 - e) * f.y0 + 2 * (1 - e) * e * my + e * e * ty;
+      const img = bakePopIcon(f.kind, Math.round(this.cell * 0.9));
+      const sc = 1.2 - 0.4 * e;
+      c.drawImage(img, x - (img.width * sc) / 2, y - (img.height * sc) / 2, img.width * sc, img.height * sc);
+      return true;
+    });
+    if (landed) this.powerBar();
   }
 
   /** Popped faces flying up to the checkpoint pill on an arc, shrinking as they go. */
@@ -948,12 +1614,33 @@ export class PopView {
       const face: Expression = !fits ? 'worried' : sp ? 'dizzy' : t - this.hopAt < 700 ? 'proud' : 'idle';
       const bk = this.art.shape(sl.s, sl.q, 1, face);
       const img = fits ? bk.canvas : this.art.grey(bk.canvas);
+      // Spin on: turning arrows round every shape that can turn; a tap snaps it round in 80 ms.
+      if (sim.spinning && sim.canTurn(i) && !sp) this.spinRing(cx, cy, t, i === BAG ? this.bag.s * 0.5 : Math.min(this.trayH * 0.55, this.W / 6 * 0.85));
+      const su = (t - this.spinAt[i]) / 110;
+      const rot = su >= 0 && su < 1 ? -(Math.PI / 2) * (1 - backOut(su)) : 0;
       c.save();
       c.translate(cx, cy);
+      if (rot) c.rotate(rot);
       c.scale(sc, sc);
       c.drawImage(img, -bk.canvas.width * bk.originX, -bk.canvas.height * bk.originY);
       c.restore();
     }
+    // Shapes leaving the tray (Fresh Deal, Second Wind): they drop and fade as the new ones flip in.
+    this.leaving = this.leaving.filter(l => {
+      const u = (t - l.t0) / 260;
+      if (u >= 1) return false;
+      if (u < 0) return true;
+      const bk = this.art.shape(l.s, l.q, 1, 'dizzy');
+      c.save();
+      c.globalAlpha = 1 - u;
+      c.translate(l.x, l.y + u * u * this.cell * 1.6);
+      c.rotate(u * 0.5);
+      c.scale(l.scale * (1 - u * 0.3), l.scale * (1 - u * 0.3));
+      c.drawImage(bk.canvas, -bk.canvas.width * bk.originX, -bk.canvas.height * bk.originY);
+      c.restore();
+      return true;
+    });
+    c.globalAlpha = 1;
     // The next tray: small silhouettes, so every tray is seen one tray early.
     const n = sim.next;
     const w = this.nextBox.w / 3;
@@ -988,4 +1675,11 @@ function safeArea(): { top: number; bottom: number } {
   const out = { top: parseFloat(cs.paddingTop) || 0, bottom: parseFloat(cs.paddingBottom) || 0 };
   p.remove();
   return out;
+}
+
+/** A power colour washed toward Paper by `t` (0 Paper, 1 the colour), as a hex string. */
+function wash(hex: string, t: number): string {
+  const n = parseInt(hex.slice(1), 16), P = [0xff, 0xf7, 0xe8];
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v, i) => Math.round(P[i] + (v - P[i]) * t));
+  return `#${ch.map(v => v.toString(16).padStart(2, '0')).join('')}`;
 }
