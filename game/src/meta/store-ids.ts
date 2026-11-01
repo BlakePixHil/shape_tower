@@ -53,6 +53,11 @@ export const STORE_IDS = {
     so_close: 'CgkI5a-2itoSEAIQLg',
     do_over: 'CgkI5a-2itoSEAIQLw',
     needle: 'CgkI5a-2itoSEAIQMA',
+    pop_first: 'CgkI5a-2itoSEAIQMg',
+    pop_double: 'CgkI5a-2itoSEAIQMw',
+    pop_daily: 'CgkI5a-2itoSEAIQNA',
+    pop_clear: 'CgkI5a-2itoSEAIQNQ',
+    pop_combo_8: 'CgkI5a-2itoSEAIQNg',
   } as Record<string, string> },
   /**
    * Game Center: ids are ours to pick, so they are fixed now (prefix + the game's id) and must match App Store
