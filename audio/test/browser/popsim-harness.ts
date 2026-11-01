@@ -121,6 +121,12 @@ interface Move { slot: number; x: number; y: number }
             send(at, 'pop_second_wind', { cells: (p.cells as number[]).length });
             powers.wind = (powers.wind ?? 0) + 1;
             break;
+          // rules 3: touching split pieces merge; with effects on the view stamps them 360 ms later
+          case 'pop_merge': {
+            const merges = (p.merges ?? []) as { cells: number[] }[];
+            if (merges.length) send(at, 'pop_merge', { count: merges.length, cells: merges.reduce((a, m) => a + m.cells.length, 0), delay: 360 });
+            break;
+          }
           case 'run_over':
             run.cause = p.cause as string;
             // with effects on, the run over plays as the tumble starts

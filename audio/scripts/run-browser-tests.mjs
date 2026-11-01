@@ -325,7 +325,7 @@ checks.popsfx = (r) => {
   }
   const boops = on.plays.filter((p) => p.name === 'pop.boop');
   assert.ok(boops.length === 2 && boops[0].rate > 1.3 && boops[1].rate < 0.85, `a Pip squeaks and a Plank grumbles when picked up (${boops.map((b) => b.rate.toFixed(2))})`);
-  const snaps = on.plays.filter((p) => p.name === 'pop.snap');
+  const snaps = on.plays.filter((p) => p.name === 'pop.snap' && p.when < 2);
   assert.equal(snaps.length, 2, 'two ghost snaps 20 ms apart make one sound');
   assert.ok(snaps[1].rate > snaps[0].rate, 'a ghost that would pop lines snaps higher');
   assert.ok(on.shimmerAt.held && !on.shimmerAt.placed, 'the would-pop shimmer plays while held and stops on the drop');
@@ -347,6 +347,17 @@ checks.popsfx = (r) => {
     const k = (c.when - g.t0) / sixteenth;
     assert.ok(c.when >= 2.04 && Math.abs(k - Math.round(k)) < 1e-3, `the answer lands on the next sixteenth (${c.when.toFixed(4)}, ${k.toFixed(3)} sixteenths)`);
   }
+  // rules 3 merges at 3 s: a low snap per merge on the stamp (360 ms later with effects), one sound per move
+  const merge = (x) => x.plays.filter((p) => p.name === 'pop.snap' && p.when >= 3 && p.when < 4);
+  const mOn = merge(on), mOff = merge(off);
+  assert.equal(mOn.length, 2, `two merges in one move snap twice, and a merge 50 ms later stays quiet (${mOn.length})`);
+  near(mOn[0].when, 3.36, 0.0005, 'the merge snap lands on the stamp, 360 ms after the move');
+  near(mOn[1].when - mOn[0].when, 0.05, 0.0005, 'the second merge 50 ms later');
+  assert.ok(mOn.every((p) => p.rate < 0.8), 'a merge snaps lower than the ghost');
+  assert.ok(on.plays.some((p) => p.name === 'pop.flick' && Math.abs(p.when - 3.364) < 0.001), 'a soft tap under the merge with effects');
+  assert.equal(mOff.length, 2, 'juice off keeps the merge snap');
+  near(mOff[0].when, 3, 0.0005, 'juice off: the merge snaps at once, as the view stamps it');
+  assert.ok(!off.plays.some((p) => p.name === 'pop.flick' && p.when >= 3 && p.when < 4), 'juice off drops the tap');
   assert.ok(on.plays.filter((p) => p.name === 'pop.uh').length === 1, 'a shape that stops fitting says "uh" once');
   assert.equal(on.plays.filter((p) => p.name === 'ui.error').length, 1, '"No room!" plays once, not again at the run over');
   assert.ok(on.said.includes('aww'), 'the Blocklings go "aww" at the end');
@@ -439,7 +450,7 @@ function summary(name, r) {
   if (name === 'pop') return `layers ${r.log.filter((e) => / on$|fanfare|nice try|popResults/.test(e.what)).map((e) => `${e.what.replace(/ on$/, '')} ${e.t}`).join(', ')}; levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v}`).join(', ')} dB`;
   if (name === 'popsfx') return `gliss ${r.on.gliss.length} notes, answer at ${r.on.answer.map((c) => c.when.toFixed(3)).join('/')}, juice off ${r.off.plays.length} sounds`;
   if (name === 'popscreens') return `${r.log.map((e) => `${e.what} ${e.t}`).join(', ')}; levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v}`).join(', ')} dB`;
-  if (name === 'popsim') return `${r.runs.length} runs (${r.runs.map((x) => `${x.moves} moves, ${x.lines} lines, cp ${x.cp}`).join('; ')}), layers ${r.layers.join('/')}, bands ${r.bands.join('/') || 'one'}, powers ${Object.entries(r.powers).map(([k, v]) => `${k} ${v}`).join('/') || 'none'}, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB`;
+  if (name === 'popsim') return `${r.runs.length} runs (${r.runs.map((x) => `${x.moves} moves, ${x.lines} lines, cp ${x.cp}`).join('; ')}), layers ${r.layers.join('/')}, bands ${r.bands.join('/') || 'one'}, powers ${Object.entries(r.powers).map(([k, v]) => `${k} ${v}`).join('/') || 'none'}, merges ${r.counts.pop_merge ?? 0}, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB`;
   if (name === 'loudness') return `${r.softDb} / ${r.midDb} / ${r.hardDb} dB, below-screen ${r.belowDb} dB`;
   return JSON.stringify(r).slice(0, 120);
 }

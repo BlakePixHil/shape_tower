@@ -795,6 +795,9 @@ const scenarios = {
       const answer = chords.filter((c) => c.when > 2 && c.when < 2.6);
       // the band's grid as the pop played: where its bars start, and the beat
       const grid = { t0: (d.music as unknown as { t0: number }).t0, beat: 60 / d.music.state().bpm };
+      // rules 3: two merges after a pop, stamped 360 ms later with effects on and at once with them off
+      d.handle('pop_merge', { count: 2, cells: 9, delay: on ? 360 : 0 }, 3);
+      d.handle('pop_merge', { count: 1, cells: 4, delay: on ? 360 : 0 }, 3.05);
       d.handle('pop_cant_fit', { slot: 1 }, 4);
       d.handle('pop_cant_fit', { slot: 1 }, 4.1);
       d.handle('pop_no_room', {}, 5);
