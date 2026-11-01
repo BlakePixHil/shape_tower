@@ -76,6 +76,8 @@ const CSS = `
 .pop-top { position: absolute; left: 0; right: 0; top: 0; padding: calc(env(safe-area-inset-top, 0px) + 10px) 12px 0; display: grid; grid-template-columns: 1fr auto 1fr; column-gap: 8px; align-items: start; pointer-events: none; }
 .pop-top > .ui-btn { justify-self: start; }
 .pop-top .ui-btn { pointer-events: auto; }
+/* The pause button matches the tower's (hud.ts .st-iconbtn): 44 px, filled paper, ink border and shadow. */
+.pop-top > .ui-btn.icon { border-radius: 14px; }
 .pop-score { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .pop-score b { font: 700 36px/1 var(--display, Fredoka, sans-serif); color: #fff; -webkit-text-stroke: 7px var(--ink, ${INK}); paint-order: stroke fill; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
 .pop-score span { font: 800 12px/1 var(--body, Nunito, sans-serif); color: var(--ink, ${INK}); background: rgba(255,247,232,0.94); border: 2px solid var(--ink, ${INK}); border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
@@ -293,8 +295,10 @@ export class PopView {
     this.cv.className = 'pop-cv';
     this.c = this.cv.getContext('2d')!;
     const top = document.createElement('div');
-    top.className = 'pop-top';
-    top.innerHTML = `<button type="button" class="ui-btn icon" data-act="pause" aria-label="Pause"><img alt="" src="${uiIconUrl('pause', 24)}"></button>
+    // .ui gives the top bar Art's kit colours and fonts (--paper, --ink, --display), which .ui-btn needs:
+    // without them the pause button had no fill (Blake, 2026-11-01).
+    top.className = 'pop-top ui';
+    top.innerHTML = `<button type="button" class="ui-btn icon sm" data-act="pause" aria-label="Pause"><img alt="" src="${uiIconUrl('pause', 24)}"></button>
       <div class="pop-score"><b>0</b><span>Best 0</span></div>
       <div class="pop-cp"><img alt="" src="${uiIconUrl('flag', 20)}"><div><b>0/5</b><small>Meadow</small></div></div>`;
     this.scoreEl = top.querySelector('.pop-score b')!;

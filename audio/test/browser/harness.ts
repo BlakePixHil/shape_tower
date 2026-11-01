@@ -91,8 +91,15 @@ const scenarios = {
   /** Baking in a worker gives the same audio as the main thread and never blocks it. */
   async worker(workerCode: string) {
     const url = URL.createObjectURL(new Blob([workerCode], { type: 'text/javascript' }));
+    // three worker bakes, each with its worst main-thread stall: a GC pause or a busy page lands in one
+    // of them, while baking that blocks the main thread shows in all three, so the check reads the median
     let viaWorker: Awaited<ReturnType<typeof makeDirector>> | undefined;
-    const workerStall = await longestStall(async () => (viaWorker = await makeDirector(1, 3, () => new Worker(url))));
+    const workerStalls: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      viaWorker?.d.dispose();
+      workerStalls.push(await longestStall(async () => (viaWorker = await makeDirector(1, 3, () => new Worker(url)))));
+    }
+    const workerStall = [...workerStalls].sort((x, y) => x - y)[1];
     let viaThread: Awaited<ReturnType<typeof makeDirector>> | undefined;
     const threadStall = await longestStall(async () => (viaThread = await makeDirector(1, 3)));
     const a = (viaWorker!.d.bank as any).buffers as Map<string, AudioBuffer[]>;
@@ -116,7 +123,7 @@ const scenarios = {
     ]);
     return {
       baking: viaWorker!.d.debugState().baking, workerMs: Math.round(viaWorker!.buildMs), threadMs: Math.round(viaThread!.buildMs),
-      workerStall, threadStall, compared, maxDiff, sameNames: a.size === b.size, fallback,
+      workerStall, workerStalls, threadStall, compared, maxDiff, sameNames: a.size === b.size, fallback,
     };
   },
 
@@ -795,6 +802,9 @@ const scenarios = {
       const answer = chords.filter((c) => c.when > 2 && c.when < 2.6);
       // the band's grid as the pop played: where its bars start, and the beat
       const grid = { t0: (d.music as unknown as { t0: number }).t0, beat: 60 / d.music.state().bpm };
+      // rules 3: two merges after a pop, stamped 360 ms later with effects on and at once with them off
+      d.handle('pop_merge', { count: 2, cells: 9, delay: on ? 360 : 0 }, 3);
+      d.handle('pop_merge', { count: 1, cells: 4, delay: on ? 360 : 0 }, 3.05);
       d.handle('pop_cant_fit', { slot: 1 }, 4);
       d.handle('pop_cant_fit', { slot: 1 }, 4.1);
       d.handle('pop_no_room', {}, 5);

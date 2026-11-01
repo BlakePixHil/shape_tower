@@ -860,6 +860,13 @@ const POP_PADS: PopPad[] = [
       audio.handle('pop_cant_fit', { slot: popSlot++ % 3 }, t);
     },
   },
+  {
+    label: 'Pieces merge', ev: 'pop_merge', run: (t) => {
+      audio.handle('pop_place', { shape: 'L', cells: 4, combo: 0 }, t);
+      audio.handle('pop_lines', { count: 1, combo: 1, cells: 9, lines: [9], hitstop: 60 }, t);
+      audio.handle('pop_merge', { count: 2, cells: 9, delay: 360 }, t);
+    },
+  },
   { label: 'Bubble lands', ev: 'pop_bubble', run: (t) => audio.handle('pop_bubble', { kind: 'undo' }, t) },
   { label: 'Bubble covered', ev: 'pop_bubble_got', run: (t) => audio.handle('pop_bubble_got', { kind: 'undo' }, t) },
   { label: 'Power earned', ev: 'pop_power_got', run: (t) => audio.handle('pop_power_got', { kind: 'sweep', why: 'big' }, t) },

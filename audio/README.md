@@ -85,9 +85,9 @@ The score is a laid-back toy-box lounge at 96 BPM with a light swing (`src/music
 | Tension | heartbeat kick, tonic pedal, minor pad (the groove thins) | board 70% full; lifts below 55% |
 | Breather | pad and kalimba, 4 bars | the board drops under 20% (16 bars apart at most) |
 
-An All Clear plays an instant hit and a crowd roar, then a 2-bar fanfare from the next beat, then the breather. Run over is the tower's tape stop, 2 bars of "nice try" in the current family, then Pop's results loop (the lounge's Meadow arrangement, as in the hub). Puzzles play bed and groove only. Placements walk up the board's pentatonic scale (and climb while a combo is alive) over a keys stab; a pop plays a glissando, the first note at once and then one note per cell 39 ms apart from the end of the freeze, each line a third above the last, and the answer lands on the next sixteenth. `MUSIC_TUNING.pop` holds the thresholds.
+An All Clear plays an instant hit and a crowd roar, then a 2-bar fanfare from the next beat, then the breather. Run over is the tower's tape stop, 2 bars of "nice try" in the current family, then Pop's results loop (the lounge's Meadow arrangement, as in the hub). Puzzles play bed and groove only. Placements walk up the board's pentatonic scale (and climb while a combo is alive) over a keys stab; a pop plays a glissando, the first note at once and then one note per cell 39 ms apart from the end of the freeze, each line a third above the last, and the answer lands on the next sixteenth. `MUSIC_TUNING.pop` holds the thresholds. When split pieces merge into whole Blocklings (`pop_merge`), each merge gets a low wooden snap timed to the view's stamp (`delay`, about 360 ms with juice), 50 ms apart, with a soft card tap under it; it comes on about one move in five, so it stays light.
 
-**Juice off** in Pop keeps the pick-up, ghost and would-pop sounds, the impact, the clack and the plip wave, "No room!" and the tumble, and drops the board's notes, the keys stab, the voices, the fireworks and the haptics. The band plays its bed, groove and lead throughout and stops following the board.
+**Juice off** in Pop keeps the pick-up, ghost and would-pop sounds, the impact, the clack and the plip wave, the merge snap, "No room!" and the tumble, and drops the board's notes, the keys stab, the voices, the fireworks and the haptics. The band plays its bed, groove and lead throughout and stops following the board.
 
 ### Shape voices (audio section 6.8)
 
@@ -158,7 +158,7 @@ Current numbers (headless Chromium in the cloud container):
 
 - Peak decoded audio for sound effects is 24.8 MB in any biome (budget 25 MB). With ambience beds and the note cache (the landing ladder plus two biomes' bands) a whole run peaks at about 44 MB (budget 60 MB: effects 25, instruments 20, ambience 15).
 - The band schedules 1,600 to 1,700 notes over a 2.5-minute bot session with none missed, and never uses more than 16 voices. It sits at about -23 dB RMS with every layer in, under the effects.
-- Baking the bank takes about 1.6 s. With the worker, the main thread never stalls for more than one frame.
+- Baking the bank takes about 1.6 s. With the worker, the main thread's worst stall is about 20 ms (about 2 s without it). The worker check bakes three times and reads the median worst stall against 60 ms, or 2% of baking in place on a loaded machine, so one GC pause can't fail it while baking on the main thread still does.
 - Handling one event costs about 0.03 ms.
 - Blockling Pop holds 17.5 MB of effects and up to 32 MB of notes (two families' bands with the board's notes). A 2.5-minute Pop bot session (a head-start power, Spin and Second Wind, two biomes and a run over) peaks at about 51 MB, plays about 1,500 band notes with none missed, and an event costs about 0.2 ms on average.
 - A 150-hit collapse peaks at 0.88 of full scale, never clips, and stays within the voice caps (8 impacts, 32 total).
