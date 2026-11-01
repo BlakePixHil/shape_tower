@@ -7,6 +7,7 @@
 //   node --experimental-strip-types scripts/gamecenter-achievements.ts            what it would send
 //   node --experimental-strip-types scripts/gamecenter-achievements.ts --apply    sends it, turns Game Center on
 //   --images <dir>   the badges (default ../art/exports/achievements/gamecenter)
+//   --replace <id,id>   swap the badge these achievements already have for the one in --images (Art redrew it)
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { STORE_IDS } from '../src/meta/store-ids.ts';
@@ -38,6 +39,7 @@ if (process.argv[1]?.endsWith('gamecenter-achievements.ts')) {
   const flag = (name: string): string | undefined => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
   const root = new URL('..', import.meta.url).pathname;
   const images = flag('--images') ?? `${root}../art/exports/achievements/gamecenter`;
+  const replace = new Set(flag('--replace')?.split(',').filter(Boolean) ?? []);
   const rows = storeRows();
   const badge = (r: StoreRow): string | undefined => ['png', 'jpg'].map(x => `${images}/${r.id}.${x}`).find(f => existsSync(f));
   if (!args.includes('--apply')) {
@@ -49,7 +51,7 @@ if (process.argv[1]?.endsWith('gamecenter-achievements.ts')) {
     let detail = (await asc.call<{ data: Resource | null }>('GET', `/v1/apps/${app.id}/gameCenterDetail`))?.data ?? null;
     detail ??= (await asc.call<{ data: Resource }>('POST', '/v1/gameCenterDetails', { data: { type: 'gameCenterDetails', relationships: { app: { data: { type: 'apps', id: app.id } } } } }))!.data;
     const have = new Map((await asc.all(`/v1/gameCenterDetails/${detail.id}/gameCenterAchievementsV2?limit=200`)).map(a => [attr(a, 'vendorIdentifier'), a]));
-    let made = 0, texts = 0, badges = 0;
+    let made = 0, texts = 0, badges = 0, swapped = 0;
     const missingBadges: string[] = [];
     for (const r of rows) {
       let a = have.get(r.gameCenter);
@@ -73,7 +75,14 @@ if (process.argv[1]?.endsWith('gamecenter-achievements.ts')) {
       }
       const file = badge(r);
       if (!file) { missingBadges.push(r.id); continue; }
-      if ((await asc.call<{ data: Resource | null }>('GET', `/v2/gameCenterAchievementLocalizations/${loc.id}/image`))?.data) continue;
+      const old = (await asc.call<{ data: Resource | null }>('GET', `/v2/gameCenterAchievementLocalizations/${loc.id}/image`))?.data;
+      if (old && !replace.has(r.id)) continue;
+      if (old) {
+        // Images made through /v2 are deleted there; fall back to /v1 if this API version has no DELETE for them.
+        try { await asc.call('DELETE', `/v2/gameCenterAchievementImages/${old.id}`); }
+        catch (e) { if (!/: 40[45] /.test(String(e))) throw e; await asc.call('DELETE', `/v1/gameCenterAchievementImages/${old.id}`); }
+        swapped++;
+      }
       const bytes = readFileSync(file);
       const image = (await asc.call<{ data: Resource }>('POST', '/v2/gameCenterAchievementImages', { data: {
         type: 'gameCenterAchievementImages',
@@ -86,7 +95,7 @@ if (process.argv[1]?.endsWith('gamecenter-achievements.ts')) {
       console.log(`${r.gameCenter}: ready`);
     }
     writeFileSync(`${root}src/meta/store-ids.ts`, storeIdsSource({ ...STORE_IDS, gameCenter: { ...STORE_IDS.gameCenter, enabled: true } }));
-    console.log(`Game Center: ${made} made, ${rows.length - made} already there; ${texts} English texts and ${badges} badges added. Game Center is on in store-ids.ts.`);
+    console.log(`Game Center: ${made} made, ${rows.length - made} already there; ${texts} English texts and ${badges} badges added (${swapped} of them replacing an old one). Game Center is on in store-ids.ts.`);
     if (missingBadges.length) console.error(`No badge in ${images} for: ${missingBadges.join(', ')} (Art: npm run export:badges)`);
   }
 }
