@@ -10,8 +10,8 @@ const GAP_MS = 250;
 /** Art's toast takes 2.2 s and removes itself; this is the backstop if its animation never ends. */
 const TOAST_MAX_MS = 4000;
 
-/** The game numbers biomes from 1 (Meadow); Art from 0. */
-const art = (a: Achievement) => ({ name: a.name, tier: a.tier, icon: a.icon as UiIcon, biome: a.biome ? a.biome - 1 : undefined });
+/** The game numbers biomes from 1 (Meadow); Art from 0. Blockling Pop's badges get Art's Pop look (pink burst, POP tab). */
+const art = (a: Achievement) => ({ name: a.name, tier: a.tier, icon: a.icon as UiIcon, biome: a.biome ? a.biome - 1 : undefined, pop: a.group === 'pop' || undefined });
 
 export interface ToastOptions {
   reducedMotion(): boolean;

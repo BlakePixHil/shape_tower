@@ -211,8 +211,13 @@ ${STORE_ACHIEVEMENTS.map((a, i) => i % 2 ? `  <!--achievement ${a.name}-->\n  <s
   const kit = storeKit();
   const play = kit['play-games.csv'].trim().split('\n'), gc = kit['game-center.csv'].trim().split('\n');
   check('Kit: one CSV line per achievement for each console, plus the header', play.length === STORE_ACHIEVEMENTS.length + 1 && gc.length === STORE_ACHIEVEMENTS.length + 1);
-  const badges = JSON.parse(kit['badges.json']) as { id: string; biome?: number }[];
+  const badges = JSON.parse(kit['badges.json']) as { id: string; tier: string; icon: string; biome?: number; pop?: boolean }[];
   check('Badges list for Art\'s export counts biomes from 0', badges.find(b => b.id === 'biome_2')?.biome === 1 && badges.length === STORE_ACHIEVEMENTS.length);
+  const popIds = badges.filter(b => b.pop).map(b => b.id).sort();
+  check('Badges list marks the 5 Blockling Pop rows pop (Art\'s Pop look), and only those', popIds.join() === 'pop_clear,pop_combo_8,pop_daily,pop_double,pop_first', popIds.join());
+  // With the pop flag no Pop badge can match a tower one; among themselves the five must differ too (Play refuses a repeated icon).
+  const popLooks = badges.filter(b => b.pop).map(b => `${b.tier}|${b.icon}|${b.biome ?? ''}`);
+  check('The 5 Pop store badges all bake differently', new Set(popLooks).size === popLooks.length, popLooks.join(' '));
   check('A comma in a name or text is quoted', !kit['play-games.csv'].split('\n').some(l => l && l.split(',').length < 8));
 }
 
