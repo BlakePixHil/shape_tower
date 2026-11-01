@@ -15,21 +15,46 @@ interface Floater {
   size: number; fill: string; rise: number; pop: boolean;
 }
 
+interface Ring { x: number; y: number; r: number; age: number; life: number; delay: number; color: string; width: number }
+
 /** Live particles at most (Pop plan §8 budget). */
 const MAX_BITS = 250;
 
 export class PopFx {
   private bits: Bit[] = [];
   private floats: Floater[] = [];
+  private rings: Ring[] = [];
   private trauma = 0;
   private shakeT = 0;
   /** Device px per CSS px: shake and text scale with it. */
   private readonly k: number;
   constructor(k: number) { this.k = k; }
 
-  get busy(): boolean { return this.bits.length > 0 || this.floats.length > 0 || this.trauma > 0.001; }
+  get busy(): boolean { return this.bits.length > 0 || this.floats.length > 0 || this.rings.length > 0 || this.trauma > 0.001; }
 
-  clear(): void { this.bits = []; this.floats = []; this.trauma = 0; }
+  clear(): void { this.bits = []; this.floats = []; this.rings = []; this.trauma = 0; }
+
+  /** A soft shockwave ring growing to radius `r` (device px), after `delay` ms. */
+  ring(x: number, y: number, r: number, o: { delay?: number; life?: number; color?: string; width?: number } = {}): void {
+    this.rings.push({ x, y, r, age: 0, life: o.life ?? 420, delay: o.delay ?? 0, color: o.color ?? '#FFF3B8', width: o.width ?? r * 0.12 });
+  }
+
+  /** A confetti cannon: a cone of squares fired from (x, y) at `angle` (radians, 0 = right, -π/2 = up). */
+  cannon(x: number, y: number, angle: number, cell: number, colors: string[], n = 40): void {
+    for (let i = 0; i < n && this.bits.length < MAX_BITS; i++) {
+      const a = angle + (Math.random() - 0.5) * 0.7, sp = (0.9 + Math.random() * 0.9) * cell * 0.03;
+      this.bits.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 0.03,
+        size: cell * (0.14 + Math.random() * 0.12), color: colors[i % colors.length], age: 0, life: 1100 + Math.random() * 700, kind: 'square',
+      });
+    }
+  }
+
+  /** A faint stardust mote behind a dragged shape. */
+  dust2(x: number, y: number, cell: number): void {
+    if (this.bits.length >= MAX_BITS - 40) return;
+    this.bits.push({ x, y, vx: (Math.random() - 0.5) * cell * 0.001, vy: cell * 0.0006, rot: 0, vr: 0.003, size: cell * (0.12 + Math.random() * 0.1), color: 'rgba(255,250,215,0.9)', age: 0, life: 360, kind: 'spark' });
+  }
 
   /** A cell bursting: confetti squares of its colours and a sparkle or two. */
   burst(x: number, y: number, cell: number, colors: string[], n = 7): void {
@@ -62,6 +87,23 @@ export class PopFx {
     this.floats.push({ text, x, y, age: 0, life: o.life ?? 900, size: (o.size ?? 24) * this.k, fill: o.fill ?? '#FFFFFF', rise: (o.rise ?? 40) * this.k, pop: !!o.pop });
   }
 
+  /** Draws text in the banner style right now (no animation): the faint "Double!" preview. `size` is CSS px. */
+  label(c: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, fill: string, alpha: number): void {
+    const px = Math.round(size * this.k);
+    c.save();
+    c.globalAlpha = alpha;
+    c.font = `700 ${px}px ${FONT_DISPLAY}`;
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.lineJoin = 'round';
+    c.lineWidth = px * 0.22;
+    c.strokeStyle = INK;
+    c.strokeText(text, x, y);
+    c.fillStyle = fill;
+    c.fillText(text, x, y);
+    c.restore();
+  }
+
   /** Adds trauma (0 to 1); the shake is trauma² × 6 pt at most. */
   kick(t: number): void { this.trauma = Math.min(1, this.trauma + t); }
 
@@ -84,9 +126,23 @@ export class PopFx {
     this.bits = this.bits.filter(b => b.age < b.life);
     for (const f of this.floats) f.age += dt;
     this.floats = this.floats.filter(f => f.age < f.life);
+    for (const r of this.rings) r.age += dt;
+    this.rings = this.rings.filter(r => r.age < r.delay + r.life);
   }
 
   draw(c: CanvasRenderingContext2D): void {
+    for (const r of this.rings) {
+      const u = (r.age - r.delay) / r.life;
+      if (u < 0) continue;
+      const e = 1 - (1 - u) * (1 - u);
+      c.globalAlpha = 0.85 * (1 - u);
+      c.strokeStyle = r.color;
+      c.lineWidth = Math.max(1, r.width * (1 - u * 0.6));
+      c.beginPath();
+      c.arc(r.x, r.y, Math.max(1, r.r * e), 0, Math.PI * 2);
+      c.stroke();
+    }
+    c.globalAlpha = 1;
     for (const b of this.bits) {
       const t = b.age / b.life;
       c.globalAlpha = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
