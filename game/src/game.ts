@@ -5,7 +5,7 @@
 // Blockling Pop (the Pop plan, level 2) is a mode of its own on the same profile: game/src/pop/.
 
 import type { AudioDirector } from '@audio';
-import { BY_ID, RunTracker, grantDaily, grantHistory, grantStreaks, payAchievements, type Achievement } from './meta/achievements.ts';
+import { BY_ID, RunTracker, grantDaily, grantHistory, grantStreaks, payAchievements, popHistory, unlock, type Achievement } from './meta/achievements.ts';
 import { StoreSync } from './meta/stores.ts';
 import {
   addPractice, beginScored, bestDays, countdown, dailyDay, dailyNumber, dailySeed, dailyShapes, dailyStreak, msToNextDaily, scoredUsed, updateScored, type DailyResult,
@@ -16,7 +16,7 @@ import type { LabState } from './view/panel.ts';
 import type { RunOpts } from './view/scene.ts';
 import { addRunStats, award, dailyWindReady, loadProfile, nextJuice, popWindReady, saveProfile, spendDailyWind, spendPopWind, updateStreak } from './view/profile.ts';
 import { Screens, type ProfileIdentity, type SettingsShop, type UiSound } from './view/screens.ts';
-import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor } from './view/settings.ts';
+import { applyAudio, loadSettings, saveSettings, tuningFor, viewFor, popViewFor } from './view/settings.ts';
 import { ENDLESS, type RunMode } from './view/modes.ts';
 import { BUILD, startShell } from './view/shell.ts';
 import { TrophyToasts } from './view/trophies.ts';
@@ -36,6 +36,7 @@ import type { RunKind } from './meta/stats.ts';
 import { statsUrl } from './online/online.ts';
 import { Stats } from './online/stats.ts';
 import { canShare, shareNote, shareRun, towerOf } from './view/share.ts';
+import { PopTracker } from './pop/achievements.ts';
 import { PopSim } from './pop/sim/pop.ts';
 import { replay } from './pop/sim/record.ts';
 import { POP_TUNING } from './pop/sim/tuning.ts';
@@ -482,6 +483,8 @@ async function boot(): Promise<void> {
   let popRecord: PopRunRecord | null = null;
   /** This run started with the day's free Pop Second Wind, not yet spent (it is at the first placement). */
   let popDailyWind = false;
+  /** This Pop run's achievements (Pop plan §12), fed each intent's events. */
+  let popTracker: PopTracker | null = null;
   const popView = (): PopView => pop ??= new PopView(document.body, {
     audio: () => audio(),
     reducedMotion: () => settings.reduceMotion,
@@ -489,10 +492,19 @@ async function boot(): Promise<void> {
     best: () => profile.pop.best,
     onPause: () => popPause(),
     onChange: sim => {
+      if (popTracker?.sim === sim) popTracker.handle(sim.events);
       writePopSave(sim, pop?.playMs ?? 0, popStarted);
       if (popDailyWind && sim.placements > 0) { popDailyWind = false; spendPopWind(profile); }
     },
     onOver: sim => popOver(sim),
+    settings: () => popViewFor(settings),
+    // The first-run guide's tips: each once ever (Pop plan §14).
+    coach: id => {
+      if (profile.pop.seen.includes(id)) return false;
+      profile.pop.seen.push(id);
+      saveProfile(profile);
+      return true;
+    },
   });
 
   /** Into Pop: the saved run if there is one (replayed from its moves), else a new run. */
@@ -514,10 +526,14 @@ async function boot(): Promise<void> {
       popDailyWind = !always && popWindReady(profile);
       sim = new PopSim({
         seed: (Math.random() * 2 ** 32) >>> 0, newPlayer: profile.pop.runs < POP_TUNING.mercyRuns, headStart: profile.level >= 6, windReady: always || popDailyWind,
+        // A first Pop run starts with the guide (once: its card counts as seen when it shows).
+        guide: profile.pop.runs === 0 && !profile.pop.seen.includes('intro'),
       });
       popStarted = Date.now();
       writePopSave(sim, 0, popStarted);
     } else popStarted = saved!.startedAt;
+    const live = sim;
+    popTracker = new PopTracker(live, profile, { onUnlock: a => { if (!live.over) toasts.push(a); void stores.report(a.id); }, save: () => saveProfile(profile) });
     popRecord = new PopRunRecord();
     audio()?.setJuice?.(true);
     audio()?.setZen?.(false);
@@ -566,6 +582,8 @@ async function boot(): Promise<void> {
     P.totalLines += sim.lines;
     P.powers += sim.powersUsed;
     P.bubbles += sim.bubblesGot;
+    popTracker = null;
+    for (const id of popHistory(P)) unlock(profile, id); // the run's records and lifetime totals, as they now stand
     updateStreak(profile);
     grantStreaks(profile);
     const paid = payAchievements(profile);
@@ -595,7 +613,7 @@ async function boot(): Promise<void> {
       ],
       onAnswer: (id, answer) => rec?.answer(id, answer),
       onAgain: leave(() => { rec?.exit('again'); openPop(true); }),
-      onProfile: leave(() => { rec?.exit('menu'); leavePop(); audio()?.screen?.('profile'); sc.profile(profile, home, saveLook, identity); }),
+      onProfile: leave(() => { rec?.exit('menu'); leavePop(); audio()?.screen?.('profile'); sc.profile(profile, home, saveLook, identity, 'pop'); }),
       onHome: leave(() => { rec?.exit('menu'); leavePop(); home(); }),
       reducedMotion: settings.reduceMotion,
     });

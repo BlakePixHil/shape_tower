@@ -18,12 +18,30 @@ export interface PlayerSettings {
   haptics: HapticsLevel;
   /** Send the anonymous play stats (the phone apps only; PRIVACY.md). */
   stats: boolean;
+  // Blockling Pop's own (Pop plan §14).
+  /** How far a held shape floats above the finger. */
+  popDrag: 'off' | 'small' | 'normal' | 'large';
+  /** Tap mode: tap a shape, tap the board to aim, tap the ghost to place (for switch controls and one-finger play). */
+  popTap: boolean;
+  /** Mirrors the bottom row: the bag on the left, the power slots on the right. */
+  popLeft: boolean;
+  /** Glow the lines a drop would pop. */
+  popPreview: boolean;
+  /** Stronger cell lines and square tints. */
+  popGrid: boolean;
 }
 
 export const DEFAULT_SETTINGS: PlayerSettings = {
   splitTap: false, sensitivity: 1, guideOpacity: 1, shake: 'full', reduceMotion: false, faces: true,
   music: 0.7, sfx: 1, voices: 0.8, haptics: 'full', stats: true,
+  popDrag: 'normal', popTap: false, popLeft: false, popPreview: true, popGrid: false,
 };
+
+/** What Blockling Pop's view reads: the held shape's lift in cells (its bottom edge above the finger; null: centred on it). */
+export function popViewFor(s: PlayerSettings): { lift: number | null; tap: boolean; left: boolean; preview: boolean; grid: boolean } {
+  const lift = ({ off: null, small: 0.6, normal: 1.1, large: 1.8 } as const)[s.popDrag] ?? 1.1;
+  return { lift, tap: s.popTap, left: s.popLeft, preview: s.popPreview, grid: s.popGrid };
+}
 
 const KEY = 'shape-tower-settings-v1';
 

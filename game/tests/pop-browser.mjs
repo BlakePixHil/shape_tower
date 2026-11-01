@@ -5,7 +5,9 @@
 // pause with End run, and the results card paying the run's XP into the one profile. Then a smaller
 // phone, to see the board, tray and bag fit; milestone 2's juice; and milestone 3's powers: the power
 // bar, Undo, aiming Meteor and Sweep, Spin's taps, Fresh Deal, collecting a bubble, Second Wind's two
-// taps, and No room waiting with End run.
+// taps, and No room waiting with End run. Last, a first Pop run's guide (the card, the hand, the tips),
+// Pop's achievements and the profile's Pop stats. And Blake's 2026-11-01 notes: the top bar keeping inside
+// the board frame on three phone widths, and split pieces merging into whole shapes (rules 3).
 //   npm run build:game && node tests/pop-browser.mjs [outDir]
 
 import { chromium } from '@playwright/test';
@@ -42,6 +44,8 @@ async function open(viewport, dpr = 2) {
       localStorage.setItem('shape-tower-profile-v1', JSON.stringify({
         level: 3, xp: 10, total: 400, runs: 3, streak: 1, lastDay: yesterday, boostDay: yesterday, windDay: yesterday, sliceRuns: 3, player: 'p-pop-check',
         seenGusts: true, seenHazards: [], seenBrittle: true, askedGhost: true,
+        // The first-run guide and its tips are their own check (milestone 3, part 2).
+        pop: { seen: ['intro', 'bag', 'bubble', 'combo', 'next'] },
       }));
       localStorage.setItem('shape-tower-played', '1');
     }
@@ -256,6 +260,42 @@ const state = page => page.evaluate(() => {
   await ctx.close();
 }
 
+// ---------------------------------------------------------------- the top bar keeps inside the board's edges
+// Blake's playtest (2026-11-01): on his 448 × 825 phone the area pill ("Meadow 3/8") stuck out past the
+// board frame. The bar now lines up with the frame and the pill is two lines (count, then the area's name).
+
+for (const vp of [{ width: 448, height: 825, dpr: 2.25 }, { width: 360, height: 640, dpr: 2 }, { width: 390, height: 844, dpr: 3 }]) {
+  const { ctx, page, errors } = await open({ width: vp.width, height: vp.height }, vp.dpr);
+  await page.click('.sc-root.show [data-action="pop"]');
+  await page.waitForFunction(() => window.__wobble.pop?.view?.active, null, { timeout: 8000 });
+  await page.waitForTimeout(500);
+  const cases = [];
+  for (const [count, area, score] of [[null, null, null], ['13/14', 'Stratosphere', '188,888'], ['12/13', 'Ringed Giant', '1,234,567']]) {
+    cases.push(await page.evaluate(([count, area, score]) => {
+      if (count) {
+        document.querySelector('.pop-cp b').textContent = count;
+        document.querySelector('.pop-cp small').textContent = area;
+        document.querySelector('.pop-score b').textContent = score;
+      }
+      const v = window.__wobble.pop.view, k = v.k;
+      const box = sel => { const r = document.querySelector(sel).getBoundingClientRect(); return [r.left, r.right, r.top, r.bottom]; };
+      const frame = [(v.bx - v.pad) / k, (v.bx + v.cell * 9 + v.pad) / k];
+      const pill = box('.pop-cp'), num = box('.pop-cp b'), name = box('.pop-cp small'), sc = box('.pop-score b'), pause = box('.pop-top .ui-btn');
+      const inside = (a, b) => a[0] >= b[0] - 0.5 && a[1] <= b[1] + 0.5 && a[2] >= b[2] - 0.5 && a[3] <= b[3] + 0.5;
+      return {
+        text: document.querySelector('.pop-cp').textContent.trim(),
+        ok: pill[1] <= frame[1] + 0.5 && pause[0] >= frame[0] - 0.5 && inside(num, pill) && inside(name, pill) && pill[0] >= sc[1] && sc[0] >= pause[1],
+        frame: frame.map(Math.round), pill: pill.map(Math.round), score: sc.slice(0, 2).map(Math.round), pause: pause.slice(0, 2).map(Math.round),
+      };
+    }, [count, area, score]));
+    if (!count) await page.screenshot({ path: `${out}/08-top-bar-${vp.width}.png`, clip: { x: 0, y: 0, width: vp.width, height: 100 } });
+  }
+  step(`on a ${vp.width} × ${vp.height} phone the pause, score and area pill keep inside the board frame, the count and name inside the pill (long names, big scores too)`,
+    cases.every(c => c.ok) && /^0\/\d+Meadow$/.test(cases[0].text), JSON.stringify(cases));
+  step(`no page errors on the ${vp.width} wide top bar`, errors.length === 0, errors.slice(0, 3).join(' | '));
+  await ctx.close();
+}
+
 // ---------------------------------------------------------------- flush pieces and milestone 2's juice
 
 /** Puts cells on the board ([cell, shape, piece] each) and a tray, as if the run had got there. */
@@ -343,6 +383,44 @@ const stage = (page, filled, tray) => page.evaluate(([filled, tray]) => {
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${out}/09-all-clear.png` });
   step('no page errors in the juice checks', errors.length === 0, errors.slice(0, 3).join(' | '));
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------- split pieces merge (rules 3)
+// Blake's playtest (2026-11-01): split pieces that touch merge into the biggest whole shape. The view
+// keeps their old look while the pop plays, then they snap into one Blockling with a face and a flash.
+
+{
+  const { ctx, page, errors } = await open({ width: 390, height: 844 });
+  await page.click('.sc-root.show [data-action="pop"]');
+  await page.waitForFunction(() => window.__wobble.pop?.view?.active, null, { timeout: 8000 });
+  await page.waitForTimeout(500);
+  const at = (x, y) => y * 9 + x;
+  // A Trio standing at x 0, Dominoes standing at x 1 and 2, Pips along the bottom row to x 7.
+  await stage(page, [
+    [at(0, 6), 2, 1], [at(0, 7), 2, 1], [at(0, 8), 2, 1],
+    [at(1, 7), 1, 2], [at(1, 8), 1, 2], [at(2, 7), 1, 3], [at(2, 8), 1, 3],
+    ...[3, 4, 5, 6, 7].map((x, i) => [at(x, 8), 0, 4 + i]),
+  ], [{ s: 0, q: 0 }, { s: 4, q: 0 }, { s: 4, q: 0 }]);
+  await page.evaluate(() => { window.__wobble.pop.view.sim.placements = 8; });
+  const plan = await dragPlan(page, 0, 8, 8);
+  await drag(page, plan.from, plan.to);
+  const four = [at(0, 6), at(0, 7), at(1, 7), at(2, 7)];
+  const look = () => page.evaluate(four => {
+    const v = window.__wobble.pop.view, sim = v.sim;
+    const comp = v.comps.find(c => c.cells.some(([x, y]) => y * 9 + x === four[0]));
+    return { lines: sim.lines, sim: four.map(c => `${sim.cellShape[c]}:${sim.cellPiece[c]}`), comp: comp && { s: comp.s, piece: comp.piece, size: comp.size, face: comp.face }, comps: v.comps.length };
+  }, four);
+  const during = await look();
+  await page.screenshot({ path: `${out}/09-merge-during.png` });
+  await page.waitForTimeout(650);
+  const after = await look();
+  await page.screenshot({ path: `${out}/10-merge-after.png` });
+  step('the pop splits the Trio and Dominoes, and the sim merges the touching bits into one J of four',
+    during.lines === 1 && new Set(during.sim).size === 1 && during.sim[0].startsWith('7:-'), JSON.stringify(during.sim));
+  step('while the pop plays the bits keep their old look (the Trio\'s two cells, its own piece)', during.comp?.s === 2 && during.comp.piece === 1 && during.comp.size === 2, JSON.stringify(during.comp));
+  step('then they snap into one J Blockling with a face', after.comp?.s === 7 && after.comp.size === 4 && after.comp.face && after.comp.piece < 0, JSON.stringify(after.comp));
+  step('no page errors with merging', errors.length === 0, errors.slice(0, 3).join(' | '));
   await ctx.close();
 }
 
@@ -455,7 +533,9 @@ const slotBtn = i => `.pop-pw button:nth-child(${i + 1})`;
   await give(page, [null, null], { wind: 'ready', bubbles: [] });
   await page.click(slotBtn(2));
   const armed = await page.evaluate(() => ({ cls: document.querySelector('.pop-pw button:nth-child(3)').className, wind: window.__wobble.pop.view.sim.wind }));
-  await page.click(slotBtn(2));
+  // The armed button pulses (a scale animation), which Playwright waits out as "not stable", sometimes past
+  // the 2.5 s window: a finger doesn't wait, so neither does this tap.
+  await page.click(slotBtn(2), { force: true });
   await page.waitForTimeout(120);
   const blown = await page.evaluate(() => { const v = window.__wobble.pop.view; return { wind: v.sim.wind, filled: v.sim.filled, bodies: v.bodies.length }; });
   step('Second Wind: the first tap arms it, the second blows the fullest rows and columns away', /armed/.test(armed.cls) && armed.wind === 'ready' && blown.wind === 'used' && blown.filled < crowd.length - 20 && blown.bodies > 20, JSON.stringify({ armed, blown }));
@@ -477,6 +557,155 @@ const slotBtn = i => `.pop-pw button:nth-child(${i + 1})`;
   const ended = await page.evaluate(() => ({ over: window.__wobble.pop.view.sim.over, cause: window.__wobble.pop.view.sim.cause, summary: !!document.querySelector('.sc-root.show .ui-summary') }));
   step('End run ends it and the results show', ended.over && ended.cause === 'end' && ended.summary, JSON.stringify(ended));
   step('no page errors in the power checks', errors.length === 0, errors.slice(0, 3).join(' | '));
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------- milestone 3, part 2: the guide, achievements and Pop stats
+
+{
+  const { ctx, page, errors } = await open({ width: 390, height: 844 });
+  // A player who has never played Pop: no Pop runs, no tips seen.
+  await page.evaluate(() => {
+    const p = JSON.parse(localStorage.getItem('shape-tower-profile-v1'));
+    p.pop = { ...(p.pop ?? {}), runs: 0, seen: [] };
+    localStorage.setItem('shape-tower-profile-v1', JSON.stringify(p));
+  });
+  await page.reload();
+  await page.waitForSelector('.sc-root.show [data-action="pop"]', { timeout: 20000 });
+  await page.waitForTimeout(600);
+  await page.click('.sc-root.show [data-action="pop"]');
+  await page.waitForFunction(() => window.__wobble.pop?.view?.active, null, { timeout: 8000 });
+  await page.waitForTimeout(400);
+  const card = await page.evaluate(() => {
+    const v = window.__wobble.pop.view, sim = v.sim;
+    return { card: document.querySelector('.pop-intro')?.textContent.replace(/\s+/g, ' ').trim() ?? '', guide: sim.guide, filled: sim.filled, row8: Array.from({ length: 9 }, (_, x) => sim.cellShape[72 + x] >= 0 ? 1 : 0).join(''), first: sim.tray[0], seen: JSON.parse(localStorage.getItem('shape-tower-profile-v1')).pop.seen };
+  });
+  step('a first Pop run opens with one card, and the board starts with the bottom row one I short', /Drag shapes onto the board/.test(card.card) && card.guide && card.row8 === '111110000' && card.filled === 9 && card.first.s === 5 && card.seen.includes('intro'), JSON.stringify(card));
+  await page.screenshot({ path: `${out}/17-guide-card.png` });
+  await page.click('.pop-intro button');
+  await page.waitForTimeout(900);
+  const hand = await page.evaluate(() => ({ card: !!document.querySelector('.pop-intro'), hand: window.__wobble.pop.view.handAt >= 0 }));
+  step('"Let\'s pop!" closes the card and the hand shows the first drag', !hand.card && hand.hand, JSON.stringify(hand));
+  await page.screenshot({ path: `${out}/18-guide-hand.png` });
+  const g = await dragPlan(page, 0, 5, 8);
+  await drag(page, g.from, g.to);
+  await page.waitForTimeout(250);
+  const popped = await page.evaluate(() => {
+    const v = window.__wobble.pop.view, p = JSON.parse(localStorage.getItem('shape-tower-profile-v1'));
+    return { lines: v.sim.lines, clears: v.sim.clears, hand: v.handAt, toast: document.querySelector('.ui-achtoast')?.textContent ?? '', got: Object.keys(p.achievements).filter(id => id.startsWith('pop_')) };
+  });
+  step('the I in the gap pops the row (not a free All Clear), the hand goes, and Pop! is earned with a toast', popped.lines === 1 && popped.clears === 0 && popped.hand === -1 && popped.got.includes('pop_first') && /Pop!/.test(popped.toast), JSON.stringify(popped));
+  await page.screenshot({ path: `${out}/19-first-pop.png` });
+
+  // The combo tip, once, at a combo of 2: two Pips each finishing a row.
+  const rows = [];
+  for (let x = 0; x < 8; x++) { rows.push([x, 5, 1100 + x]); rows.push([9 + x, 6, 1200 + x]); }
+  await stage(page, rows, [{ s: 0, q: 0 }, { s: 0, q: 0 }, { s: 4, q: 0 }]);
+  await page.waitForTimeout(700);
+  await page.evaluate(() => { const v = window.__wobble.pop.view; v.sim.combo = 0; v.intent({ t: 'place', slot: 0, x: 8, y: 0 }); v.intent({ t: 'place', slot: 1, x: 8, y: 1 }); });
+  await page.waitForTimeout(250);
+  const combo = await page.evaluate(() => ({ tip: document.querySelector('.pop-coach.show')?.textContent ?? '', combo: window.__wobble.pop.view.sim.combo, seen: JSON.parse(localStorage.getItem('shape-tower-profile-v1')).pop.seen }));
+  step('the combo tip shows at the first combo of 2, and counts as seen', /Combo!/.test(combo.tip) && combo.combo === 2 && combo.seen.includes('combo'), JSON.stringify(combo));
+  await page.screenshot({ path: `${out}/20-combo-tip.png` });
+  // Any touch closes a tip.
+  const mid = await cellXY(page, 40);
+  await page.mouse.click(mid[0], mid[1]);
+  await page.waitForTimeout(700);
+  const closed = await page.evaluate(() => !document.querySelector('.pop-coach.show'));
+  step('a touch anywhere closes the tip', closed);
+
+  // The bag tip: an I that fits nowhere while the bag is free.
+  const crowd = [];
+  // Columns 2, 5 and 8 down to row 7, and two blocks in row 8: no gap 4 wide anywhere, and no line full.
+  for (let c = 0; c < 81; c++) if ((c % 3 === 2 && c < 72) || c === 75 || c === 78) crowd.push([c, 4, 1300 + c]);
+  // The I lying flat (whichever quarter turn that is), so the full columns leave it nowhere to go.
+  const flatQ = await page.evaluate(() => { const sim = window.__wobble.pop.view.sim; for (let q = 0; q < 4; q++) { sim.tray = [null, { s: 5, q }, null]; if (sim.turn(1)?.h === 1) return q; } return 0; });
+  await stage(page, crowd, [{ s: 0, q: 0 }, { s: 5, q: flatQ }, { s: 0, q: 0 }]);
+  await page.evaluate(() => window.__wobble.pop.view.intent({ t: 'place', slot: 0, x: 0, y: 0 }));
+  await page.waitForTimeout(250);
+  const bagTip = await page.evaluate(() => {
+    const v = window.__wobble.pop.view, el = document.querySelector('.pop-coach.show'), r = el?.getBoundingClientRect();
+    return { tip: el?.textContent ?? '', fits: v.sim.fitsAnywhere(1), above: r ? r.bottom <= v.bag.y / v.k + 2 : false, through: el ? getComputedStyle(el).pointerEvents : '' };
+  });
+  step('the first shape that can\'t fit gets the bag tip, over the bag, and touches go through it', /bag/.test(bagTip.tip) && !bagTip.fits && bagTip.above && bagTip.through === 'none', JSON.stringify(bagTip));
+  await page.screenshot({ path: `${out}/21-bag-tip.png` });
+
+  // End the run: the results, then the profile opens on Pop's stats.
+  await page.click('.pop-top [data-act="pause"]');
+  await page.waitForSelector('.sc-root.show [data-action="quit"]');
+  await page.click('.sc-root.show [data-action="quit"]');
+  await page.waitForSelector('.sc-root.show .ui-summary', { timeout: 15000 });
+  await page.waitForTimeout(400);
+  const strip = await page.evaluate(() => document.querySelector('.sc-root.show .ui-summary')?.textContent ?? '');
+  step('the results list the run\'s new achievements', /Pop!/.test(strip), strip.slice(0, 160));
+  await page.click('.sc-root.show [data-action="profile"]');
+  await page.waitForSelector('.sc-root.show .ui-profile', { timeout: 8000 });
+  await page.waitForTimeout(300);
+  const prof = await page.evaluate(() => {
+    const vis = el => !!el && getComputedStyle(el).display !== 'none';
+    const pop = document.querySelector('.sc-popstats'), tower = document.querySelector('.ui-profile .ui-stats:not(.sc-popstats)');
+    return { tab: document.querySelector('.sc-statseg input:checked')?.value, pop: vis(pop), tower: vis(tower), text: pop?.textContent.replace(/\s+/g, ' ') ?? '' };
+  });
+  step('from Pop\'s results the profile opens on Pop\'s stats: best score, lines, combo, biome, All Clears, runs', prof.tab === 'pop' && prof.pop && !prof.tower && /Best score/.test(prof.text) && /Pop runs/.test(prof.text) && /1Pop runs/.test(prof.text), JSON.stringify(prof));
+  await page.screenshot({ path: `${out}/22-profile-pop.png` });
+  await page.click('.sc-statseg label:first-child');
+  await page.waitForTimeout(150);
+  const tow = await page.evaluate(() => ({ pop: getComputedStyle(document.querySelector('.sc-popstats')).display, tower: getComputedStyle(document.querySelector('.ui-profile .ui-stats:not(.sc-popstats)')).display }));
+  step('the switch shows the tower\'s stats again', tow.pop === 'none' && tow.tower !== 'none', JSON.stringify(tow));
+  await page.click('.sc-root.show [data-action="achievements"]');
+  await page.waitForTimeout(400);
+  const ach = await page.evaluate(() => document.querySelector('.sc-root.show')?.textContent.replace(/\s+/g, ' ') ?? '');
+  step('the Achievements panel has a Blockling Pop group with Pop! earned', /Blockling Pop/.test(ach) && /Double Trouble/.test(ach) && /Pop!/.test(ach), ach.slice(ach.indexOf('Blockling Pop'), ach.indexOf('Blockling Pop') + 120));
+  await page.screenshot({ path: `${out}/23-pop-achievements.png` });
+  step('no page errors in the guide, achievement and stats checks', errors.length === 0, errors.slice(0, 3).join(' | '));
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------- milestone 3: Pop's settings
+
+{
+  const { ctx, page, errors } = await open({ width: 390, height: 844 });
+  await page.click('.sc-root.show [data-action="settings"]');
+  await page.waitForTimeout(300);
+  const group = await page.evaluate(() => document.querySelector('.sc-root.show')?.textContent.replace(/\s+/g, ' ') ?? '');
+  step('Settings has a Blockling Pop group: shape above finger, tap to place, left-handed, pop preview, strong grid',
+    ['Blockling Pop', 'Shape above finger', 'Tap to place', 'Left-handed', 'Pop preview', 'Strong grid'].every(w => group.includes(w)), group.slice(group.indexOf('Blockling Pop'), group.indexOf('Blockling Pop') + 110));
+  await page.screenshot({ path: `${out}/24-pop-settings.png`, fullPage: true });
+  // Left-handed, strong grid, tap mode and no lift, saved as the panel would.
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('shape-tower-settings-v1') ?? '{}');
+    localStorage.setItem('shape-tower-settings-v1', JSON.stringify({ ...s, popLeft: true, popGrid: true, popTap: true, popDrag: 'off', popPreview: false }));
+  });
+  await page.reload();
+  await page.waitForSelector('.sc-root.show [data-action="pop"]', { timeout: 20000 });
+  await page.waitForTimeout(600);
+  await page.click('.sc-root.show [data-action="pop"]');
+  await page.waitForFunction(() => window.__wobble.pop?.view?.active, null, { timeout: 8000 });
+  await page.waitForTimeout(400);
+  const lay = await page.evaluate(() => {
+    const v = window.__wobble.pop.view, k = v.k, pw = document.querySelector('.pop-pw').getBoundingClientRect();
+    return { bagRight: (v.bag.x + v.bag.s) / k, nextLeft: v.nextBox.x / k, nextRight: (v.nextBox.x + v.nextBox.w) / k, pwLeft: pw.left, pwRight: pw.right, w: innerWidth, laid: v.laidFor };
+  });
+  step('left-handed: the bag on the left, the next tray in the middle, the power slots on the right', lay.bagRight < lay.nextLeft && lay.nextRight < lay.pwLeft && lay.pwRight <= lay.w - 8 && lay.laid === 'true|true', JSON.stringify(lay));
+  await page.screenshot({ path: `${out}/25-left-handed-grid.png` });
+  // Tap mode: tap a shape, tap a cell, tap the ghost.
+  await stage(page, [], [{ s: 4, q: 0 }, { s: 5, q: 0 }, { s: 0, q: 0 }]);
+  const before = await state(page);
+  const [sx, sy] = await page.evaluate(() => { const v = window.__wobble.pop.view, [x, y] = v.slotCentre(0); return [x / v.k, y / v.k]; });
+  await page.mouse.click(sx, sy);
+  await page.waitForTimeout(150);
+  const lifted = await page.evaluate(() => { const h = window.__wobble.pop.view.held; return h ? { slot: h.slot, tap: h.tap, ghost: h.ghost } : null; });
+  const c40 = await cellXY(page, 40);
+  await page.mouse.click(c40[0], c40[1]);
+  await page.waitForTimeout(150);
+  const aimed = await page.evaluate(() => { const v = window.__wobble.pop.view, h = v.held, t = v.sim.turn(0); const [cx, cy] = h ? v.heldCentre(h, t) : [0, 0]; return { ghost: h?.ghost, onFinger: h ? Math.abs(cy - (v.by + 4.5 * v.cell)) < 1 && Math.abs(cx - (v.bx + 4.5 * v.cell)) < 1 : false, lines: h?.lines.length }; });
+  const placedBefore = before.placements;
+  await page.mouse.click(c40[0], c40[1]);
+  await page.waitForTimeout(250);
+  const placed = await state(page);
+  step('tap mode: a tap lifts the O, a tap on the board aims it there (centred, lift Off), a tap on its ghost places it',
+    lifted?.slot === 0 && lifted.tap && !lifted.ghost && aimed.ghost && aimed.onFinger && placed.placements === placedBefore + 1 && placed.filled === 4, JSON.stringify({ lifted, aimed, placements: placed.placements, filled: placed.filled }));
+  step('no page errors with Pop\'s settings on', errors.length === 0, errors.slice(0, 3).join(' | '));
   await ctx.close();
 }
 

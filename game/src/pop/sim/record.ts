@@ -17,6 +17,8 @@ export interface PopRecord {
   /** Rules 2: the run started with a power (level 6's head start) or Second Wind ready. */
   headStart?: boolean;
   windReady?: boolean;
+  /** Rules 2: the first-run guide's start (PopOptions.guide). */
+  guide?: boolean;
   /** The moves, two base-36 characters each. */
   moves: string;
 }
@@ -37,7 +39,7 @@ export function decodeMoves(s: string): number[] | null {
 export function recordOf(sim: PopSim): PopRecord {
   return {
     v: sim.rules, seed: sim.seed, mode: sim.mode, newPlayer: sim.newPlayer, ...(sim.set ? { set: [...sim.set] } : {}),
-    ...(sim.headStart ? { headStart: true } : {}), ...(sim.windReady ? { windReady: true } : {}), moves: encodeMoves(sim.moves),
+    ...(sim.headStart ? { headStart: true } : {}), ...(sim.windReady ? { windReady: true } : {}), ...(sim.guide ? { guide: true } : {}), moves: encodeMoves(sim.moves),
   };
 }
 
@@ -50,7 +52,7 @@ export function replay(r: PopRecord): PopSim | null {
   const moves = decodeMoves(r.moves);
   if (!moves) return null;
   const sim = new PopSim({
-    seed: r.seed, mode: r.mode === 'daily' ? 'daily' : 'endless', newPlayer: !!r.newPlayer, set: r.set ?? null, rules: r.v, headStart: !!r.headStart, windReady: !!r.windReady,
+    seed: r.seed, mode: r.mode === 'daily' ? 'daily' : 'endless', newPlayer: !!r.newPlayer, set: r.set ?? null, rules: r.v, headStart: !!r.headStart, windReady: !!r.windReady, guide: !!r.guide,
   });
   for (const n of moves) {
     const it = decodeIntent(n);

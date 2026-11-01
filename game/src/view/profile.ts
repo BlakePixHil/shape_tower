@@ -44,6 +44,7 @@ export interface PopRecords {
   windDay: string;     // the local day Pop's free Second Wind was spent (the day's first Endless Pop run starts with it ready)
   powers: number;      // powers used, ever
   bubbles: number;     // power bubbles collected, ever
+  seen: string[];      // the first-run guide's tips already shown, once each ever (Pop plan §14): intro, bag, bubble, combo, next
 }
 
 export interface ProfileStats {
@@ -82,7 +83,7 @@ export interface SavedLook { skin: string; landing: string; foundation: string; 
 /** Art's DEFAULT_LOOK, written out so the Node checks that load profiles don't load the art kit (look-check.mjs compares them). */
 export const freshLook = (): SavedLook => ({ skin: 'skin_classic', landing: 'landing_classic', foundation: 'foundation_classic', flag: 'flag_classic' });
 
-export const freshPop = (): PopRecords => ({ runs: 0, best: 0, lines: 0, combo: 0, biome: 1, clears: 0, totalLines: 0, windDay: '', powers: 0, bubbles: 0 });
+export const freshPop = (): PopRecords => ({ runs: 0, best: 0, lines: 0, combo: 0, biome: 1, clears: 0, totalLines: 0, windDay: '', powers: 0, bubbles: 0, seen: [] });
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], seenBrittle: false, postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, look: freshLook(), passIntro: false, achievements: {}, achCounts: freshCounts(), daily: freshDaily(), pop: freshPop() });
@@ -102,6 +103,7 @@ export function loadProfile(): Profile {
       if (!Array.isArray(p.achCounts.powers)) p.achCounts.powers = [];
       p.daily = loadDaily(p.daily);
       p.pop = { ...freshPop(), ...(p.pop && typeof p.pop === 'object' ? p.pop : {}) };
+      if (!Array.isArray(p.pop.seen)) p.pop.seen = [];
       if (!p.player) { p.player = newPlayer(); saveProfile(p); }
       return p;
     }

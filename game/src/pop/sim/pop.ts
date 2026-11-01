@@ -8,6 +8,9 @@
 // Milestone 3 (rules 2, Pop plan §7): power bubbles, powers from big pops and checkpoints, the five
 // powers (Undo, Spin, Sweep, Meteor, Fresh Deal), Second Wind, the level 6 head start, and No room
 // waiting while a held power or Second Wind could help. A rules 1 record replays with none of it.
+// Rules 3 (Blake's playtest, 2026-11-01): checkpoints grow by a line every area, and pieces split by a
+// pop, Sweep, Meteor or Second Wind merge with the split pieces beside them into whole shapes, biggest
+// first (only the cells' shape and piece labels change, so the digest and the board don't).
 
 import { Rng } from '../../sim/rng.ts';
 import { CELLS, EMPTY, LINE_CELLS, type Mask, cellBit, count, fits, fullLines, has, isEmpty, linesMask } from './board.ts';
@@ -29,12 +32,50 @@ export interface PopOptions {
   rules?: number;
   /** Level 6's head start: a power in a slot from the start (Endless Pop). */
   headStart?: boolean;
+  /**
+   * The first-run guide (Pop plan §14): the bottom row starts one I short (a Trio and a Domino from the left,
+   * an O on the Trio) and the first tray's first shape is a flat I, so the first drag pops a line. Endless,
+   * rules 2 or later.
+   */
+  guide?: boolean;
   /** Second Wind starts ready (the day's first Endless Pop run, or the $1.99 upgrade). */
   windReady?: boolean;
 }
 
 /** Tray slots 0 to 2; the bag is slot 3. */
 export const BAG = 3;
+
+/** Every turn of every shape by its cells (y * 16 + x, bounding box at 0,0): what split pieces can merge into. U and Arch share cells; U, numbered first, keeps them. */
+const SHAPE_BY_CELLS = new Map<string, number>();
+for (const sh of POP_SHAPES) for (const t of sh.turns) {
+  const key = t.cells.map(([x, y]) => y * 16 + x).sort((a, b) => a - b).join(',');
+  if (!SHAPE_BY_CELLS.has(key)) SHAPE_BY_CELLS.set(key, sh.id);
+}
+
+/** A cell's up to four neighbours on the board. */
+function neighbours(c: number): number[] {
+  const x = c % 9, out: number[] = [];
+  if (x > 0) out.push(c - 1);
+  if (x < 8) out.push(c + 1);
+  if (c >= 9) out.push(c - 9);
+  if (c < CELLS - 9) out.push(c + 9);
+  return out;
+}
+
+/** The shape a set of board cells makes, or −1. */
+export function shapeOfCells(cells: readonly number[]): number {
+  const xs = cells.map(c => c % 9), ys = cells.map(c => (c / 9) | 0);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys);
+  const key = cells.map((_, i) => (ys[i] - y0) * 16 + xs[i] - x0).sort((a, b) => a - b).join(',');
+  return SHAPE_BY_CELLS.get(key) ?? -1;
+}
+
+/** Split pieces that merged into one whole shape (the pop_merge event). */
+export interface PopMerge {
+  cells: number[]; s: number; shape: string; piece: number;
+  /** The pieces it was made from, and each cell's shape and piece before (the view shows those until the pop has played). */
+  from: number[]; wasShape: number[]; wasPiece: number[];
+}
 
 /** The five powers (Pop plan §7), numbered in this order in digests. Never reorder; add at the end. */
 export const POP_POWERS = ['undo', 'spin', 'sweep', 'meteor', 'fresh'] as const;
@@ -83,6 +124,8 @@ export class PopSim {
   readonly rules: number;
   readonly headStart: boolean;
   readonly windReady: boolean;
+  /** The first-run guide's start (PopOptions.guide). */
+  readonly guide: boolean;
 
   board: Mask = EMPTY();
   /** Each cell's shape number, or −1 when empty. */
@@ -130,6 +173,8 @@ export class PopSim {
   /** Powers used and bubbles collected this run (achievements and QA). */
   powersUsed = 0;
   bubblesGot = 0;
+  /** Rules 3: the next merged piece's number (below the guide's −1 to −3, never a placement's). */
+  private nextMerge = -100;
 
   private readonly streams: { deal: Rng; turns: Rng; bubbles: Rng; powers: Rng; fresh: Rng };
   private history: number[] = [];
@@ -146,6 +191,7 @@ export class PopSim {
     this.sparks = this.tuning.sparks;
     this.headStart = this.v2 && !!o.headStart && this.mode !== 'daily';
     this.windReady = this.v2 && !!o.windReady && this.mode !== 'daily';
+    this.guide = this.v2 && !!o.guide && this.mode === 'endless';
     const root = new Rng(this.seed ^ 0x5a17b10c);
     // New streams go on the end, so the earlier ones keep their values for a given seed.
     this.streams = { deal: new Rng(root.nextU32()), turns: new Rng(root.nextU32()), bubbles: new Rng(root.nextU32()), powers: new Rng(root.nextU32()), fresh: new Rng(root.nextU32()) };
@@ -153,6 +199,7 @@ export class PopSim {
     // The first tray and the one after it, both against the empty board.
     const first = this.deal();
     this.next = this.deal();
+    if (this.guide) this.setUpGuide(first);
     this.events = [];
     this.bringTray(first);
     if (this.v2) {
@@ -161,6 +208,21 @@ export class PopSim {
       if (this.headStart) this.grant('head');
     }
     this.emit('pop_start', { seed: this.seed, mode: this.mode });
+  }
+
+  /** The guide's start (after the deal, so the streams keep their values): see PopOptions.guide. */
+  private setUpGuide(first: Slot[]): void {
+    const at = (key: string) => POP_SHAPES.findIndex(sh => sh.key === key);
+    const lay = (s: number, cells: number[], piece: number) => {
+      for (const c of cells) { this.cellShape[c] = s; this.cellPiece[c] = piece; const [w, bit] = cellBit(c); this.board[w] |= bit; }
+    };
+    // Pieces numbered below zero: they were never placed (placements number from 1). The O stays after
+    // the first pop, so that pop isn't a free All Clear.
+    lay(at('Trio'), [72, 73, 74], -1);
+    lay(at('Domino'), [75, 76], -2);
+    lay(at('O'), [54, 55, 63, 64], -3);
+    const i = at('I');
+    first[0] = { s: i, q: POP_SHAPES[i].turns.find(t => t.h === 1)!.q };
   }
 
   /** Rules 2 or later: powers, bubbles and Second Wind are in play. */
@@ -288,7 +350,19 @@ export class PopSim {
 
   /** Lines into the current checkpoint, and the lines it needs. */
   get cpProgress(): { into: number; need: number } {
-    return { into: this.lines - this.cp * this.tuning.linesPerCp, need: this.tuning.linesPerCp };
+    return { into: this.lines - this.linesTo(this.cp), need: this.needFor(this.cp) };
+  }
+
+  /** Lines the next checkpoint takes with `cp` claimed: linesPerCp, plus cpGrow for every area climbed (rules 3). */
+  needFor(cp: number): number {
+    return this.tuning.linesPerCp + this.tuning.cpGrow * popBiome(cp);
+  }
+
+  /** Lines popped by the time checkpoint `n` is claimed. */
+  linesTo(n: number): number {
+    let at = 0;
+    for (let k = 0; k < n; k++) at += this.needFor(k);
+    return at;
   }
 
   // ---------------------------------------------------------------- intents
@@ -321,12 +395,14 @@ export class PopSim {
     const m = this.maskAt(i, x, y);
     if (!sl || !t || !m || !fits(this.board, m)) return false;
     const T = this.tuning;
+    // The bag saving the run: nothing in the tray fit (Saved by the Bag, Pop plan §12; events only, not the digest).
+    const bagSave = i === BAG && [0, 1, 2].every(k => !this.fitsAnywhere(k));
     const piece = ++this.placements;
     const cells = t.cells.map(([cx, cy]) => (y + cy) * 9 + x + cx);
     for (const c of cells) { this.cellShape[c] = sl.s; this.cellPiece[c] = piece; }
     this.board = [this.board[0] | m[0], this.board[1] | m[1], this.board[2] | m[2]];
     if (i === BAG) this.bag = null; else this.tray[i] = null;
-    this.emit('pop_placed', { slot: i, shape: POP_SHAPES[sl.s].key, s: sl.s, q: sl.q, x, y, cells, piece });
+    this.emit('pop_placed', { slot: i, shape: POP_SHAPES[sl.s].key, s: sl.s, q: sl.q, x, y, cells, piece, bagSave });
     // Bubbles under the shape are collected (Pop plan §7).
     for (const b of [...this.bubbles]) {
       if (!cells.includes(b.cell)) continue;
@@ -360,6 +436,7 @@ export class PopSim {
         order: lines.map(id => orderFrom(LINE_CELLS[id], cells)),
       });
       if (this.combo >= 2) this.emit('pop_combo', { combo: this.combo, mult });
+      this.tidy();
       if (isEmpty(this.board)) {
         this.clears++;
         gained += T.allClear;
@@ -401,9 +478,9 @@ export class PopSim {
   /** Claims every checkpoint the lines have reached: biomes, Second Wind at windCp. Returns the bubbles they drop. */
   private claimCheckpoints(): number {
     const T = this.tuning;
-    const cp = Math.floor(this.lines / T.linesPerCp);
-    let drops = 0;
-    while (this.cp < cp) {
+    let drops = 0, at = this.linesTo(this.cp);
+    while (this.lines >= at + this.needFor(this.cp)) {
+      at += this.needFor(this.cp);
       const before = this.biome;
       this.cp++;
       this.emit('pop_checkpoint', { n: this.cp, biome: this.biome, lines: this.lines });
@@ -458,6 +535,7 @@ export class PopSim {
         let gained = Math.floor(linePoints(T, 1) * mult);
         this.lines++;
         this.emit('pop_power', { kind, slot: i, line: arg, cells, shapes, pieces, points: gained, mult });
+        this.tidy();
         let clear = false;
         if (isEmpty(this.board)) {
           clear = true;
@@ -481,6 +559,7 @@ export class PopSim {
         this.powers[i] = null;
         this.powersUsed++;
         this.emit('pop_power', { kind, slot: i, cell: arg, block, cells, shapes, pieces });
+        this.tidy();
         return true;
       }
       case 'fresh': {
@@ -516,7 +595,73 @@ export class PopSim {
     const old = this.tray.map(s => (s ? { ...s } : null));
     const slots = this.freshDeal();
     this.emit('pop_second_wind', { rows, cols, cells, shapes, pieces, slots, old, tray: this.tray.map(s => (s ? { ...s } : null)) });
+    this.tidy();
     return true;
+  }
+
+  /**
+   * Rules 3: split pieces merge (Blake's playtest, 2026-11-01). A split piece is a connected run of one
+   * piece's cells smaller than its shape. Split pieces that touch, and together make a whole shape, become
+   * that shape as one new piece; the biggest shape goes first, then the one nearest the top left, and again
+   * until no two left can merge. Only cellShape and cellPiece change: the board, the score and the digest
+   * don't, so a merge never changes what fits.
+   */
+  private tidy(): void {
+    if (!this.tuning.merge) return;
+    const frag = new Int16Array(CELLS).fill(-1), seen = new Uint8Array(CELLS);
+    const frags: number[][] = [];
+    for (let i = 0; i < CELLS; i++) {
+      if (seen[i] || this.cellShape[i] < 0) continue;
+      const s = this.cellShape[i], piece = this.cellPiece[i];
+      const cells = [i], stack = [i];
+      seen[i] = 1;
+      while (stack.length) {
+        const c = stack.pop()!;
+        for (const n of neighbours(c)) {
+          if (seen[n] || this.cellShape[n] !== s || this.cellPiece[n] !== piece) continue;
+          seen[n] = 1; cells.push(n); stack.push(n);
+        }
+      }
+      if (cells.length >= POP_SHAPES[s].size) continue;
+      for (const c of cells) frag[c] = frags.length;
+      frags.push(cells.sort((a, b) => a - b));
+    }
+    if (frags.length < 2) return;
+    const adj = frags.map((cells, f) => {
+      const near = new Set<number>();
+      for (const c of cells) for (const n of neighbours(c)) if (frag[n] >= 0 && frag[n] !== f) near.add(frag[n]);
+      return [...near].sort((a, b) => a - b);
+    });
+    const alive = new Set(frags.keys());
+    const merges: PopMerge[] = [];
+    for (;;) {
+      // Every connected set of two or more live split pieces, five cells at most, that makes a shape.
+      let best: { ids: number[]; cells: number[]; s: number } | null = null;
+      const tried = new Set<string>();
+      const grow = (ids: number[], size: number): void => {
+        const key = [...ids].sort((a, b) => a - b).join('.');
+        if (tried.has(key)) return;
+        tried.add(key);
+        if (ids.length >= 2) {
+          const cells = ids.flatMap(f => frags[f]).sort((a, b) => a - b);
+          const s = shapeOfCells(cells);
+          if (s >= 0 && (!best || cells.length > best.cells.length || (cells.length === best.cells.length && cells[0] < best.cells[0]))) best = { ids: [...ids], cells, s };
+        }
+        for (const f of ids) for (const g of adj[f]) {
+          if (!alive.has(g) || ids.includes(g) || size + frags[g].length > 5) continue;
+          grow([...ids, g], size + frags[g].length);
+        }
+      };
+      for (const f of alive) grow([f], frags[f].length);
+      if (!best) break;
+      const { ids, cells, s } = best as { ids: number[]; cells: number[]; s: number };
+      const piece = this.nextMerge--;
+      const wasShape = cells.map(c => this.cellShape[c]), wasPiece = cells.map(c => this.cellPiece[c]);
+      for (const c of cells) { this.cellShape[c] = s; this.cellPiece[c] = piece; }
+      for (const f of ids) alive.delete(f);
+      merges.push({ cells, s, shape: POP_SHAPES[s].key, piece, from: [...new Set(wasPiece)], wasShape, wasPiece });
+    }
+    if (merges.length) this.emit('pop_merge', { merges });
   }
 
   /** New shapes for the ones left in the tray, whole-tray-fits where it can (its own stream). The bag and the next tray stay. */

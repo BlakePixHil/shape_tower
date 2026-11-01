@@ -5,10 +5,12 @@
 /**
  * The rules version a run record is played under. Bump it whenever a change below alters a replay.
  * 1: milestone 1's core. 2: power bubbles, the five powers, Second Wind and the retuned deal (milestone 3).
+ * 3: checkpoints that grow by an area (5 lines each in Meadow, 6 in Treetops ...) and split pieces that
+ * merge into whole shapes (Blake's playtest, 2026-11-01).
  */
-export const POP_RULES = 2;
+export const POP_RULES = 3;
 /** Rules versions that still replay (a run saved under an older version resumes under its own rules). */
-export const POP_RULES_KNOWN: readonly number[] = [1, 2];
+export const POP_RULES_KNOWN: readonly number[] = [1, 2, 3];
 
 export interface WeightRow {
   keys: string[];
@@ -22,8 +24,12 @@ export interface WeightRow {
 }
 
 export interface PopTuning {
-  /** Lines popped per checkpoint. */
+  /** Lines popped per checkpoint (in Meadow, when cpGrow is on). */
   linesPerCp: number;
+  /** Lines every later area adds to its checkpoints (rules 3: Meadow 5, Treetops 6 ... Deep Cosmos 14; 0 keeps them all at linesPerCp). */
+  cpGrow: number;
+  /** Pieces split by pops, sweeps and meteors merge into the biggest whole shapes they can form (rules 3). */
+  merge: boolean;
   /** Placements that pop nothing a combo survives (the third ends it). */
   sparks: number;
   /** Points for popping L lines in one placement, L = 1..4; 5 or more pay five + extra per line over 5. */
@@ -85,6 +91,8 @@ export interface PopTuning {
 /** Milestone 1's numbers (rules 1), kept so runs saved under them replay exactly. */
 export const POP_TUNING_V1: PopTuning = {
   linesPerCp: 8,
+  cpGrow: 0,
+  merge: false,
   sparks: 2,
   linePoints: [0, 100, 250, 450, 700],
   fivePlus: 1000,
@@ -135,13 +143,13 @@ export const POP_TUNING_V1: PopTuning = {
 };
 
 /**
- * The numbers runs play under now (rules 2). Milestone 3's balance pass (QA's bots, pop-tune.ts): the
+ * Milestone 3's numbers (rules 2), kept so runs saved under them replay exactly. The balance pass (QA's bots, pop-tune.ts): the
  * greedy bot's runs were twice the plan's 120-180 placements, and Second Wind and powers made them
  * longer again, so bigger shapes open sooner, small ones thin out, trays carry more cells, and
  * bubbles come about every 24 placements and every second checkpoint. Greedy bot: median about 143
  * placements; with powers and Second Wind, about 350 (Second Wind alone about 240).
  */
-export const POP_TUNING: PopTuning = {
+export const POP_TUNING_V2: PopTuning = {
   ...POP_TUNING_V1,
   nudgeBudget: true,
   trayMin: 7,
@@ -166,8 +174,41 @@ export const POP_TUNING: PopTuning = {
   grantLines: 4,
 };
 
+/**
+ * The numbers runs play under now (rules 3). Blake's playtest (2026-11-01): the target grows with each
+ * area, starting at 5, so a checkpoint takes 5 lines in Meadow, 6 in Treetops and one more every area
+ * after, up to 14 in Deep Cosmos (the Moon at 100 lines, Deep Cosmos at 208; rules 2: 104 and 176).
+ * And split pieces merge into the biggest whole shapes they can form.
+ */
+export const POP_TUNING: PopTuning = {
+  ...POP_TUNING_V2,
+  linesPerCp: 5,
+  cpGrow: 1,
+  merge: true,
+  // Early checkpoints come sooner (5, 10, 16, 22, 29, 36 ... lines), so what rules 2 opened by checkpoint
+  // moves one checkpoint later, landing at about the same lines popped. Greedy bot: median 140
+  // placements (rules 2: 143); with powers and Second Wind, about 320 (bigger late checkpoints drop
+  // fewer bubbles). Second Wind stays at checkpoint 2 (10 lines), as the tower's does.
+  mercyCps: 3,
+  nudgeFrom: 6,
+  nudgeTo: 13,
+  pairCp: 7,
+  lateCp: 5,
+  fiveLateCp: 4,
+  weights: [
+    { keys: ['Pip'], open: 0, from: 0.5, to: 0.2, by: 7 },
+    { keys: ['Domino'], open: 0, from: 1, to: 0.5, by: 7 },
+    { keys: ['Trio', 'Elbow'], open: 0, from: 1.4, to: 0.9, by: 7 },
+    { keys: ['O', 'I', 'L', 'J', 'T'], open: 0, from: 2, to: 2, by: 7 },
+    { keys: ['S', 'Z'], open: 2, from: 1.4, to: 1.9, by: 5 },
+    { keys: ['Plank'], open: 2, from: 1.2, to: 1.8, by: 6 },
+    { keys: ['P', 'U', 'V'], open: 3, from: 1.1, to: 1.7, by: 7 },
+    { keys: ['Arch', 'Plus'], open: 4, from: 1, to: 1.6, by: 8 },
+  ],
+};
+
 /** The tuning a rules version plays under. */
-export const tuningFor = (rules: number): PopTuning => (rules === 1 ? POP_TUNING_V1 : POP_TUNING);
+export const tuningFor = (rules: number): PopTuning => (rules === 1 ? POP_TUNING_V1 : rules === 2 ? POP_TUNING_V2 : POP_TUNING);
 
 /** A shape's deal weight with `cp` checkpoints claimed (0 while it is still closed). */
 export function shapeWeight(t: PopTuning, key: string, cp: number): number {
