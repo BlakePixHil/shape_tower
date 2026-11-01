@@ -1,6 +1,7 @@
 // Every achievement badge at the store consoles' sizes (gameplay.md §18.5), from the built preview (npm run build first):
 // exports/achievements/play/<id>.png (512 px, transparent) and exports/achievements/gamecenter/<id>.png (1024 px, flattened).
-// npm run export:badges [-- list.json]: the list is [{ id, tier, icon, biome? }, ...]; without one it uses the preview's copy.
+// npm run export:badges [-- list.json]: the list is [{ id, tier, icon, biome?, pop? }, ...] (pop: true for Blockling Pop's look);
+// without one it uses the preview's copy (the tower's and Pop's).
 // CHROMIUM=/path/to/chrome uses that browser instead of Playwright's own download.
 
 import { chromium } from '@playwright/test';

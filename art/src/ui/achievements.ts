@@ -1,14 +1,17 @@
 // Achievements (gameplay.md §18): a round medal per achievement that gains ornaments with its tier. Bronze is
 // a plain rim, Silver adds a ring of beads, Gold a scalloped rim and ribbon tails, Platinum a sunburst, a gem and
 // a sparkle. The glyph sits in the middle; biome achievements show their postcard instead. Locked badges are
-// grey, and unearned secret ones are a grey "?" that gives nothing away. Also the DOM for them: the toast that
+// grey, and unearned secret ones are a grey "?" that gives nothing away. Blockling Pop's achievements (pop) keep the
+// tiers but add a pink pop burst behind the glyph and a "POP" tab on the rim, so none matches a tower badge (the
+// store consoles refuse duplicate icons). Also the DOM for them: the toast that
 // drops in during a run, the run summary's strip, the profile row and the Achievements panel. Needs uiCss().
 
 import { INK, SIGNAL } from '../config.ts';
-import { O, circlePath, ink, twinkle } from '../sticker.ts';
+import { O, circlePath, ink, rrPath, twinkle } from '../sticker.ts';
 import { type Ctx, TAU, ctx2d, makeCanvas } from '../util.ts';
 import { canvasUrl } from '../urls.ts';
 import { type UiIcon, drawUiIcon, uiIconUrl } from './icons.ts';
+import { drawPopWord } from '../pop/logo.ts';
 import { bakePostcard } from './postcard.ts';
 
 export type AchTier = 'bronze' | 'silver' | 'gold' | 'platinum';
@@ -32,7 +35,12 @@ export interface AchievementBadge {
   secret?: boolean;
   /** A biome achievement (0 = Meadow): once earned, its postcard fills the middle. */
   biome?: number;
+  /** A Blockling Pop achievement: a pink pop burst behind the glyph and a "POP" tab on the rim, tier colours kept. */
+  pop?: boolean;
 }
+
+/** Blockling Pop's pink (its Spin power's), for the Pop tab and burst. */
+const POP_PINK = { base: '#FF6FB5', light: '#FFB3D9', shade: '#D94A93' };
 
 const GREY = { base: '#B8B2C4', light: '#DAD6E2', shade: '#8C869A', field: ['#F4F2F7', '#D9D5E1'] as [string, string] };
 
@@ -117,6 +125,16 @@ function drawMedal(c: Ctx, b: AchievementBadge, px: number): void {
     const g = c.createRadialGradient(-0.08, CY - 0.1, 0, 0, CY, RF);
     g.addColorStop(0, t.field[0]); g.addColorStop(1, t.field[1]);
     c.fillStyle = g; c.fill(field);
+    if (b.pop) {
+      // Pop's burst: pink rays from behind the glyph, with a pale middle so the glyph still reads.
+      const n = 12, rays = new Path2D();
+      for (let i = 0; i < n * 2; i++) { const a = (i / (n * 2)) * TAU - Math.PI / 2 + 0.13, d = i % 2 ? RF * 0.5 : RF * 1.3; i ? rays.lineTo(Math.cos(a) * d, CY + Math.sin(a) * d) : rays.moveTo(Math.cos(a) * d, CY + Math.sin(a) * d); }
+      rays.closePath();
+      c.fillStyle = 'rgba(255,111,181,0.42)'; c.fill(rays);
+      const mid = c.createRadialGradient(0, CY, 0, 0, CY, RF * 0.62);
+      mid.addColorStop(0, 'rgba(255,255,255,0.95)'); mid.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = mid; c.fill(field);
+    }
   }
   if (tier === 'gold' || tier === 'platinum') {
     c.fillStyle = 'rgba(255,255,255,0.28)';
@@ -134,6 +152,15 @@ function drawMedal(c: Ctx, b: AchievementBadge, px: number): void {
     c.restore();
   } else if (!card) {
     drawUiIcon(c, b.icon, 0, CY, RF * 1.95);
+  }
+
+  if (b.pop) {
+    // The Pop tab: a pink pill across the bottom of the rim, "POP" on it in the logo's lettering.
+    c.save(); c.translate(0, CY + R - 0.01); c.rotate(-0.06);
+    solid(c, rrPath(-0.17, -0.0675, 0.34, 0.135, 0.06), POP_PINK, 0.022);
+    c.fillStyle = 'rgba(255,255,255,0.55)'; c.beginPath(); c.ellipse(-0.1, -0.04, 0.04, 0.012, 0, 0, TAU); c.fill();
+    drawPopWord(c, 'POP', 0, 0.003, 0.074, { bounce: true });
+    c.restore();
   }
 
   if (tier === 'platinum') {
@@ -174,7 +201,7 @@ export function bakeAchievementForStore(b: AchievementBadge, store: 'play' | 'ga
   if (store === 'play') return bakeAchievementBadge(spec, 512);
   const px = 1024, cv = makeCanvas(px, px), c = ctx2d(cv), t = ACH_TIERS[b.tier];
   const g = c.createRadialGradient(px / 2, px * 0.42, 0, px / 2, px / 2, px * 0.72);
-  g.addColorStop(0, '#FFF7E8'); g.addColorStop(1, t.field[1]);
+  g.addColorStop(0, '#FFF7E8'); g.addColorStop(1, b.pop ? '#FFD3E8' : t.field[1]);
   c.fillStyle = g; c.fillRect(0, 0, px, px);
   const s = Math.round(px * 0.84);
   c.drawImage(bakeAchievementBadge(spec, s), (px - s) / 2, (px - s) / 2 + px * 0.02, s, s);
@@ -192,7 +219,7 @@ const DPR = (): number => (typeof window !== 'undefined' ? Math.min(3, window.de
 /** A PNG URL of the badge, `cssPx` CSS px square at the device's resolution. Cached. */
 export function achievementBadgeUrl(b: AchievementBadge, cssPx: number, dpr = DPR()): string {
   const px = Math.round(cssPx * dpr);
-  const key = b.secret ? `?:${px}` : `${b.tier}:${b.icon}:${b.biome ?? ''}:${!!b.locked}:${px}`;
+  const key = (b.secret ? `?:${px}` : `${b.tier}:${b.icon}:${b.biome ?? ''}:${!!b.locked}:${px}`) + (b.pop ? ':pop' : '');
   return canvasUrl(`ach:${key}`, () => bakeAchievementBadge(b, px));
 }
 
@@ -215,6 +242,8 @@ export interface AchievementToastData {
   tier: AchTier;
   icon: UiIcon;
   biome?: number;
+  /** A Blockling Pop achievement (its badge's Pop look). */
+  pop?: boolean;
   /** When more came at once than the toasts show: "+N more" under the name. */
   more?: number;
 }
@@ -239,7 +268,7 @@ export function achievementToast(d: AchievementToastData, o: AchievementToastOpt
   const root = el(`<div class="ui ui-achtoast ${d.tier}${o.still ? ' ui-still' : ''}${o.plain ? ' plain' : ''}${o.stay ? ' stay' : ''}" role="status"
     aria-label="Achievement! ${esc(d.name)}${d.more ? `, and ${d.more} more` : ''}" style="--tc:${t.base};--tl:${t.light}${o.top ? `;--top:${o.top}` : ''}">
     <div class="ui-at-card"><span class="ui-at-shine"></span>
-      <span class="ui-at-badge"><img alt="" src="${achievementBadgeUrl({ icon: d.icon, tier: d.tier, biome: d.biome }, 56)}"><i><img alt="" src="${uiIconUrl('perfect', 26)}"></i></span>
+      <span class="ui-at-badge"><img alt="" src="${achievementBadgeUrl({ icon: d.icon, tier: d.tier, biome: d.biome, pop: d.pop }, 56)}"><i><img alt="" src="${uiIconUrl('perfect', 26)}"></i></span>
       <span class="ui-at-text"><span class="ui-at-kick">Achievement!</span><span class="ui-at-name">${esc(d.name)}</span>${d.more ? `<span class="ui-at-more">+${d.more} more</span>` : ''}</span>
     </div></div>`);
   if (!o.stay) {
@@ -249,12 +278,12 @@ export function achievementToast(d: AchievementToastData, o: AchievementToastOpt
   return root;
 }
 
-export interface AchievementStripItem { name: string; tier: AchTier; icon: UiIcon; biome?: number }
+export interface AchievementStripItem { name: string; tier: AchTier; icon: UiIcon; biome?: number; /** A Blockling Pop achievement. */ pop?: boolean }
 
 /** The run summary's "New achievements" strip: the badges pop in one by one. Put it in the summary's .ui-sum-extra. */
 export function achievementStrip(items: AchievementStripItem[]): HTMLElement {
   return el(`<div class="ui ui-achstrip"><span class="ui-kicker">New achievements</span><div>${items.map((a, i) =>
-    `<img alt="${esc(a.name)}" title="${esc(a.name)}" style="--i:${i}" src="${achievementBadgeUrl({ icon: a.icon, tier: a.tier, biome: a.biome }, 44)}">`).join('')}</div></div>`);
+    `<img alt="${esc(a.name)}" title="${esc(a.name)}" style="--i:${i}" src="${achievementBadgeUrl({ icon: a.icon, tier: a.tier, biome: a.biome, pop: a.pop }, 44)}">`).join('')}</div></div>`);
 }
 
 /** The profile's row under the stats: a trophy, "Achievements", the count and a bar. Action: achievements. */
@@ -282,6 +311,8 @@ export interface AchievementItem {
   progress?: [number, number];
   /** Secret: until it's earned its name and text are left out of the page. */
   secret?: boolean;
+  /** A Blockling Pop achievement (its badge's Pop look). */
+  pop?: boolean;
 }
 
 export interface AchievementGroup { name: string; items: AchievementItem[] }
@@ -291,7 +322,7 @@ export function achievementsPanel(d: { groups: AchievementGroup[] }): HTMLElemen
   const all = d.groups.flatMap(g => g.items), got = all.filter(a => a.got).length;
   const row = (a: AchievementItem): string => {
     const hidden = a.secret && !a.got;
-    const badge = achievementBadgeUrl(hidden ? { icon: a.icon, tier: a.tier, secret: true } : { icon: a.icon, tier: a.tier, biome: a.biome, locked: !a.got }, 52);
+    const badge = achievementBadgeUrl(hidden ? { icon: a.icon, tier: a.tier, secret: true, pop: a.pop } : { icon: a.icon, tier: a.tier, biome: a.biome, locked: !a.got, pop: a.pop }, 52);
     const name = hidden ? 'Secret' : esc(a.name), text = hidden ? 'Keep playing to find this one.' : esc(a.text);
     const tail = a.got ? `<span class="ui-ach-date">${esc(day(a.got))}</span>`
       : a.progress && !hidden ? bar(a.progress[0], a.progress[1], `${num(a.progress[0])} / ${num(a.progress[1])}`) : '';

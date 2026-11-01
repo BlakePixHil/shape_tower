@@ -86,6 +86,18 @@ export function demoGroups(all = false): AchievementGroup[] {
 
 const NEW_GLYPHS: UiIcon[] = ['combo', 'avalanche', 'toolbox', 'undo', 'needle', 'purist'];
 
+/** Blockling Pop's 16 (game/src/meta/achievements.ts, group 'pop'): badges with pop: true. */
+const POP_LIST: Row[] = [
+  ['pop_first', 'Pop!', 'Pop your first line', B, 'row'], ['pop_double', 'Double Trouble', 'Pop 2 lines with one shape', B, 'row'],
+  ['pop_daily', 'Daily Popper', 'Finish a scored Daily Pop', B, 'daily'], ['pop_10k', 'Five Digits', 'Score 10,000 in one run', B, 'score'],
+  ['pop_bag', 'Saved by the Bag', 'Place the bagged shape and pop a line', B, 'bag'], ['pop_clear', 'Squeaky Clean', 'Get an All Clear', S, 'star'],
+  ['pop_combo_8', 'On a Roll', 'Reach combo 8', S, 'combo'], ['pop_triple', 'Hat Trick', 'Pop 3 lines with one shape', S, 'row'],
+  ['pop_lines_1k', 'Line Dancer', 'Pop 1,000 lines in all', S, 'shapes'], ['pop_world', 'Star Student', '3 stars on every puzzle in a world', S, 'star'],
+  ['pop_quad', 'Towering Pop', 'Pop 4 or more lines with one shape', G, 'tower'], ['pop_combo_15', 'Unstoppable', 'Reach combo 15', G, 'combo'],
+  ['pop_moon', 'Pop to the Moon', 'Reach the Moon in one run', G, 'biome', 6], ['pop_bare', 'Bare Hands', 'Score 20,000 with no help', G, 'purist'],
+  ['pop_clears_10', 'Neat Freak', 'Get 10 All Clears', G, 'swirl'], ['pop_cosmos', 'Pop Star', 'Reach Deep Cosmos in one run', P, 'biome', 9],
+];
+
 /** The sheet: every badge earned, locked and secret, the new glyphs, the tiers, a toast, the strip and the profile row. */
 export function achievementsSheet(root: HTMLElement): void {
   const rows = DEMO_LIST.flatMap(([, r]) => r);
@@ -96,19 +108,24 @@ export function achievementsSheet(root: HTMLElement): void {
     <h3>All ${rows.length}, earned</h3><div class="pv-wrap">${rows.map(([, n, , tier, icon, biome]) => img(achievementBadgeUrl({ icon, tier, biome }, 64), 64, n)).join('')}</div>
     <h3>Locked and secret</h3><div class="pv-wrap">${rows.map(([id, n, , tier, icon, biome]) =>
       img(achievementBadgeUrl(DEMO_LIST[5][1].some(r => r[0] === id) ? { icon, tier, secret: true } : { icon, tier, biome, locked: true }, 64), 64, n)).join('')}</div>
+    <h3>Blockling Pop (pop: true), earned</h3><div class="pv-wrap">${POP_LIST.map(([, n, , tier, icon, biome]) => img(achievementBadgeUrl({ icon, tier, biome, pop: true }, 64), 64, n)).join('')}</div>
+    <h3>Blockling Pop, locked; and twins: tower, then Pop</h3><div class="pv-wrap">${POP_LIST.slice(0, 6).map(([, n, , tier, icon, biome]) => img(achievementBadgeUrl({ icon, tier, biome, pop: true, locked: true }, 64), 64, n)).join('')}
+      ${([['bronze', 'row'], ['silver', 'star'], ['silver', 'combo']] as [AchTier, UiIcon][]).map(([tier, icon]) => img(achievementBadgeUrl({ icon, tier }, 64), 64) + img(achievementBadgeUrl({ icon, tier, pop: true }, 64), 64)).join('')}</div>
+    <h3>Blockling Pop small (32 and 44 px)</h3><div class="pv-wrap">${POP_LIST.slice(0, 8).map(([, n, , tier, icon]) => img(achievementBadgeUrl({ icon, tier, pop: true }, 32), 32, n)).join('')}${POP_LIST.slice(8, 12).map(([, n, , tier, icon]) => img(achievementBadgeUrl({ icon, tier, pop: true }, 44), 44, n)).join('')}</div>
     <h3>Small (32 px)</h3><div class="pv-wrap">${rows.slice(0, 16).map(([, n, , tier, icon, biome]) => img(achievementBadgeUrl({ icon, tier, biome }, 32), 32, n)).join('')}</div>
     <h3>Run summary strip</h3><div class="ui-panel pv-strip" style="max-width:344px"></div>
     <h3>Profile row</h3><div class="pv-row" style="max-width:344px"></div>
     <h3>Toast</h3><div class="pv-toasts" style="position:relative;display:flex;flex-direction:column;gap:12px"></div>`;
   root.querySelector('.pv-strip')!.appendChild(achievementStrip([
     { name: 'Head in the Clouds', tier: 'bronze', icon: 'biome', biome: 2 }, { name: 'In the Zone', tier: 'silver', icon: 'combo' },
-    { name: 'Double!', tier: 'silver', icon: 'row' }, { name: 'Avalanche!', tier: 'bronze', icon: 'avalanche' },
+    { name: 'Double!', tier: 'silver', icon: 'row' }, { name: 'Avalanche!', tier: 'bronze', icon: 'avalanche' }, { name: 'On a Roll', tier: 'silver', icon: 'combo', pop: true },
   ]));
   root.querySelector('.pv-row')!.appendChild(achievementsRow({ got: EARNED.size, total: rows.length }));
   // Toasts held in place (stay) so they can be looked at; the real one slides in and out.
   const host = root.querySelector('.pv-toasts')!;
   ([[{ name: 'Head in the Clouds', tier: 'bronze', icon: 'biome', biome: 2 }, {}], [{ name: 'Seventh Heaven', tier: 'gold', icon: 'combo', more: 2 }, {}],
-    [{ name: 'Into the Deep', tier: 'platinum', icon: 'biome', biome: 9 }, {}], [{ name: 'Eye of the Storm', tier: 'silver', icon: 'wind' }, { plain: true }]] as const).forEach(([d, o]) => {
+    [{ name: 'Into the Deep', tier: 'platinum', icon: 'biome', biome: 9 }, {}], [{ name: 'Eye of the Storm', tier: 'silver', icon: 'wind' }, { plain: true }],
+    [{ name: 'Squeaky Clean', tier: 'silver', icon: 'star', pop: true }, {}]] as const).forEach(([d, o]) => {
     const t = achievementToast({ ...d }, { ...o, stay: true });
     t.style.position = 'relative'; t.style.top = '0';
     host.appendChild(t);
@@ -139,8 +156,9 @@ export function achievementsDemoToasts(still: boolean, plain: boolean): void {
 if (new URLSearchParams(location.search).has('export')) {
   Object.assign(window, {
     achievementExport: {
-      list: DEMO_LIST.flatMap(([, rows]) => rows.map(([id, , , tier, icon, biome]) => ({ id, tier, icon, biome }))),
-      bake: (b: { tier: AchTier; icon: UiIcon; biome?: number }, store: 'play' | 'gamecenter') => bakeAchievementForStore(b, store).toDataURL('image/png'),
+      list: [...DEMO_LIST.flatMap(([, rows]) => rows.map(([id, , , tier, icon, biome]) => ({ id, tier, icon, biome }))),
+        ...POP_LIST.map(([id, , , tier, icon, biome]) => ({ id, tier, icon, biome, pop: true }))],
+      bake: (b: { tier: AchTier; icon: UiIcon; biome?: number; pop?: boolean }, store: 'play' | 'gamecenter') => bakeAchievementForStore(b, store).toDataURL('image/png'),
       icon: (name: UiIcon, px: number) => bakeUiIcon(name, px).toDataURL('image/png'),
     },
   });
