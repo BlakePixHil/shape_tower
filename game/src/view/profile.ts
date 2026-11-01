@@ -41,6 +41,9 @@ export interface PopRecords {
   biome: number;       // highest biome reached, 1 to 10
   clears: number;      // All Clears, ever
   totalLines: number;  // lines popped, ever
+  windDay: string;     // the local day Pop's free Second Wind was spent (the day's first Endless Pop run starts with it ready)
+  powers: number;      // powers used, ever
+  bubbles: number;     // power bubbles collected, ever
 }
 
 export interface ProfileStats {
@@ -79,7 +82,7 @@ export interface SavedLook { skin: string; landing: string; foundation: string; 
 /** Art's DEFAULT_LOOK, written out so the Node checks that load profiles don't load the art kit (look-check.mjs compares them). */
 export const freshLook = (): SavedLook => ({ skin: 'skin_classic', landing: 'landing_classic', foundation: 'foundation_classic', flag: 'flag_classic' });
 
-export const freshPop = (): PopRecords => ({ runs: 0, best: 0, lines: 0, combo: 0, biome: 1, clears: 0, totalLines: 0 });
+export const freshPop = (): PopRecords => ({ runs: 0, best: 0, lines: 0, combo: 0, biome: 1, clears: 0, totalLines: 0, windDay: '', powers: 0, bubbles: 0 });
 const freshStats = (): ProfileStats => ({ bestHeight: 0, bestBiome: 1, bricks: 0, perfects: 0, rows: 0, checkpoints: 0, clutches: 0 });
 const newPlayer = () => `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const fresh = (): Profile => ({ level: 1, xp: 0, total: 0, runs: 0, streak: 0, lastDay: '', boostDay: '', askedGhost: false, windDay: '', stats: freshStats(), sliceRuns: 0, player: newPlayer(), seenGusts: false, seenHazards: [], seenBrittle: false, postcards: Array(10).fill(null), avatar: { ...DEFAULT_AVATAR }, look: freshLook(), passIntro: false, achievements: {}, achCounts: freshCounts(), daily: freshDaily(), pop: freshPop() });
@@ -116,6 +119,14 @@ function day(d: Date): string {
 
 /** The day's first Endless run starts with Second Wind ready (monetisation plan, "Second chance"). */
 export function dailyWindReady(p: Profile, now = new Date()): boolean { return p.windDay !== day(now); }
+
+/** Pop's own free Second Wind: the day's first Endless Pop run starts with it ready (Pop plan §7), separately from the tower's. */
+export function popWindReady(p: Profile, now = new Date()): boolean { return p.pop.windDay !== day(now); }
+
+export function spendPopWind(p: Profile, now = new Date()): void {
+  p.pop.windDay = day(now);
+  saveProfile(p);
+}
 
 /** Spends the day's free Second Wind: called once that run has placed a shape. */
 export function spendDailyWind(p: Profile, now = new Date()): void {

@@ -2,10 +2,12 @@
 // single cells that burst when a line pops. Everything is Art's Canvas 2D drawing baked once on the CPU
 // (the issue #33 lesson) and cached by what it shows, so a frame is only drawImage calls.
 
-import { ART_SHAPES, BIOMES, INK, PAPER, bakeCells, bakePiece, type Baked, type Expression, type Finish } from '@art/index.ts';
+import { ART, ART_SHAPES, BIOMES, INK, PAPER, bakeCells, bakePiece, type Baked, type Expression, type Finish } from '@art/index.ts';
 import { POP_KEYS } from '../sim/shapes.ts';
 
 const keyOf = (s: number): string => POP_KEYS[s] ?? 'Pip';
+/** How far board bodies sit inside their cells, in cells: half the Ink outline. */
+export const FLUSH = ART.piece.outline / 2;
 
 /** The cache for one size and biome: cleared when either changes. */
 export class PopArt {
@@ -29,12 +31,16 @@ export class PopArt {
     return b;
   }
 
-  /** A connected set of board cells of one shape (a piece, or a fragment of one), with or without its face. */
+  /**
+   * A connected set of board cells of one shape (a piece, or a fragment of one), with or without its face.
+   * Board bodies sit flush in their cells (Blake's P1 playtest): the outline is pulled in by half its
+   * width so its outer edge is the cell edge, and there's no drop shadow, so neighbours never overlap.
+   */
   cells(s: number, cells: [number, number][], face: Expression | null): Baked {
     const sig = cells.map(([x, y]) => y * 9 + x).sort((a, b) => a - b).join('.');
     const id = `c|${s}|${sig}|${face}`;
     let b = this.cache.get(id);
-    if (!b) { b = bakeCells(keyOf(s), cells, this.s, { face, finish: this.finish }); this.cache.set(id, b); }
+    if (!b) { b = bakeCells(keyOf(s), cells, this.s, { face, finish: this.finish, inset: FLUSH, shadow: false }); this.cache.set(id, b); }
     return b;
   }
 

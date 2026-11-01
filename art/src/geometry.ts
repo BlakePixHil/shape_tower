@@ -35,12 +35,30 @@ export function outlineCorners(cells: [number, number][]): [number, number, numb
   return out;
 }
 
-/** The piece silhouette as a Path2D. Convex corners use the shared physics radius; concave corners stay sharp. */
-export function silhouette(p: Pose, s: number, radius: number = ART.cornerRadius): Path2D {
+/**
+ * The corners moved `d` blocks into the shape along both edges' inward normals (the walk is clockwise on
+ * screen, so the inside is on the right): convex corners step in diagonally, concave ones out, and every
+ * edge ends up `d` inside its cell edge.
+ */
+export function insetCorners(vs: [number, number, number][], d: number): [number, number, number][] {
+  const n = vs.length;
+  return vs.map((b, i) => {
+    const a = vs[(i - 1 + n) % n], c = vs[(i + 1) % n];
+    const ix = Math.sign(b[0] - a[0]), iy = Math.sign(b[1] - a[1]), ox = Math.sign(c[0] - b[0]), oy = Math.sign(c[1] - b[1]);
+    return [b[0] + d * (-iy - oy), b[1] + d * (ix + ox), b[2]];
+  });
+}
+
+/**
+ * The piece silhouette as a Path2D. Convex corners use the shared physics radius; concave corners stay sharp.
+ * `inset` (blocks) pulls the outline inside the cells, so a body drawn with it never crosses its cells'
+ * edges (Blockling Pop's flush board, where pieces sit side by side in a grid).
+ */
+export function silhouette(p: Pose, s: number, radius: number = ART.cornerRadius, inset = 0): Path2D {
   const path = new Path2D();
   const r = Math.max(0.001, radius * s);
   if (p.circle) {
-    path.arc(p.w * s / 2, p.h * s / 2, p.circle * s / 2, 0, TAU);
+    path.arc(p.w * s / 2, p.h * s / 2, Math.max(0.01, p.circle / 2 - inset) * s, 0, TAU);
   } else if (p.tri) {
     const v = p.tri;
     const m: [number, number] = [(v[2][0] + v[0][0]) / 2, (v[2][1] + v[0][1]) / 2];
@@ -48,7 +66,7 @@ export function silhouette(p: Pose, s: number, radius: number = ART.cornerRadius
     for (let i = 0; i < 3; i++) { const a = v[i], b = v[(i + 1) % 3]; path.arcTo(a[0] * s, a[1] * s, b[0] * s, b[1] * s, r); }
     path.closePath();
   } else {
-    const vs = outlineCorners(p.cells);
+    const vs = inset ? insetCorners(outlineCorners(p.cells), inset) : outlineCorners(p.cells);
     const n = vs.length, last = vs[n - 1], first = vs[0];
     path.moveTo((last[0] + first[0]) / 2 * s, (last[1] + first[1]) / 2 * s);
     for (let i = 0; i < n; i++) {

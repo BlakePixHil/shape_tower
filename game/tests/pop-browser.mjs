@@ -3,7 +3,9 @@
 // below the shape (the ghost snaps, a drop off the board springs back), the bag, lines popping and
 // the score, the run saved after every move and Continue after a reload landing on the same digest,
 // pause with End run, and the results card paying the run's XP into the one profile. Then a smaller
-// phone, to see the board, tray and bag fit.
+// phone, to see the board, tray and bag fit; milestone 2's juice; and milestone 3's powers: the power
+// bar, Undo, aiming Meteor and Sweep, Spin's taps, Fresh Deal, collecting a bubble, Second Wind's two
+// taps, and No room waiting with End run.
 //   npm run build:game && node tests/pop-browser.mjs [outDir]
 
 import { chromium } from '@playwright/test';
@@ -251,6 +253,230 @@ const state = page => page.evaluate(() => {
   step('on a 360 × 640 phone the board, tray and bag all fit, in order', L.boardTop > 60 && L.boardBottom < L.trayY && L.trayBottom <= L.bagBottom && L.bagBottom <= L.h - 4 && L.cell >= 28, JSON.stringify(L));
   step('each tray slot is a full third of the width, at least 96 pt', L.w / 3 >= 96 * 1.1 || L.w / 3 >= 96, String(L.w / 3));
   step('no page errors on the small phone', errors.length === 0, errors.slice(0, 3).join(' | '));
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------- flush pieces and milestone 2's juice
+
+/** Puts cells on the board ([cell, shape, piece] each) and a tray, as if the run had got there. */
+const stage = (page, filled, tray) => page.evaluate(([filled, tray]) => {
+  const v = window.__wobble.pop.view, sim = v.sim;
+  const m = [0, 0, 0];
+  sim.cellShape.fill(-1); sim.cellPiece.fill(0);
+  filled.forEach(([c, s, piece]) => { const y = Math.floor(c / 9), x = c % 9; m[Math.floor(y / 3)] |= 1 << ((y % 3) * 9 + x); sim.cellShape[c] = s; sim.cellPiece[c] = piece; });
+  sim.board = m;
+  sim.tray = tray;
+  sim.bag = null;
+  v.rebuild();
+}, [filled, tray]);
+
+{
+  const { ctx, page, errors } = await open({ width: 390, height: 844 });
+  await page.click('.sc-root.show [data-action="pop"]');
+  await page.waitForFunction(() => window.__wobble.pop?.view?.active, null, { timeout: 8000 });
+  await page.waitForTimeout(500);
+  // Blake's P1 note: pieces on the board sit flush in their cells. A baked board body leaves its padding
+  // empty (no outline or shadow past the cell edges), so neighbours never overlap.
+  const flush = await page.evaluate(() => {
+    const v = window.__wobble.pop.view, art = v.art;
+    const out = [];
+    for (const [s, cells] of [[4, [[0, 0], [1, 0], [0, 1], [1, 1]]], [6, [[0, 0], [0, 1], [0, 2], [1, 2]]], [16, [[1, 0], [0, 1], [1, 1], [2, 1], [1, 2]]]]) {
+      const b = art.cells(s, cells, 'idle'), cv = b.canvas, pad = Math.ceil(0.2 * art.s);
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let outside = 0;
+      for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
+        const cx = Math.floor((x - pad) / art.s), cy = Math.floor((y - pad) / art.s);
+        const inCell = x >= pad && y >= pad && cells.some(([a, b2]) => a === cx && b2 === cy);
+        if (!inCell && d[(y * cv.width + x) * 4 + 3] > 8) outside++;
+      }
+      out.push(outside);
+    }
+    return out;
+  });
+  step('board pieces sit flush: nothing is drawn outside their own cells', flush.every(n => n === 0), JSON.stringify(flush));
+
+  // A Double: rows 7 and 8 full but for a 2 × 2 hole on the left, filled by an O.
+  const f = [];
+  for (const y of [7, 8]) for (let x = 2; x < 9; x++) f.push([y * 9 + x, [5, 8, 11, 9, 12, 6, 13][x - 2], 10 + y * 9 + x]);
+  await stage(page, f, [{ s: 4, q: 0 }, { s: 1, q: 0 }, { s: 5, q: 0 }]);
+  await page.waitForTimeout(300);
+  const p = await dragPlan(page, 0, 0, 7);
+  await page.mouse.move(p.from[0], p.from[1]);
+  await page.mouse.down();
+  await page.mouse.move(p.to[0], p.to[1] + 30, { steps: 4 });
+  await page.mouse.move(p.to[0], p.to[1], { steps: 4 });
+  await page.waitForTimeout(150);
+  const held = await page.evaluate(() => { const v = window.__wobble.pop.view; return { ghost: v.held?.ghost, lines: v.held?.lines.length }; });
+  step('the ghost snaps where the shape will sit and knows it would pop two lines', held.ghost?.x === 0 && held.ghost?.y === 7 && held.lines === 2, JSON.stringify(held));
+  await page.mouse.up();
+  await page.waitForTimeout(250);
+  const mid = await page.evaluate(() => { const v = window.__wobble.pop.view; return { flyers: v.flyers.length, punch: v.punch.z, lines: v.sim.lines, combo: document.querySelector('.pop-combo')?.className }; });
+  step('a pop punches the board and sends its faces flying up to the checkpoint pill', mid.flyers > 0 && mid.punch > 0.03 && mid.lines === 2, JSON.stringify(mid));
+  // Headless frames are slow and the effects clock steps at most 50 ms a frame, so wait for it.
+  await page.waitForFunction(() => window.__wobble.pop.view.flyers.length === 0, null, { timeout: 15000 }).catch(() => {});
+  const after = await page.evaluate(() => { const v = window.__wobble.pop.view; return { flyers: v.flyers.length, popping: v.popping.length, pill: document.querySelector('.pop-cp')?.className }; });
+  step('the faces land on the pill, which bumps, and the pop is done', after.flyers === 0 && after.popping === 0 && /bump/.test(after.pill), JSON.stringify(after));
+  await page.screenshot({ path: `${out}/08-after-double.png` });
+
+  // The combo chip warms at 3, grows sparks at 6 and a rainbow edge at 10.
+  const chip = await page.evaluate(() => {
+    const v = window.__wobble.pop.view, sim = v.sim, el = document.querySelector('.pop-combo');
+    const at = n => { sim.combo = n; v.hud(); return ['warm', 'sparks', 'rainbow'].filter(c => el.classList.contains(c)).join(' '); };
+    const r = { 2: at(2), 3: at(3), 6: at(6), 10: at(10) };
+    sim.combo = 0; v.hud();
+    r.off = el.className;
+    return r;
+  });
+  step('the combo chip warms from 3, grows sparks from 6 and a rainbow edge from 10', chip[2] === '' && chip[3] === 'warm' && chip[6] === 'warm sparks' && chip[10] === 'warm sparks rainbow' && !/on/.test(chip.off), JSON.stringify(chip));
+
+  // An All Clear: one Domino short of an empty board.
+  const g = [];
+  for (let x = 2; x < 9; x++) g.push([72 + x, 8 + x, 300 + x]);
+  const clearsBefore = await page.evaluate(() => window.__wobble.pop.view.sim.clears);
+  await stage(page, g, [{ s: 1, q: 0 }, { s: 4, q: 0 }, { s: 5, q: 0 }]);
+  await page.waitForTimeout(300);
+  const d = await dragPlan(page, 0, 0, 8);
+  await drag(page, d.from, d.to);
+  await page.waitForTimeout(150);
+  const ac = await page.evaluate(() => { const v = window.__wobble.pop.view; return { clears: v.sim.clears, slow: v.slowUntil > v.vt - 400, hop: v.hopAt > 0, filled: v.sim.filled }; });
+  step('an All Clear slows time, bounces the board and makes the tray jump', ac.clears === clearsBefore + 1 && ac.filled === 0 && ac.slow && ac.hop, JSON.stringify(ac));
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${out}/09-all-clear.png` });
+  step('no page errors in the juice checks', errors.length === 0, errors.slice(0, 3).join(' | '));
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------- milestone 3: powers, bubbles and Second Wind
+
+/** A board cell's centre in CSS px. */
+const cellXY = (page, c) => page.evaluate(c => { const v = window.__wobble.pop.view; return [(v.bx + ((c % 9) + 0.5) * v.cell) / v.k, (v.by + (Math.floor(c / 9) + 0.5) * v.cell) / v.k]; }, c);
+const give = (page, powers, extra = {}) => page.evaluate(([powers, extra]) => { const v = window.__wobble.pop.view; v.sim.powers = powers; Object.assign(v.sim, extra); v.hud(); }, [powers, extra]);
+const slotBtn = i => `.pop-pw button:nth-child(${i + 1})`;
+
+{
+  const { ctx, page, errors } = await open({ width: 390, height: 844 });
+  await page.click('.sc-root.show [data-action="pop"]');
+  await page.waitForFunction(() => window.__wobble.pop?.view?.active, null, { timeout: 8000 });
+  await page.waitForTimeout(500);
+  const bar = await page.evaluate(() => {
+    const v = window.__wobble.pop.view, pw = document.querySelector('.pop-pw').getBoundingClientRect(), next = v.nextBox, k = v.k;
+    const btns = [...document.querySelectorAll('.pop-pw button')].map(b => ({ cls: b.className, label: b.getAttribute('aria-label') }));
+    return { btns, left: pw.left, right: pw.right, bottom: pw.bottom, nextLeft: next.x / k, bagLeft: v.bag.x / k, h: innerHeight, wind: v.sim.wind };
+  });
+  step('two empty power slots and Second Wind (ready: the day\'s first Pop run) sit bottom left, clear of the next tray and the bag',
+    bar.btns[0].cls.includes('empty') && bar.btns[1].cls.includes('empty') && !/earn/.test(bar.btns[2].cls) && bar.left >= 8 && bar.right < bar.nextLeft && bar.nextLeft < bar.bagLeft && bar.bottom <= bar.h && bar.wind === 'ready', JSON.stringify(bar));
+
+  // Undo: place a shape, tap Undo, and the board, score and tray are as they were.
+  const row8 = [];
+  for (let x = 4; x < 9; x++) row8.push([72 + x, 6, 500 + x]);
+  await stage(page, row8, [{ s: 5, q: 0 }, { s: 4, q: 0 }, { s: 6, q: 0 }]);
+  await give(page, ['undo', 'meteor']);
+  const shown = await page.evaluate(() => [...document.querySelectorAll('.pop-pw button')].slice(0, 2).map(b => b.getAttribute('aria-label') + (b.querySelector('img') ? '+icon' : '')));
+  step('powers in the slots show their icons and names', shown[0] === 'Undo+icon' && shown[1] === 'Meteor+icon', JSON.stringify(shown));
+  const before = await state(page);
+  const u = await dragPlan(page, 0, 0, 8);
+  await drag(page, u.from, u.to);
+  const placed = await state(page);
+  await page.click(slotBtn(0));
+  await page.waitForTimeout(200);
+  const undone = await page.evaluate(() => { const v = window.__wobble.pop.view; return { filled: v.sim.filled, score: v.sim.score, slot0: v.sim.powers[0], tray0: v.sim.tray[0]?.s, rewind: v.rewindAt > 0 }; });
+  step('Undo takes back the I that popped row 8: the row, the score and the tray as they were', placed.lines === before.lines + 1 && undone.filled === before.filled && undone.score === before.score && undone.slot0 === null && undone.tray0 === 5 && undone.rewind,
+    JSON.stringify({ before, placed: placed.lines, undone }));
+
+  // Meteor: tap the slot, tap a cell to move the target there, tap the target to smash it.
+  await page.click(slotBtn(1));
+  const aim = await page.evaluate(() => { const a = window.__wobble.pop.view.aim; return a && { kind: a.kind, target: a.target, hint: document.querySelector('.pop-hint').textContent }; });
+  step('Meteor starts aiming at the busiest 3×3, with a hint', aim?.kind === 'meteor' && Math.floor(aim.target / 9) >= 7 && /tap it to smash/i.test(aim.hint), JSON.stringify(aim));
+  await page.screenshot({ path: `${out}/10-meteor-aim.png` });
+  const [mx, my] = await cellXY(page, 79);
+  await page.mouse.click(mx, my);
+  const moved = await page.evaluate(() => window.__wobble.pop.view.aim?.target);
+  await page.mouse.click(mx, my);
+  await page.waitForTimeout(100);
+  const smashed = await page.evaluate(() => { const v = window.__wobble.pop.view; return { aim: !!v.aim, filled: v.sim.filled, slot1: v.sim.powers[1], meteors: v.meteors.length }; });
+  step('a tap moves the target, a tap on it brings the meteor down on that 3×3', moved === 79 && !smashed.aim && smashed.filled === 2 && smashed.slot1 === null && smashed.meteors === 1, JSON.stringify({ moved, smashed }));
+  await page.waitForFunction(() => window.__wobble.pop.view.meteors.every(m => m.hit), null, { timeout: 15000 }).catch(() => {});
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${out}/11-meteor-hit.png` });
+
+  // Sweep: swipe along a row.
+  const row3 = [];
+  for (let x = 0; x < 7; x++) row3.push([27 + x, 9, 600 + x]);
+  row3.push([0, 4, 700]);
+  await stage(page, row3, [{ s: 5, q: 0 }, { s: 4, q: 0 }, { s: 6, q: 0 }]);
+  await give(page, ['sweep', null]);
+  await page.click(slotBtn(0));
+  const [sx0, sy0] = await cellXY(page, 29), [sx1] = await cellXY(page, 33);
+  await page.mouse.move(sx0, sy0);
+  await page.mouse.down();
+  await page.mouse.move(sx1, sy0 + 3, { steps: 5 });
+  const lit = await page.evaluate(() => window.__wobble.pop.view.aim?.line);
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  const swept = await page.evaluate(() => { const v = window.__wobble.pop.view; return { filled: v.sim.filled, score: v.sim.score, bodies: v.bodies.length, aim: !!v.aim }; });
+  step('a swipe along row 3 lights it, and letting go sweeps it: its Blocklings tumble off', lit === 3 && swept.filled === 1 && swept.bodies === 7 && !swept.aim, JSON.stringify({ lit, swept }));
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: `${out}/12-sweep.png` });
+
+  // Spin: tap the slot, then tap the L in the tray: it turns a quarter turn.
+  await stage(page, [[0, 4, 800]], [{ s: 6, q: 0 }, { s: 4, q: 0 }, { s: 5, q: 0 }]);
+  await give(page, ['spin', 'fresh']);
+  await page.click(slotBtn(0));
+  const [tx, ty] = await page.evaluate(() => { const v = window.__wobble.pop.view; const [x, y] = v.slotCentre(0); return [x / v.k, y / v.k]; });
+  await page.mouse.click(tx, ty);
+  await page.waitForTimeout(150);
+  const spun = await page.evaluate(() => { const v = window.__wobble.pop.view; return { spinning: v.sim.spinning, q: v.sim.tray[0].q, held: !!v.held, hint: document.querySelector('.pop-hint').textContent }; });
+  step('Spin turns on, and a tap on a tray shape turns it (no pick-up)', spun.spinning && spun.q !== 0 && !spun.held && /turn it/.test(spun.hint), JSON.stringify(spun));
+  await page.screenshot({ path: `${out}/13-spin.png` });
+
+  // Fresh Deal: new shapes in the tray.
+  const trayBefore = await page.evaluate(() => JSON.stringify(window.__wobble.pop.view.sim.tray));
+  await page.click(slotBtn(1));
+  await page.waitForTimeout(120);
+  const fresh = await page.evaluate(() => { const v = window.__wobble.pop.view; return { tray: JSON.stringify(v.sim.tray), leaving: v.leaving.length }; });
+  step('Fresh Deal swaps the tray shapes, the old ones sliding away', fresh.tray !== trayBefore && fresh.leaving === 3, JSON.stringify({ trayBefore, fresh }));
+
+  // A bubble: cover it and its power flies into a free slot.
+  await stage(page, [], [{ s: 4, q: 0 }, { s: 1, q: 0 }, { s: 5, q: 0 }]);
+  await give(page, [null, null], { bubbles: [{ cell: 40, kind: 'fresh', left: 6 }] });
+  await page.waitForTimeout(200);
+  await page.screenshot({ path: `${out}/14-bubble.png` });
+  const b = await dragPlan(page, 0, 4, 4);
+  await drag(page, b.from, b.to);
+  const got = await page.evaluate(() => { const v = window.__wobble.pop.view; return { powers: v.sim.powers.join(), flying: v.iconFlys.length, bubbles: v.sim.bubbles.length }; });
+  await page.waitForFunction(() => window.__wobble.pop.view.iconFlys.length === 0, null, { timeout: 15000 }).catch(() => {});
+  const landed = await page.evaluate(() => document.querySelector('.pop-pw button').getAttribute('aria-label'));
+  step('covering a bubble collects it: its icon flies into the slot', got.powers === 'fresh,' && got.flying === 1 && got.bubbles === 0 && landed === 'Fresh Deal', JSON.stringify({ got, landed }));
+
+  // Second Wind: two taps.
+  const crowd = [];
+  for (const y of [0, 1, 2, 6, 7, 8]) for (let x = 0; x < 8; x++) crowd.push([y * 9 + x, 5, 900 + y * 9 + x]);
+  await stage(page, crowd, [{ s: 16, q: 0 }, { s: 15, q: 0 }, { s: 13, q: 0 }]);
+  await give(page, [null, null], { wind: 'ready', bubbles: [] });
+  await page.click(slotBtn(2));
+  const armed = await page.evaluate(() => ({ cls: document.querySelector('.pop-pw button:nth-child(3)').className, wind: window.__wobble.pop.view.sim.wind }));
+  await page.click(slotBtn(2));
+  await page.waitForTimeout(120);
+  const blown = await page.evaluate(() => { const v = window.__wobble.pop.view; return { wind: v.sim.wind, filled: v.sim.filled, bodies: v.bodies.length }; });
+  step('Second Wind: the first tap arms it, the second blows the fullest rows and columns away', /armed/.test(armed.cls) && armed.wind === 'ready' && blown.wind === 'used' && blown.filled < crowd.length - 20 && blown.bodies > 20, JSON.stringify({ armed, blown }));
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `${out}/15-second-wind.png` });
+
+  // No room with a power that could help: the run waits, with End run.
+  const cb = [];
+  for (let c = 0; c < 81; c++) if (((c % 9) + Math.floor(c / 9)) % 2 === 0 || c % 9 === 0) if (c !== 80) cb.push([c, 5, 1000 + c]);
+  await stage(page, cb, [{ s: 1, q: 0 }, { s: 4, q: 0 }, { s: 5, q: 0 }]);
+  await give(page, ['meteor', null]);
+  await page.evaluate(() => window.__wobble.pop.view.intent({ t: 'place', slot: 0, x: 7, y: 8 }));
+  await page.waitForTimeout(200);
+  const wait = await page.evaluate(() => { const v = window.__wobble.pop.view; return { stuck: v.sim.stuck, over: v.sim.over, end: getComputedStyle(document.querySelector('.pop-end')).display, glow: document.querySelector('.pop-pw button').className }; });
+  step('No room with Meteor held: the run waits, the slot glows and End run shows', wait.stuck && !wait.over && wait.end !== 'none' && /glow/.test(wait.glow), JSON.stringify(wait));
+  await page.screenshot({ path: `${out}/16-no-room-waiting.png` });
+  await page.click('.pop-end');
+  await page.waitForSelector('.sc-root.show .ui-summary', { timeout: 15000 }).catch(() => {});
+  const ended = await page.evaluate(() => ({ over: window.__wobble.pop.view.sim.over, cause: window.__wobble.pop.view.sim.cause, summary: !!document.querySelector('.sc-root.show .ui-summary') }));
+  step('End run ends it and the results show', ended.over && ended.cause === 'end' && ended.summary, JSON.stringify(ended));
+  step('no page errors in the power checks', errors.length === 0, errors.slice(0, 3).join(' | '));
   await ctx.close();
 }
 

@@ -8,12 +8,12 @@
 import { ART_SHAPES, pose } from '../../art/src/shapes.ts';
 import { Rng } from '../src/sim/rng.ts';
 import { CELLS, EMPTY, LINES, LINE_CELLS, type Mask, cellBit, count, fits, fullLines, isEmpty } from '../src/pop/sim/board.ts';
-import { greedyMove, legalMoves, playOut, randomMove } from '../src/pop/sim/bot.ts';
+import { greedyMove, legalMoves, playIntents, playOut, randomMove, smartIntent } from '../src/pop/sim/bot.ts';
 import { type Slot, dealTray, slotFits, wholeTrayFits } from '../src/pop/sim/deal.ts';
-import { BAG, PopSim, decodeIntent, encodeIntent, popBiome } from '../src/pop/sim/pop.ts';
+import { BAG, POP_POWERS, PopSim, type PopIntent, type PopPower, decodeIntent, encodeIntent, popBiome } from '../src/pop/sim/pop.ts';
 import { decodeMoves, encodeMoves, recordOf, replay } from '../src/pop/sim/record.ts';
 import { POP_KEYS, POP_SHAPES, SHAPE_BY_KEY } from '../src/pop/sim/shapes.ts';
-import { POP_TUNING, comboMult, linePoints, shapeWeight } from '../src/pop/sim/tuning.ts';
+import { POP_RULES, POP_TUNING, POP_TUNING_V1, comboMult, linePoints, shapeWeight } from '../src/pop/sim/tuning.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -29,8 +29,9 @@ const maskOf = (cells: number[]): Mask => {
 const row = (y: number, skip: number[] = []) => Array.from({ length: 9 }, (_, x) => y * 9 + x).filter(c => !skip.includes(c % 9));
 const slotOf = (key: string, q = 0): Slot => ({ s: SHAPE_BY_KEY[key].id, q });
 /** A sim set up by hand: this board, this tray, an empty bag. */
-function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; sparks?: number } = {}): PopSim {
-  const sim = new PopSim({ seed: 1 });
+function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; sparks?: number; powers?: (PopPower | null)[]; rules?: number } = {}): PopSim {
+  const sim = new PopSim({ seed: 1, rules: o.rules });
+  sim.powers = o.powers ? [...o.powers] : [null, null];
   sim.board = maskOf(cells);
   sim.cellShape.fill(-1);
   for (const c of cells) sim.cellShape[c] = 0;
@@ -148,8 +149,10 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
   sim.cp = 1;
   sim.apply({ t: 'place', slot: 0, x: 8, y: 0 });
   check('the 16th line claims checkpoint 2 and enters Treetops', sim.cp === 2 && sim.events.some(e => e.name === 'pop_checkpoint' && e.payload.n === 2) && sim.events.some(e => e.name === 'biome_entered' && e.payload.id === 1));
-  check('shapes open by checkpoint: S and Z at 2, Plank at 4, P/U/V at 6, Arch and Plus at 10', shapeWeight(POP_TUNING, 'S', 1) === 0 && shapeWeight(POP_TUNING, 'S', 2) > 0
-    && shapeWeight(POP_TUNING, 'Plank', 3) === 0 && shapeWeight(POP_TUNING, 'Plank', 4) > 0 && shapeWeight(POP_TUNING, 'U', 6) > 0 && shapeWeight(POP_TUNING, 'Plus', 9) === 0 && shapeWeight(POP_TUNING, 'Plus', 10) > 0);
+  check('shapes open by checkpoint: S, Z and Plank at 1, P/U/V at 2, Arch and Plus at 3 (rules 2)', shapeWeight(POP_TUNING, 'S', 0) === 0 && shapeWeight(POP_TUNING, 'S', 1) > 0
+    && shapeWeight(POP_TUNING, 'Plank', 0) === 0 && shapeWeight(POP_TUNING, 'Plank', 1) > 0 && shapeWeight(POP_TUNING, 'U', 1) === 0 && shapeWeight(POP_TUNING, 'U', 2) > 0 && shapeWeight(POP_TUNING, 'Plus', 2) === 0 && shapeWeight(POP_TUNING, 'Plus', 3) > 0);
+  check('rules 1 keeps milestone 1\'s schedule: S and Z at 2, Plank at 4, P/U/V at 6, Arch and Plus at 10', shapeWeight(POP_TUNING_V1, 'S', 1) === 0 && shapeWeight(POP_TUNING_V1, 'S', 2) > 0
+    && shapeWeight(POP_TUNING_V1, 'Plank', 3) === 0 && shapeWeight(POP_TUNING_V1, 'Plank', 4) > 0 && shapeWeight(POP_TUNING_V1, 'U', 6) > 0 && shapeWeight(POP_TUNING_V1, 'Plus', 9) === 0 && shapeWeight(POP_TUNING_V1, 'Plus', 10) > 0);
 }
 
 // ---------------------------------------------------------------- the tray, the bag and No room
@@ -224,7 +227,7 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
     const tray = dealTray({ board: EMPTY(), cp: 0, mercy: true, history: [], deal: new Rng(k), turns: new Rng(k + 7), tuning: T });
     if (tray.some(s => closed.includes(s.s))) early = false;
   }
-  check('only the start shapes are dealt before checkpoint 2', early);
+  check('only the start shapes are dealt before checkpoint 1', early);
   const day = ['O', 'T', 'L'];
   const dayTray = dealTray({ board: EMPTY(), cp: 0, mercy: false, history: [], deal: new Rng(5), turns: new Rng(6), tuning: T, set: [...day, 'Pip', 'Domino', 'Trio', 'Elbow'] });
   check('a shape set (Daily Pop) deals only its shapes', dayTray.every(s => [...day, 'Pip', 'Domino', 'Trio', 'Elbow'].includes(POP_KEYS[s.s])));
@@ -254,6 +257,248 @@ function staged(cells: number[], tray: (Slot | null)[], o: { combo?: number; spa
   check('a record from other rules is refused', replay({ ...recordOf(a), v: 999 }) === null);
   const deals = (seed: number) => { const s = new PopSim({ seed }); return [...s.tray, ...s.next].map(x => `${x!.s}/${x!.q}`).join(); };
   check('a different seed deals differently', deals(1235) !== deals(1234));
+}
+
+
+// ---------------------------------------------------------------- powers, bubbles and Second Wind (rules 2)
+
+{
+  const filledRows = (sim: PopSim) => [...Array(9).keys()].map(y => LINE_CELLS[y].filter(c => sim.cellShape[c] >= 0).length);
+  check(`runs play under rules ${POP_RULES}, with two empty power slots and Second Wind to earn`, (() => { const s = new PopSim({ seed: 2 }); return s.rules === 2 && s.powers.join() === ',' && s.wind === 'earn' && s.bubbles.length === 0; })());
+  check('rules 1 runs have no powers, no bubbles and no Second Wind', (() => {
+    const s = new PopSim({ seed: 2, rules: 1, headStart: true, windReady: true });
+    playOut(s, greedyMove, 200);
+    return s.wind === 'off' && s.powers.every(p => !p) && s.bubbles.length === 0 && !s.apply({ t: 'wind' });
+  })());
+  check('the level 6 head start puts a power in a slot from the start', (() => { const s = new PopSim({ seed: 3, headStart: true }); return !!s.powers[0] && !s.powers[1]; })());
+  check('Second Wind starts ready for the day\'s first run (or the upgrade), and is off in Daily Pop', new PopSim({ seed: 3, windReady: true }).wind === 'ready' && new PopSim({ seed: 3, mode: 'daily', windReady: true }).wind === 'off');
+
+  // Bubbles: one lands every 8 to 12 placements while a slot is free, on a cell a shape could cover.
+  let gapsOk = true, coverOk = true, lifeOk = true, collected = 0, got = 0;
+  for (let seed = 0; seed < 30; seed++) {
+    const sim = new PopSim({ seed: 900 + seed });
+    let last = 0, spawned = 0;
+    sim.sink = {
+      emit(name, p) {
+        if (name === 'pop_bubble' && p.why === 'clock') {
+          const gap = sim.placements - last, T = POP_TUNING;
+          if (spawned === 0 ? gap < T.bubbleGap - T.bubbleSpread || gap > T.bubbleGap + T.bubbleSpread : gap < T.bubbleGap - T.bubbleSpread) gapsOk = false;
+          last = sim.placements; spawned++;
+          const cell = p.cell as number;
+          if (sim.cellShape[cell] >= 0) coverOk = false;
+          const coverable = [0, 1, 2, BAG].some(i => { const t = sim.turn(i); return !!t && t.places.some(pl => fits(sim.board, pl.m) && t.cells.some(([cx, cy]) => (pl.y + cy) * 9 + pl.x + cx === cell)); });
+          if (!coverable) coverOk = false;
+        }
+        if (name === 'pop_bubble_got') { collected++; if ((p.slot as number) >= 0) got++; }
+      },
+    };
+    const born = new Map<number, number>();
+    for (let k = 0; k < 120 && !sim.over; k++) {
+      for (const b of sim.bubbles) if (!born.has(b.cell)) born.set(b.cell, sim.placements);
+      for (const [cell, at] of born) if (!sim.bubbles.some(b => b.cell === cell)) born.delete(cell);
+      for (const [, at] of born) if (sim.placements - at > POP_TUNING.bubbleLife) lifeOk = false;
+      if (sim.bubbles.length > sim.powers.filter(p => !p).length) lifeOk = false;
+      const mv = greedyMove(sim, 60);
+      if (!mv || !sim.apply({ t: 'place', ...mv })) break;
+    }
+  }
+  check(`a bubble lands every ${POP_TUNING.bubbleGap - POP_TUNING.bubbleSpread} to ${POP_TUNING.bubbleGap + POP_TUNING.bubbleSpread} placements while a slot is free`, gapsOk);
+  check('bubbles land on an empty cell some tray or bag shape could cover', coverOk);
+  check('a bubble lasts 6 placements, and bubbles never outnumber the free slots', lifeOk);
+  check('covering a bubble puts its power in a free slot', collected > 0 && got === collected, `${got}/${collected}`);
+
+  // A Triple (or an All Clear) puts a power straight into a free slot.
+  const tri = staged([...row(0, [8]), ...row(1, [8]), ...row(2, [8]), 80], [slotOf('I', 1), slotOf('Pip'), slotOf('Pip')]);
+  tri.apply({ t: 'place', slot: 0, x: 8, y: 0 });
+  check('a Triple puts a power in a free slot', tri.lines >= 3 && !!tri.powers[0] && tri.events.some(e => e.name === 'pop_power_got' && e.payload.why === 'big'), `${tri.lines} lines, ${tri.powers}`);
+  const ac = staged(row(8, [0, 1, 2, 3]), [slotOf('I', 0), slotOf('Pip'), slotOf('Pip')]);
+  ac.apply({ t: 'place', slot: 0, x: 0, y: 8 });
+  check('an All Clear puts a power in a free slot', !!ac.powers[0] && ac.events.some(e => e.name === 'pop_power_got' && e.payload.why === 'clear'));
+  const full = staged(row(8, [0, 1, 2, 3]), [slotOf('I', 0), slotOf('Pip'), slotOf('Pip')], { powers: ['undo', 'fresh'] });
+  full.apply({ t: 'place', slot: 0, x: 0, y: 8 });
+  check('with both slots full, nothing is granted (and nothing lost from them)', full.powers.join() === 'undo,fresh');
+
+  // Checkpoint 2 earns Second Wind; when it's already ready, a power instead. Every checkpoint drops a bubble.
+  const cp2 = staged([...row(0, [8]), 20, 30], [slotOf('Pip'), slotOf('Pip'), slotOf('O')]);
+  cp2.lines = 15; cp2.cp = 1;
+  cp2.apply({ t: 'place', slot: 0, x: 8, y: 0 });
+  check('checkpoint 2 earns Second Wind and drops a bubble', cp2.wind === 'ready' && cp2.events.some(e => e.name === 'pop_wind_ready') && cp2.events.some(e => e.name === 'pop_bubble' && e.payload.why === 'cp'));
+  const cp2b = staged([...row(0, [8]), 20, 30], [slotOf('Pip'), slotOf('Pip'), slotOf('O')]);
+  cp2b.lines = 15; cp2b.cp = 1; cp2b.wind = 'ready';
+  cp2b.apply({ t: 'place', slot: 0, x: 8, y: 0 });
+  check('checkpoint 2 with Second Wind already ready gives a power instead', cp2b.events.some(e => e.name === 'pop_power_got' && e.payload.why === 'cp'));
+
+  // Undo: the shape goes back, popped lines come back, points and combo go back, and a refill is taken back.
+  {
+    const sim = new PopSim({ seed: 77 });
+    for (let k = 0; k < 25; k++) sim.apply({ t: 'place', ...greedyMove(sim)! });
+    sim.powers = ['undo', null];
+    // Play until a placement pops something and empties the tray, with the snapshot of just before it.
+    let ok = false;
+    for (let k = 0; k < 200 && !sim.over && !ok; k++) {
+      const before = { board: sim.board.join(), score: sim.score, combo: sim.combo, sparks: sim.sparks, lines: sim.lines, tray: JSON.stringify(sim.tray), next: JSON.stringify(sim.next), trays: sim.trays, bag: JSON.stringify(sim.bag), cells: Array.from(sim.cellShape).join() };
+      const filledTray = sim.tray.filter(Boolean).length;
+      const mv = greedyMove(sim)!;
+      if (!sim.apply({ t: 'place', ...mv })) break;
+      const popped = sim.events.some(e => e.name === 'pop_lines'), refilled = filledTray === 1 && sim.trays === before.trays + 1;
+      if (!(popped && refilled)) continue;
+      sim.powers[0] = 'undo';
+      const nextAfter = JSON.stringify(sim.next);
+      check('Undo is ready after a placement', sim.canPower(0));
+      sim.apply({ t: 'power', slot: 0 });
+      const same = sim.board.join() === before.board && sim.score === before.score && sim.combo === before.combo && sim.sparks === before.sparks && sim.lines === before.lines
+        && JSON.stringify(sim.tray) === before.tray && JSON.stringify(sim.next) === before.next && sim.trays === before.trays && JSON.stringify(sim.bag) === before.bag && Array.from(sim.cellShape).join() === before.cells;
+      check('Undo takes back a placement that popped lines and brought a new tray: board, score, combo, tray and next all as they were', same);
+      check('Undo is spent, and there\'s nothing more to undo', sim.powers[0] === null && !sim.undoable);
+      sim.apply({ t: 'place', ...mv });
+      check('placing the same shape again deals the same next tray (the deal\'s rng went back too)', JSON.stringify(sim.next) === nextAfter);
+      ok = true;
+    }
+    check('found a placement to undo', ok);
+    const s2 = new PopSim({ seed: 5 });
+    s2.powers = ['undo', null];
+    check('Undo with nothing to undo is refused', !s2.canPower(0) && !s2.apply({ t: 'power', slot: 0 }));
+    const mv = greedyMove(s2)!;
+    s2.apply({ t: 'place', ...mv });
+    s2.apply({ t: 'bag', slot: [0, 1, 2].find(i => s2.tray[i])! });
+    check('any other move after a placement leaves nothing to undo', !s2.canPower(0));
+    // An Undo can't take back the placement that collected it (or it could undo into the same bubble forever).
+    const s3 = staged([], [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')]);
+    s3.bubbles = [{ cell: 40, kind: 'undo', left: 6 }];
+    s3.apply({ t: 'place', slot: 0, x: 4, y: 4 });
+    check('an Undo can\'t take back the placement that collected it, only the next one', s3.powers[0] === 'undo' && !s3.canPower(0) && s3.apply({ t: 'place', slot: 1, x: 0, y: 0 }) && s3.canPower(0));
+  }
+
+  // Spin: on for the rest of the tray; each tap turns a shape a quarter turn clockwise; O, Pip and Plus can't turn.
+  {
+    const sim = staged([], [slotOf('L', 0), slotOf('O'), slotOf('I', 0)], { powers: ['spin', null] });
+    check('a spin before Spin is used is refused', !sim.apply({ t: 'spin', slot: 0 }));
+    check('Spin turns on', sim.apply({ t: 'power', slot: 0 }) && sim.spinning && sim.powers[0] === null);
+    sim.apply({ t: 'spin', slot: 0 });
+    const L = SHAPE_BY_KEY.L;
+    check('a spin turns the L a quarter turn clockwise (q 0 → 3)', sim.tray[0]!.q === L.turns[L.byQ[3]].q, String(sim.tray[0]!.q));
+    check('the O can\'t turn', !sim.apply({ t: 'spin', slot: 1 }));
+    sim.apply({ t: 'spin', slot: 2 }); sim.apply({ t: 'spin', slot: 2 });
+    check('the I turns twice back to lying flat', sim.tray[2]!.q === 0);
+    const s3 = staged([], [slotOf('O'), slotOf('Pip'), slotOf('Plus')], { powers: ['spin', null] });
+    check('Spin is refused when nothing in the tray or bag can turn', !s3.canPower(0) && !s3.apply({ t: 'power', slot: 0 }));
+    // It lasts until the next tray.
+    const s4 = new PopSim({ seed: 11 });
+    s4.powers = ['spin', null];
+    s4.apply({ t: 'power', slot: 0 });
+    const n0 = s4.trays;
+    while (s4.trays === n0 && !s4.over) s4.apply({ t: 'place', ...greedyMove(s4)! });
+    check('Spin ends with the tray', !s4.spinning);
+  }
+
+  // Sweep: one row or column, paying one line at the current combo without stepping it.
+  {
+    const sim = staged([...row(4, [0, 1]), 0, 9], [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')], { combo: 3, powers: ['sweep', null] });
+    check('Sweep needs a row or column', !sim.apply({ t: 'power', slot: 0 }));
+    check('Sweep refuses an empty line', !sim.apply({ t: 'power', slot: 0, arg: 2 }));
+    const ok = sim.apply({ t: 'power', slot: 0, arg: 4 });
+    check('Sweep clears row 4 and pays 100 × 1.5 at combo 3, the combo unchanged', ok && filledRows(sim)[4] === 0 && sim.score === 150 && sim.combo === 3 && sim.lines === 1 && sim.filled === 2, `${sim.score} ${sim.combo}`);
+    const col = staged([0, 9, 18, 1], [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')], { powers: [null, 'sweep'] });
+    col.apply({ t: 'power', slot: 1, arg: 9 });
+    check('Sweep takes a column too (line 9 is column 0)', col.filled === 1 && col.score === 100);
+    const empty = staged([], [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')], { powers: ['sweep', null] });
+    check('Sweep is refused on an empty board', !empty.canPower(0));
+    const clr = staged([...row(3, [0, 1, 2])], [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')], { powers: ['sweep', null] });
+    clr.apply({ t: 'power', slot: 0, arg: 3 });
+    check('a Sweep that empties the board is an All Clear (and a power)', clr.clears === 1 && clr.score === 100 + 3000 && !!clr.powers[0]);
+  }
+
+  // Meteor: the 3×3 block around a cell, no points.
+  {
+    const cells = [0, 1, 2, 9, 10, 11, 18, 19, 20, 21, 40];
+    const sim = staged(cells, [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')], { powers: [null, 'meteor'] });
+    check('Meteor refuses a block with nothing in it', !sim.apply({ t: 'power', slot: 1, arg: 78 }));
+    check('Meteor smashes the 3×3 around (1, 1): 9 cells, no points', sim.apply({ t: 'power', slot: 1, arg: 10 }) && sim.filled === 2 && sim.score === 0 && sim.lines === 0);
+    const edge = staged([0, 1, 9, 10, 80], [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')], { powers: ['meteor', null] });
+    edge.apply({ t: 'power', slot: 0, arg: 0 });
+    check('Meteor at a corner takes the 2×2 that is on the board', edge.filled === 1);
+  }
+
+  // Fresh Deal: new shapes for the ones left in the tray; the bag and the next tray stay.
+  {
+    const sim = new PopSim({ seed: 21 });
+    sim.apply({ t: 'bag', slot: 0 });
+    sim.powers = ['fresh', null];
+    const bag = JSON.stringify(sim.bag), next = JSON.stringify(sim.next), before = JSON.stringify(sim.tray);
+    sim.apply({ t: 'power', slot: 0 });
+    check('Fresh Deal changes the tray shapes and keeps the empty slot empty', JSON.stringify(sim.tray) !== before && sim.tray[0] === null && !!sim.tray[1] && !!sim.tray[2]);
+    check('Fresh Deal leaves the bag and the next tray alone', JSON.stringify(sim.bag) === bag && JSON.stringify(sim.next) === next);
+  }
+
+  // Second Wind: the 3 fullest rows and columns blow away (ties to the middle), then a Fresh Deal. Once per run.
+  {
+    const cells: number[] = [];
+    for (const y of [0, 1, 7, 8]) cells.push(...row(y, [4]));
+    cells.push(...row(2, [4, 5, 6]));
+    const sim = staged(cells, [slotOf('Plus'), slotOf('Plus'), slotOf('Plus')]);
+    sim.wind = 'ready';
+    const { rows, cols } = sim.windLines();
+    check('Second Wind picks the 3 fullest rows (8 cells each, the two nearest the middle among ties)', rows.join() === '1,7,8' || rows.join() === '0,1,7', rows.join());
+    const tray = JSON.stringify(sim.tray);
+    check('Second Wind blows those rows and columns away, deals afresh, and is used up', sim.apply({ t: 'wind' }) && (sim.wind as string) === 'used' && rows.every(y => filledRows(sim)[y] === 0)
+      && cols.every(x => LINE_CELLS[9 + x].every(c => sim.cellShape[c] < 0)) && JSON.stringify(sim.tray) !== tray && sim.score === 0, `${rows} ${cols}`);
+    check('Second Wind is once per run', !sim.apply({ t: 'wind' }));
+    const tie = staged([40], [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')]);
+    check('ties go to the rows and columns nearest the middle', tie.windLines().rows.join() === '3,4,5' && tie.windLines().cols.join() === '3,4,5');
+  }
+
+  // No room waits while a power or Second Wind could help.
+  {
+    const cells: number[] = [];
+    for (let c = 0; c < CELLS; c++) if ((c % 9 + Math.floor(c / 9)) % 2 === 0 || c % 9 === 0) cells.push(c);
+    const sim = staged(cells.filter(c => c !== 80 && c !== 79), [slotOf('Domino', 0), slotOf('O'), slotOf('I')], { powers: ['meteor', null] });
+    sim.apply({ t: 'place', slot: 0, x: 7, y: 8 });
+    check('No room with Meteor held: the run waits instead of ending', !sim.over && sim.stuck && sim.events.some(e => e.name === 'pop_no_room' && e.payload.waiting === true));
+    const ok = sim.apply({ t: 'power', slot: 0, arg: 40 });
+    check('using the Meteor makes room and the run carries on', ok && !sim.stuck && !sim.over && sim.fitsAnywhere(1));
+    const s2 = staged(cells.filter(c => c !== 80 && c !== 79), [slotOf('Domino', 0), slotOf('O'), slotOf('I')]);
+    s2.wind = 'ready';
+    s2.apply({ t: 'place', slot: 0, x: 7, y: 8 });
+    check('No room with Second Wind ready waits; End run still ends it', s2.stuck && s2.apply({ t: 'end' }) && s2.over && s2.cause === 'end');
+    const s3 = staged(cells.filter(c => c !== 80 && c !== 79), [slotOf('Domino', 0), slotOf('O'), slotOf('O')], { powers: ['spin', null] });
+    s3.apply({ t: 'place', slot: 0, x: 7, y: 8 });
+    check('No room with only a Spin that can\'t help (O shapes): the run ends', s3.over && s3.cause === 'noroom');
+  }
+
+  // Need-weighted picks: Meteor and Sweep come up more on a crowded board.
+  {
+    const pick = (sim: PopSim) => (sim as unknown as { pickPower(): PopPower }).pickPower();
+    const share = (cells: number[]) => {
+      const n: Record<string, number> = {};
+      for (let k = 0; k < 600; k++) { const s = staged(cells, [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')]); (s as unknown as { streams: { powers: Rng } }).streams.powers = new Rng(k); const p = pick(s); n[p] = (n[p] ?? 0) + 1; }
+      return ((n.meteor ?? 0) + (n.sweep ?? 0)) / 600;
+    };
+    // Two cells in three, on diagonals, so no row, column or square is full: 54 cells, 67%.
+    const crowded = [...Array(CELLS).keys()].filter(c => (c % 9 + Math.floor(c / 9)) % 3 !== 0);
+    const a = share([0]), b = share(crowded);
+    check('Meteor and Sweep are picked more on a board 60% full (40% → about 60%)', a > 0.3 && a < 0.5 && b > 0.5, `${a.toFixed(2)} → ${b.toFixed(2)}`);
+    const held = (() => { const n: Record<string, number> = {}; for (let k = 0; k < 600; k++) { const s = staged([0], [slotOf('Pip'), slotOf('Pip'), slotOf('Pip')], { powers: ['undo', null] }); (s as unknown as { streams: { powers: Rng } }).streams.powers = new Rng(k); const p = pick(s); n[p] = (n[p] ?? 0) + 1; } return (n.undo ?? 0) / 600; })();
+    check('a kind already in a slot is picked half as often', held > 0.06 && held < 0.16, held.toFixed(2));
+  }
+
+  // Records: every new intent encodes and replays.
+  {
+    const its: PopIntent[] = [{ t: 'power', slot: 0 }, { t: 'power', slot: 1 }, { t: 'spin', slot: 3 }, { t: 'wind' }, { t: 'power', slot: 0, arg: 80 }, { t: 'power', slot: 1, arg: 17 }, { t: 'power', slot: 1, arg: 0 }];
+    check('power, spin and Second Wind intents encode to small numbers and back', its.every(it => JSON.stringify(decodeIntent(encodeIntent(it))) === JSON.stringify(it)) && its.every(it => encodeIntent(it) < 1296));
+    let same = true, used = 0, winds = 0, bubbles = 0;
+    for (let seed = 0; seed < 12; seed++) {
+      const sim = new PopSim({ seed: 4000 + seed, headStart: seed % 2 === 0, windReady: seed % 3 === 0 });
+      playIntents(sim, smartIntent, 600);
+      used += sim.powersUsed; bubbles += sim.bubblesGot; if (sim.wind === 'used') winds++;
+      const r = replay(recordOf(sim));
+      if (!r || r.digest() !== sim.digest() || r.score !== sim.score) same = false;
+    }
+    check('runs that use powers and Second Wind replay to the same digest', same && used > 0 && winds > 0 && bubbles > 0, `${used} powers, ${winds} winds, ${bubbles} bubbles`);
+    const v1 = new PopSim({ seed: 1234, rules: 1 });
+    playOut(v1, greedyMove);
+    const r1 = replay(recordOf(v1));
+    check('a rules 1 record still replays under rules 1', !!r1 && r1.rules === 1 && r1.digest() === v1.digest());
+  }
 }
 
 // ---------------------------------------------------------------- bots against the balance targets

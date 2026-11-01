@@ -77,7 +77,10 @@ async function playOut(page) {
     await page.evaluate(k => { const sim = window.__wobble.scene.sim; if (sim.ctrl) { sim.intent({ type: 'moveTo', x: sim.foundation.x - 1 + (k % 3) }); sim.intent({ type: 'hardDrop' }); } }, i);
     await page.waitForTimeout(900);
   }
-  await page.evaluate(() => { const sim = window.__wobble.scene.sim; sim.tuning.infiniteHearts = true; sim.used = sim.budget; });
+  // A drop can reach the checkpoint line (the Daily's shapes are the same all day, so on some days they
+  // do), and a claim resets the shapes used to 0, so the run would never end. Moving the line out of reach
+  // first, as budget-check does, cancels any hold before the budget is spent.
+  await page.evaluate(() => { const sim = window.__wobble.scene.sim; sim.tuning.infiniteHearts = true; sim.lineY += 40; sim.used = sim.budget; });
   await page.waitForSelector('.sc-root.show .ui-summary', { timeout: 60000 });
   await page.waitForTimeout(3500); // the XP tally
   if (await page.$('.sc-root [data-action="continue"]')) { await page.click('.sc-root [data-action="continue"]'); await page.waitForTimeout(300); }
