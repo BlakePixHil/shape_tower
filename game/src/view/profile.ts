@@ -17,7 +17,7 @@ export interface Profile {
   askedGhost: boolean; // the one-time "did the ghost show where shapes would land?" prompt
   windDay: string;     // local date the day's free Second Wind was spent
   stats: ProfileStats; // lifetime stats for the Profile screen (gameplay.md §10.3)
-  sliceRuns: number;   // game-build runs started on this install (QA's Gate 1 protocol)
+  sliceRuns: number;   // game-build runs started on this install (run records' juiceRun)
   player: string;      // a random id made once per install, so QA can group runs by player
   seenGusts: boolean;  // the first gust of a player's first Treetops is half strength, with a card (§8.3)
   seenHazards: string[]; // the later hazards met so far (crosswind, junk, meteor, dust, sway): the same first-time rule
@@ -197,12 +197,15 @@ export function addRunStats(p: Profile, r: { height: number; biome: number; bric
 }
 
 /**
- * Gate 1 (QA's protocol): the install's first game run is a juice-on warm-up, then blocks of four
- * go off, on, on, off. The count is saved at run start, so an abandoned run still uses its turn.
+ * Each run's juice and its number on this install (run records keep `juiceRun`). Gate 1's juice-off
+ * runs (QA's protocol: blocks of off, on, on, off) were a vertical-slice playtest, and they stayed in
+ * the store apps by mistake: half of every player's runs lost their particles, haptics and landing
+ * styles (Blake, 2026-11-01). Since then every run has its effects. The count is still saved at run
+ * start, so an abandoned run still uses its number.
  */
 export function nextJuice(p: Profile): { juice: boolean; juiceRun: number } {
   const n = p.sliceRuns;
   p.sliceRuns = n + 1;
   saveProfile(p);
-  return { juice: n === 0 ? true : [false, true, true, false][(n - 1) % 4], juiceRun: n };
+  return { juice: true, juiceRun: n };
 }

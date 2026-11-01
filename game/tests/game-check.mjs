@@ -142,9 +142,11 @@ const home = await page.evaluate(() => ({ menu: document.querySelector('[data-ac
 step('Home goes back to the menu at the new level', home.menu && home.level === 'Level 2', JSON.stringify(home));
 await page.click('[data-action="play"]');
 await page.waitForTimeout(600);
-const again = await sim(() => ({ hold: window.__wobble.scene.sim.tuning.holdUnlocked, locked: document.querySelector('[data-id="holdcard"]').classList.contains('locked'), juice: window.__wobble.scene.view.juice }));
+const again = await sim(() => ({ hold: window.__wobble.scene.sim.tuning.holdUnlocked, locked: document.querySelector('[data-id="holdcard"]').classList.contains('locked'), juice: window.__wobble.scene.view.juice, particles: window.__wobble.scene.particles.enabled, haptics: window.__wobble.audio?.juiceOn ?? null }));
 step('level 2 opens the bag', again.hold === true && again.locked === false, JSON.stringify(again));
-step('the second run is the first of a block: juice off', again.juice === false, JSON.stringify(again));
+// Gate 1's juice-off runs (this run was the first of a block: off) shipped in the store apps by mistake
+// and are retired (Blake, 2026-11-01): every run has its effects.
+step('the second run has its effects too: juice, particles and haptics on', again.juice === true && again.particles === true && again.haptics === true, JSON.stringify(again));
 await page.waitForFunction(() => window.__wobble.scene.sim.ctrl !== null, null, { timeout: 5000 });
 await page.click('[data-id="holdcard"]');
 await page.waitForTimeout(200);
