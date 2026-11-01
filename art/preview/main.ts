@@ -30,7 +30,7 @@
 
 import * as Phaser from 'phaser';
 import {
-  ART_SHAPES, ArtTextures, BIOMES, INK, LANDMARKS, POWER, POWER_COLORS, POWER_KINDS, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
+  ART_SHAPES, ArtTextures, BIOMES, INK, LANDMARKS, POP_POWER_ICONS, POWER, POWER_COLORS, POWER_KINDS, bakeBubble, bakeBubbleGloss, drawPowerIcon, SIGNAL, VFX, VFX_NAMES, hexNum, Backdrop, BlocklingView, CheckpointLine, GuideView, PbMarker,
   PowerBubble, SkyClock, bakeLandmark, pedestalHeight, pose, powerBarCss, powerIconUrl, rimAmount, skyColors,
   WORKSHOP_SETS, foundationFor, landingFor, type LandingSpawn,
   WindView, HazardFx, Celebration, biomeCard, hazardCard, hazardChip, hazardChipEnd, hazardChipGo, plumbBob, setPlumb, setWindsock, windsock, type HazardType, type JunkKind, loadUiFonts, windDrifters, type Expression, type GuideShow, type PowerIcon, type SceneLike, type VfxName,
@@ -595,7 +595,14 @@ function powerBar(): void {
 .st-chip { pointer-events: none; background: #FFF7E8; border: 2px solid ${INK}; border-radius: 10px; font: 600 13px 'Fredoka', sans-serif; padding: 1px 7px; }
 ${powerBarCss()}`;
   const style = document.createElement('style'); style.textContent = css; document.head.appendChild(style);
-  const tags: Record<string, string> = { clean: 'SWEEP', quickset: 'SET', undo: 'UNDO', glue: 'GLUE', slowmo: 'SLOW' };
+  const tags: Record<string, string> = { clean: 'SWEEP', quickset: 'SET', undo: 'UNDO', glue: 'GLUE', slowmo: 'SLOW', spin: 'SPIN', meteor: 'METEOR', fresh: 'FRESH' };
+  // Blockling Pop's powers as bubbles: the body, the icon, then the gloss over it.
+  const popBubble = (k: PowerIcon, css: number) => {
+    const dpr = Math.min(3, devicePixelRatio || 1), s = (css * dpr) / (2 * POWER.bubbleR + 0.2), body = bakeBubble(k, s), cv = document.createElement('canvas');
+    cv.width = cv.height = body.width; const c = cv.getContext('2d')!;
+    c.drawImage(body, 0, 0); drawPowerIcon(c, k, cv.width / 2, cv.height / 2, POWER.bubbleIcon * s); c.drawImage(bakeBubbleGloss(s), 0, 0);
+    return `<img alt="" style="width:${css}px;height:${css}px" src="${cv.toDataURL()}">`;
+  };
   const img = (k: PowerIcon, px: number) => `<img class="st-icon" alt="" src="${powerIconUrl(k, px * POWER.iconFill)}">`;
   const slot = (k: string, attrs = '') => `<button class="st-btn st-slot" data-kind="${k}" ${attrs}>${img(k as PowerIcon, POWER.slotPx)}<span class="st-tag">${tags[k]}</span></button>`;
   const wind = (cls: string, tag: string, cap?: string) => `<button class="st-btn st-slot st-wind ${cls}">${img('wind', POWER.windPx)}<span class="st-tag">${tag}</span>${cap ? `<span class="st-cap">${cap}</span>` : ''}</button>`;
@@ -604,6 +611,9 @@ ${powerBarCss()}`;
   hud.innerHTML = `
 <div class="st-sheet">
   <div class="st-row">${POWER_KINDS.map(k => slot(k)).join('')}</div>
+  <div class="st-row">${POP_POWER_ICONS.map(k => slot(k)).join('')}</div>
+  <div class="st-row">${POP_POWER_ICONS.map(k => popBubble(k, 60)).join('')}</div>
+  ${qs.has('big') ? `<div class="st-row" style="background:#FFF7E8;border-radius:12px;gap:6px">${POP_POWER_ICONS.map(k => `<img alt="" style="width:64px;height:64px" src="${powerIconUrl(k, 64)}">`).join('')}</div>` : ''}
   <div class="st-row">${wind('earn', 'CP 2', 'earning')}${wind('', '2ND WIND', 'ready')}${wind('armed', 'TAP AGAIN', 'armed')}${wind('glow', '2ND WIND', 'trouble')}${wind('spent', '2ND WIND', 'spent')}</div>
   <div class="st-row"><span class="st-chip"><img class="st-icon" alt="" src="${powerIconUrl('glue', 16)}">3</span><span class="st-chip"><img class="st-icon" alt="" src="${powerIconUrl('slowmo', 16)}">2</span></div>
 </div>
