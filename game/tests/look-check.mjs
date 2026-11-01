@@ -114,6 +114,39 @@ async function runAndQuit(page, n) {
   await page.waitForSelector('.sc-root.show [data-action="again"], .sc-root.show [data-action="continue"]', { timeout: 20000 });
 }
 
+/**
+ * Plays a run from the menu, drops a few shapes, and says what effects it had: the view's juice, the
+ * particles, Sound's haptics switch and the most particles alive at once (dust and the landing burst).
+ * Back on the menu after.
+ */
+async function effectsOfRun(page) {
+  await page.click('.sc-root.show [data-action="play"]');
+  await page.waitForFunction(() => window.__wobble.scene.sim?.ctrl !== null && window.__wobble.scene.started, null, { timeout: 10000 });
+  let col = 0, peak = 0;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 15000) {
+    const s = await page.evaluate(() => { const w = window.__wobble, s = w.scene.sim; return { ctrl: s.ctrl && { hard: s.ctrl.hard }, f: s.foundation, placed: s.stats.placed, state: s.state, live: w.scene.particles.live.length }; });
+    peak = Math.max(peak, s.live);
+    if (s.state !== 'playing' || s.placed >= 3) break;
+    if (s.ctrl && !s.ctrl.hard) {
+      const x = s.f.x - s.f.width / 2 + 1 + (col++ % Math.max(1, s.f.width - 2));
+      await page.evaluate(x => { const sm = window.__wobble.scene.sim; sm.intent({ type: 'moveTo', x }); sm.intent({ type: 'hardDrop' }); }, x);
+    }
+    await page.waitForTimeout(150);
+  }
+  const fx = await page.evaluate(() => { const w = window.__wobble; return { run: w.profile.sliceRuns - 1, view: w.scene.view.juice !== false, particles: w.scene.particles.enabled, haptics: w.audio?.juiceOn ?? null, landing: w.scene.look.landing }; });
+  await page.evaluate(() => window.__wobble.hud.pauseBtn.click());
+  await page.waitForTimeout(200);
+  await page.click('.sc-root [data-action="quit"]');
+  for (let i = 0; i < 40 && !(await page.$('.sc-root.show [data-action="home"]')); i++) {
+    await (await page.$('.sc-root.show [data-action="continue"]'))?.click();
+    await page.waitForTimeout(500);
+  }
+  await page.click('.sc-root.show [data-action="home"]');
+  await page.waitForSelector('.sc-root.show [data-action="play"]', { timeout: 10000 });
+  return { ...fx, peak };
+}
+
 // ================================================================ a level 12 player, nothing bought
 
 let page = await open(12, 0);
@@ -210,6 +243,14 @@ await page.waitForSelector('.sc-root.show [data-action="again"]', { timeout: 200
 await page.waitForTimeout(600);
 await page.click('.sc-root [data-action="home"]');
 await page.waitForTimeout(500);
+
+// Every run has its effects, however many follow a purchase. Gate 1's juice-off runs (off, on, on, off)
+// stayed in the store apps by mistake, so after buying, particles, haptics and the landing style seemed
+// to stop until a restart (Blake, 2026-11-01). Four runs in a row cover a whole block of the old pattern.
+const fxRuns = [];
+for (let i = 0; i < 4; i++) fxRuns.push(await effectsOfRun(page));
+step('every run after a purchase has its effects: particles, haptics and the landing burst',
+  fxRuns.every(r => r.view && r.particles && r.haptics === true && r.landing && r.peak > 0), JSON.stringify(fxRuns));
 
 // A refund (clearing the test store): the look falls back to the classic and the pass hat comes off.
 await page.click('.sc-root.show [data-action="settings"]');

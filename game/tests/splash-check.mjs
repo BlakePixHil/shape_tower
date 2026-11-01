@@ -89,9 +89,18 @@ async function open(o = {}) {
 
 // 2. Reduce Motion: the splash fades, no glide.
 {
-  const { ctx, page, errors } = await open({ reducedMotion: 'reduce' });
+  // The hand-over's animations are read the moment it starts, as in the normal start: the 220 ms fade can
+  // be over before a read after the menu shows, which made this step fail now and then under load.
+  const { ctx, page, errors } = await open({
+    reducedMotion: 'reduce',
+    init: () => new MutationObserver((_, mo) => {
+      if (!document.getElementById('splash')?.classList.contains('out')) return;
+      mo.disconnect();
+      window.__calm = document.getAnimations().filter(a => !(a instanceof CSSAnimation)).map(a => a.effect.target?.id || a.effect.target?.className);
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ['class'] }),
+  });
   await page.waitForSelector('.sc-root.show [data-action="play"]', { timeout: 60000 });
-  const anims = await page.evaluate(() => document.getAnimations().filter(a => !(a instanceof CSSAnimation)).map(a => a.effect.target?.id || a.effect.target?.className));
+  const anims = await page.waitForFunction(() => window.__calm, null, { timeout: 10000 }).then(h => h.jsonValue(), () => []);
   const gone = await page.waitForFunction(() => !document.getElementById('splash'), null, { timeout: 10000 }).then(() => true, () => false);
   step('Reduce Motion fades the splash out without the glide', gone && anims.length === 1 && anims[0] === 'splash', JSON.stringify(anims));
   step('no page errors with Reduce Motion', errors.length === 0, errors.join(' | '));

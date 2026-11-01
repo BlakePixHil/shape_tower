@@ -53,10 +53,9 @@ const REVIEW_KEY = 'shape-tower-review-v1';
 async function boot(): Promise<void> {
   const settings = loadSettings();
   const profile = loadProfile();
-  // Gate 1 (QA's protocol, qa/gate1-protocol.md): each run's juice is set when it starts.
+  // Each run's juice is set when it starts: always on since Gate 1's juice-off runs ended (view/profile.ts nextJuice).
   let juice = true;
   let juiceRun = -1;
-  const firstOpen = profile.sliceRuns === 0;
   const state: LabState = { tuning: {}, view: viewFor(settings, juice) };
   let dailyWind = false;
   let mode: RunMode = ENDLESS; // the run being played (or just played)
@@ -275,7 +274,6 @@ async function boot(): Promise<void> {
       onProfile: () => { audio()?.screen?.('profile'); sc.profile(profile, home, saveLook, identity); },
       onSettings: () => { audio()?.screen?.('profile'); openSettings(home, true); },
       onWorkshop: () => openWorkshop(home),
-      note: firstOpen && profile.sliceRuns === 0 ? 'Testing: some runs play without effects. Tap how each one felt.' : undefined,
     });
     menuShown = true;
   }
@@ -344,7 +342,7 @@ async function boot(): Promise<void> {
     sc.close();
     mode = m;
     dailyWind = false; // set again by the shell's secondWind() if this run asks for it
-    // A scored Daily try always has its effects: the juice test (Gate 1) never takes the day's only try.
+    // A scored Daily try isn't numbered (it never was part of Gate 1's juice test); every run has its effects.
     if (m.id === 'daily' && m.scored) { juice = true; juiceRun = -1; } else ({ juice, juiceRun } = nextJuice(profile));
     state.tuning = runTuning(m);
     state.view = viewFor(settings, juice);
