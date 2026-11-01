@@ -1,0 +1,50 @@
+Name,Description,Icon,Incremental,Steps to unlock,Initial state,Points,List order
+Off the Ground,Claim your first checkpoint,play/cp_first.png,No,,Revealed,5,1
+Branching Out,Reach the Treetops,play/biome_2.png,No,,Revealed,5,2
+Head in the Clouds,Reach Cloudlands,play/biome_3.png,No,,Revealed,5,3
+Into the Storm,Reach the Storm Belt,play/biome_4.png,No,,Revealed,15,4
+Thin Air,Reach the Stratosphere,play/biome_5.png,No,,Revealed,15,5
+Liftoff,Reach Orbit,play/biome_6.png,No,,Revealed,15,6
+One Small Step,Reach the Moon,play/biome_7.png,No,,Revealed,35,7
+Red Rover,Reach the Red Planet,play/biome_8.png,No,,Revealed,35,8
+Ring Leader,Reach the Ringed Giant,play/biome_9.png,No,,Revealed,35,9
+Into the Deep,Reach Deep Cosmos,play/biome_10.png,No,,Revealed,100,10
+Off the Map,Claim checkpoint 30 in one run,play/cp_30.png,No,,Revealed,100,11
+New Heights,Beat your best height,play/pb.png,No,,Revealed,5,12
+Pixel Perfect,Place a Perfect,play/perfect.png,No,,Revealed,5,13
+In the Zone,Place 5 Perfects in a row,play/combo_5.png,No,,Revealed,15,14
+Seventh Heaven,Place 7 Perfects in a row (the ×4 combo),play/combo_7.png,No,,Revealed,35,15
+Solid Ground,Make a Solid Row,play/row.png,No,,Revealed,5,16
+Double!,Make 2 Solid Rows with one shape,play/row_2.png,No,,Revealed,15,17
+Triple!,Make 3 Solid Rows with one shape,play/row_3.png,No,,Revealed,35,18
+Flat Out,Claim a checkpoint with an S foundation,play/grade_s.png,No,,Revealed,15,19
+Spirit Level,Claim 3 checkpoints in a row with S foundations,play/grade_s3.png,No,,Revealed,35,20
+Penny Pincher,Claim a checkpoint with an A or S foundation and 8 or more bricks to spare,play/thrifty.png,No,,Revealed,15,21
+Just Enough,Claim a checkpoint with your very last brick,play/last_brick.png,No,,Revealed,15,22
+Clutch!,Save a shape the guide said would tip,play/clutch.png,No,,Revealed,5,23
+Nerves of Steel,Make 3 Clutch saves in one run,play/clutch_3.png,No,,Revealed,15,24
+By a Thread,Claim a checkpoint on your last heart,play/last_heart.png,No,,Revealed,5,25
+Weathervane,Get through the Treetops without losing a heart,play/calm_2.png,No,,Revealed,5,26
+Steady Hands,Reach Cloudlands without losing a heart,play/flawless_3.png,No,,Revealed,15,27
+Eye of the Storm,Get through the Storm Belt without losing a heart,play/calm_4.png,No,,Revealed,15,28
+Iron Tower,Reach Orbit without losing a heart,play/flawless_6.png,No,,Revealed,35,29
+Dodgeball,Get through Orbit without losing a heart,play/calm_6.png,No,,Revealed,35,30
+Meteor Proof,Get through the Moon without losing a heart,play/calm_7.png,No,,Revealed,35,31
+Bubble Pop,Steer through a power bubble,play/bubble.png,No,,Revealed,5,32
+Toolbox,Use all five power-ups,play/toolbox.png,Yes,5,Revealed,15,33
+Comeback Kid,"Use Second Wind, then claim 3 more checkpoints in the same run",play/comeback.png,No,,Revealed,15,34
+No Help Needed,Reach the Storm Belt without using a power-up or Second Wind,play/purist.png,No,,Revealed,35,35
+Bubble Wrap,Collect 50 power bubbles,play/bubbles_50.png,Yes,50,Revealed,15,36
+Brick by Brick,"Place 1,000 bricks",play/bricks_1k.png,Yes,1000,Revealed,5,37
+Great Wall,"Place 10,000 bricks",play/bricks_10k.png,Yes,10000,Revealed,35,38
+Perfectionist,Place 250 Perfects,play/perfects_250.png,Yes,250,Revealed,15,39
+Rock Solid,Make 100 Solid Rows,play/rows_100.png,Yes,100,Revealed,15,40
+Centurion,Claim 100 checkpoints,play/cps_100.png,Yes,100,Revealed,15,41
+Hooked,Play 3 days in a row,play/streak_3.png,No,,Revealed,5,42
+Creature of Habit,Play 7 days in a row,play/streak_7.png,No,,Revealed,15,43
+Daily Grind,Finish a scored Daily Tower try,play/daily_first.png,No,,Revealed,5,44
+Daily Dozen,Finish 12 scored Daily Tower tries,play/daily_12.png,Yes,12,Revealed,15,45
+Avalanche!,Lose 5 pieces in one tumble,play/avalanche.png,No,,Hidden,5,46
+So Close!,Run out of bricks within a block of the line,play/so_close.png,No,,Hidden,5,47
+Do-Over,"Undo a shape, then place it again as a Perfect",play/do_over.png,No,,Hidden,5,48
+Needle Threader,Claim a checkpoint with a tower so thin it gets the smallest foundation,play/needle.png,No,,Hidden,5,49
