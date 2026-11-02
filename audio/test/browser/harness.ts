@@ -92,13 +92,18 @@ const scenarios = {
   async worker(workerCode: string) {
     const url = URL.createObjectURL(new Blob([workerCode], { type: 'text/javascript' }));
     // three worker bakes, each with its worst main-thread stall: a GC pause or a busy page lands in one
-    // of them, while baking that blocks the main thread shows in all three, so the check reads the median
+    // of them, while baking that blocks the main thread shows in all three, so the check reads the median.
+    // The last bake's bank (about 40 MB) is collected before the next is timed, where the page allows it.
+    const gc = (globalThis as { gc?: () => void }).gc;
     let viaWorker: Awaited<ReturnType<typeof makeDirector>> | undefined;
     const workerStalls: number[] = [];
     for (let i = 0; i < 3; i++) {
       viaWorker?.d.dispose();
+      viaWorker = undefined;
+      gc?.();
       workerStalls.push(await longestStall(async () => (viaWorker = await makeDirector(1, 3, () => new Worker(url)))));
     }
+    gc?.();
     const workerStall = [...workerStalls].sort((x, y) => x - y)[1];
     let viaThread: Awaited<ReturnType<typeof makeDirector>> | undefined;
     const threadStall = await longestStall(async () => (viaThread = await makeDirector(1, 3)));

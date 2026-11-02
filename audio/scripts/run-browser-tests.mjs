@@ -46,7 +46,8 @@ if (haveSimPop) {
 }
 
 // CHROMIUM_PATH overrides the browser Playwright would pick
-const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
+// --expose-gc lets the worker check collect one bake's garbage before timing the next
+const browser = await chromium.launch({ headless: true, args: ['--js-flags=--expose-gc'], ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
 const page = await browser.newPage();
 page.on('pageerror', (e) => console.error('page error:', e.message));
 await page.setContent('<!doctype html><html><body></body></html>');
@@ -58,11 +59,13 @@ const checks = {
   worker(r) {
     assert.equal(r.baking, 'worker', 'the bank bakes in the worker');
     assert.ok(r.sameNames && r.compared > 100 && r.maxDiff === 0, `worker audio is identical to main-thread audio (${r.compared} buffers, max diff ${r.maxDiff})`);
-    // the median of three bakes' worst stalls, so one GC pause or busy moment can't fail it; the limit is
-    // 60 ms, or 2% of baking in place in the same run (about 3 s) when a loaded machine slows both
-    const limit = Math.max(60, Math.round(0.02 * r.threadStall));
+    // the median of three bakes' worst stalls against 150 ms, or 5% of baking in place in the same run
+    // (about 2 to 3 s). That catches baking moving back onto the main thread (a stall of seconds), not a
+    // few 70 ms hitches, which a loaded machine's GC and page work can't be told apart from (QA saw
+    // 78/75/43 ms on a fresh container straight after the art UI pass, 21/16/55 alone)
+    const limit = Math.max(150, Math.round(0.05 * r.threadStall));
     assert.ok(r.workerStall < limit, `baking in the worker never blocks the main thread for long (median worst stall ${r.workerStall} ms of ${r.workerStalls.join('/')}, limit ${limit} ms)`);
-    assert.ok(r.threadStall > 10 * r.workerStall, `the worker blocks the main thread far less than baking in place (${r.workerStall} against ${r.threadStall} ms)`);
+    assert.ok(r.threadStall > 5 * r.workerStall, `the worker blocks the main thread far less than baking in place (${r.workerStall} against ${r.threadStall} ms)`);
     assert.equal(r.fallback, 'main thread', 'a broken worker falls back to main-thread baking');
   },
   bank(r) {
