@@ -172,6 +172,9 @@ export class MusicEngine {
   private popBands = new Map<string, Band>();
   /** a first downbeat waiting for its notes (see holdFor) */
   private hold: { until: number; items: NoteRequest[] } | null = null;
+  /** The next Pop area's band, composed on the next update (prewarmPop). */
+  private nextWarm: (() => void) | null = null;
+  private popStart: Band | undefined;
   private warming: Promise<void>[] = [];
   readonly stats = { bars: 0, notes: 0, misses: 0, stolen: 0, dropped: 0, peakVoices: 0 };
   /** the last few notes that weren't baked in time (played as silence) */
@@ -359,9 +362,12 @@ export class MusicEngine {
     this.fadeAll(when, 0.12);
     this.begin(this.popBand(), when + 0.02, 0);
     this.holdFor(this.band!, when + 0.02);
+    // the band a run starts on is kept, so the next run (most start in the Meadow) finds it ready
+    this.popStart = this.band;
     this.note('pop start', when);
-    this.prewarmPop();
     this.update(when);
+    // after the first update, so the next area's band is composed on the next one
+    this.prewarmPop();
   }
 
   /** The board changed: how full it is (0 to 1) and the combo. Layers follow on the next bar line. */
@@ -456,7 +462,7 @@ export class MusicEngine {
     const rot = biomeId === 10 ? cosmosRotation(checkpoint) : 0;
     const key = biomeKey(biomeId, checkpoint);
     const id = `pop${biomeId}:${rot}:${key.root}${key.mode[0]}`;
-    for (const b of [this.band, this.target]) if (b?.id === id) return b;
+    for (const b of [this.band, this.target, this.popStart]) if (b?.id === id) return b;
     let b = this.popBands.get(id);
     if (!b) {
       const style = popStyleFor(biomeId, rot);
@@ -467,20 +473,28 @@ export class MusicEngine {
     return b;
   }
 
-  /** The playing band, Pop's extra bars for it, the results loop, and the next biome's band. */
+  /**
+   * The playing band, Pop's extra bars for it, the results loop, and the band of the next area. Pop's
+   * areas can change at any checkpoint (every one under rules 4), so the next area's band is always
+   * the one after this; it is composed on the next update, not inside the event, since a new band's
+   * notes take 10 to 20 ms to gather and a checkpoint is the busiest frame of a run.
+   */
   private prewarmPop(): void {
     const band = this.target ?? this.band;
     if (!band) return;
-    const list = (b: Band) => () => (b.list ??= [...b.theme.notes(), ...popNotes(b.theme)]);
-    this.warm(band.id, list(band), true);
+    this.warm(band.id, popList(band), true);
     this.warmScreen('popResults');
     const n = this.checkpoint + 1;
-    const b = biome(this.biomeId);
-    const next = b.id < 10 && n >= b.lastCheckpoint ? b.id + 1 : b.id;
-    if (next !== b.id || b.id === 10) {
+    const id = biome(this.biomeId).id;
+    const next = Math.min(id + 1, 10);
+    this.nextWarm = () => {
       const nb = this.popBandAt(next, n);
-      if (nb.id !== band.id) this.warm(nb.id, list(nb));
-    }
+      if (nb.id === (this.target ?? this.band)?.id) return;
+      // gathered here, so taking it over costs nothing; and asked for again even if it played before, as
+      // the note cache holds two bands and rules 4 passes a new one at every checkpoint
+      popList(nb)();
+      this.warm(nb.id, popList(nb), true);
+    };
   }
 
   /** One bar of Pop: the layers are decided on the bar line from the board, then their notes gathered. */
@@ -542,6 +556,11 @@ export class MusicEngine {
   /** Call often (every tick): follows tension live and schedules bars just ahead of `when`. */
   update(when: number, inputs?: MusicInputs): void {
     if (inputs) this.inputs = inputs;
+    if (this.nextWarm) {
+      const f = this.nextWarm;
+      this.nextWarm = null;
+      if (this._mode === 'popRun') f();
+    }
     if (this._mode === 'run' && this.reactive) this.follow(when);
     if (this._mode === 'off' || !this.band) return;
     if (this.hold) {
@@ -570,6 +589,11 @@ export class MusicEngine {
 
   /** Bakes the bars a run will need soon. Resolves when everything asked for so far is in. */
   async prewarm(): Promise<void> {
+    if (this.nextWarm && this._mode === 'popRun') {
+      const f = this.nextWarm;
+      this.nextWarm = null;
+      f();
+    }
     while (this.warming.length) await Promise.all(this.warming.splice(0));
   }
 
@@ -850,6 +874,11 @@ export class MusicEngine {
     this.log.push({ t: Math.round(t * 100) / 100, what });
     if (this.log.length > 200) this.log.shift();
   }
+}
+
+/** A Pop band's notes: its bars and Pop's extra layers, gathered once. */
+function popList(b: Band): () => NoteRequest[] {
+  return () => (b.list ??= [...b.theme.notes(), ...popNotes(b.theme)]);
 }
 
 function risers(theme: Theme, next: MusicStyle): NoteRequest[] {

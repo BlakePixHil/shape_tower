@@ -487,6 +487,20 @@ export class AudioDirector {
     if (p.info) p.info.end = Math.min(p.info.end, when + fade * 2);
   }
 
+  /** Takes back a sound scheduled a moment ago: silent if it hasn't started, else a 6 ms fade. */
+  private cancelPlaying(p: Playing, start: number): void {
+    if (this.ctx.currentTime <= start) {
+      try {
+        p.gain.gain.cancelScheduledValues(0);
+        p.gain.gain.setValueAtTime(0, start);
+        p.src.stop(start);
+      } catch {
+        /* already stopped */
+      }
+    } else this.stopPlaying(p, this.ctx.currentTime, 0.006);
+    if (p.info) this.voices.remove(p.info.id);
+  }
+
   private stopAll(when: number): void {
     for (const p of this.playing.values()) this.stopPlaying(p, when, 0.05);
     if (this.bed) {
@@ -1705,9 +1719,17 @@ export class AudioDirector {
     this.music.popBiome(b.id, this.popRun.cp);
     this.warmPop();
     if (entry && this.juice) {
-      const at = Math.max(when, this.lastCheckpointAt + 1.2);
+      // A checkpoint that opens a new area (every one under rules 4) is one moment: the view names the
+      // area instead of the checkpoint, so the area's chime takes the flag's place. That also keeps Pop's
+      // stingers (the pops' clacks, the chime) within their three voices. An area entered on its own
+      // keeps the tower's 1.2 s after the last checkpoint.
+      const R = this.popRun;
+      const same = !!R.flag && Math.abs(when - R.flag.at) < 0.05;
+      if (same) this.cancelPlaying(R.flag!.p, R.flag!.at);
+      R.flag = null;
+      const at = same ? when : Math.max(when, this.lastCheckpointAt + 1.2);
       this.play(`entry.${b.id}`, { when: at, gainDb: b.id === 4 ? -8 : -11, category: 'stinger', priority: 1, slowmo: false });
-      this.haptic('medium', 1, at - this.now());
+      if (!same) this.haptic('medium', 1, at - this.now());
     }
   }
 
@@ -1800,7 +1822,14 @@ export class AudioDirector {
     const h = this.music.popHarmony(at);
     const degree = h?.degree ?? 0;
     if (h) this.playChord(h.chord.inst, h.chord.midis, { when: at, gainDb: -14, priority: 2 }, h.chord.spread);
-    this.popChord(v.board, voice(triadPcs(this.key, degree), v.boardLow), { when: at, gainDb: count >= 2 ? -9 : -11, priority: 1 });
+    // one answer at a time: a pop's answer takes over from the last one still ringing (two triads on the
+    // board's bells would blur, and they would crowd Pop's three stinger voices)
+    const prev = this.popRun.answer;
+    if (prev) {
+      this.stopPlaying(prev, at, 0.06);
+      if (prev.info) this.voices.remove(prev.info.id);
+    }
+    this.popRun.answer = this.popChord(v.board, voice(triadPcs(this.key, degree), v.boardLow), { when: at, gainDb: count >= 2 ? -9 : -11, priority: 1 });
     if (count >= 2) {
       this.popNote(v.board, this.popPitch(10), { when: at + 0.02, gainDb: -13 });
       // a little crowd of shapes cheering
@@ -1832,7 +1861,8 @@ export class AudioDirector {
     const R = this.popRun;
     R.cp = n;
     this.lastCheckpointAt = when;
-    this.play('flag', { when, gainDb: -8, category: 'stinger', priority: 1 });
+    const flag = this.play('flag', { when, gainDb: -8, category: 'stinger', priority: 1 });
+    R.flag = flag ? { p: flag, at: when } : null;
     if (this.juice) this.play('pop.whoosh', { when: when + 0.05, gainDb: -14, category: 'misc', priority: 3 });
     this.haptic('medium');
     // Deep Cosmos turns key every 6 checkpoints
@@ -1976,13 +2006,17 @@ interface PopRun {
   step: number;
   placed: number;
   shimmer: Playing | null;
+  /** the last checkpoint's flag, which an area entered in the same move takes over */
+  flag: { p: Playing; at: number } | null;
+  /** the board's last answer chord, which the next pop's answer takes over */
+  answer: Playing | null;
   cantFit: Set<number>;
   noRoomAt: number;
   overAt: number;
 }
 
 function newPopRun(): PopRun {
-  return { on: false, puzzle: false, cp: 0, combo: 0, step: 0, placed: 0, shimmer: null, cantFit: new Set(), noRoomAt: -10, overAt: -10 };
+  return { on: false, puzzle: false, cp: 0, combo: 0, step: 0, placed: 0, shimmer: null, flag: null, answer: null, cantFit: new Set(), noRoomAt: -10, overAt: -10 };
 }
 
 /** One popping cell to the next: a 64th note at 96 BPM, like the view's wave. */
