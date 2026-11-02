@@ -780,6 +780,8 @@ const scenarios = {
       wrap('playChord', (inst: string, _m: number[], o: { when?: number } = {}) => chords.push({ when: o.when ?? 0, inst }));
       x.haptic = (name: string) => haptics.push(name);
       wrap('say', (name: string) => said.push(name));
+      const cancelled: number[] = [];
+      wrap('cancelPlaying', (_p: unknown, start: number) => cancelled.push(start));
       const shimmerAt: Record<string, boolean> = {};
       const R = () => (d as unknown as { popRun: { shimmer: unknown } }).popRun;
       d.handle('pop_run_start', { biome: 1, cp: 0, fill: 0 }, 0.1);
@@ -805,6 +807,9 @@ const scenarios = {
       // rules 3: two merges after a pop, stamped 360 ms later with effects on and at once with them off
       d.handle('pop_merge', { count: 2, cells: 9, delay: on ? 360 : 0 }, 3);
       d.handle('pop_merge', { count: 1, cells: 4, delay: on ? 360 : 0 }, 3.05);
+      // rules 4: a checkpoint that opens a new area, both events in the same move
+      d.handle('pop_checkpoint', { n: 1 }, 3.5);
+      d.handle('biome_entered', { id: 2 }, 3.5);
       d.handle('pop_cant_fit', { slot: 1 }, 4);
       d.handle('pop_cant_fit', { slot: 1 }, 4.1);
       d.handle('pop_no_room', {}, 5);
@@ -814,7 +819,7 @@ const scenarios = {
       const all = analyse(buf);
       const st = d.music.state();
       out[on ? 'on' : 'off'] = {
-        plays, gliss, answer, placeNotes, haptics, said, shimmerAt, peak: all.peak, nonFinite: all.nonFinite, grid, misses: st.misses,
+        plays, gliss, answer, placeNotes, haptics, said, shimmerAt, cancelled, peak: all.peak, nonFinite: all.nonFinite, grid, misses: st.misses,
       };
     }
     return out;
