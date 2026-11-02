@@ -16,6 +16,17 @@ const CELLS = 81;
 
 interface Move { slot: number; x: number; y: number }
 
+/** A run's start and end set up a band and a results loop once; everything else is what play costs. */
+const ONCE = new Set(['pop_run_start', 'pop_run_over', 'screen:none']);
+function playMean(cost: Record<string, { n: number; ms: number }>): number {
+  let n = 0, ms = 0;
+  for (const [k, c] of Object.entries(cost)) if (!ONCE.has(k)) { n += c.n; ms += c.ms; }
+  return ms / Math.max(1, n);
+}
+
+/** When the bot ends a first run that is still going. */
+const ENOUGH = 100;
+
 (window as any).popSimScenario = async (seconds = 150, seed = 5) => {
   const T0 = performance.now();
   const ctx = new OfflineAudioContext(2, SR * (seconds + 4), SR);
@@ -124,7 +135,8 @@ interface Move { slot: number; x: number; y: number }
           // rules 3: touching split pieces merge; with effects on the view stamps them 360 ms later
           case 'pop_merge': {
             const merges = (p.merges ?? []) as { cells: number[] }[];
-            if (merges.length) send(at, 'pop_merge', { count: merges.length, cells: merges.reduce((a, m) => a + m.cells.length, 0), delay: 360 });
+            // rules 4: a placed shape that merges stamps sooner (170 ms) than pieces left by a pop (360 ms)
+            if (merges.length) send(at, 'pop_merge', { count: merges.length, cells: merges.reduce((a, m) => a + m.cells.length, 0), delay: p.why === 'place' ? 170 : 360 });
             break;
           }
           case 'run_over':
@@ -184,6 +196,14 @@ interface Move { slot: number; x: number; y: number }
       }
       const s: PopSim = sim;
       const run = runs[runs.length - 1];
+      // a first run still going at 100 s ends there, as a player calls it a day: whatever the seed and the
+      // rules (rules 4's Second Wind can keep a careless bot alive), the check hears a run over and a new run
+      if (runs.length === 1 && t >= ENOUGH) {
+        setAt(t);
+        s.apply({ t: 'end' });
+        next = t + 0.5;
+        continue;
+      }
       // now and then a shape goes to the bag instead
       if (rng() < 0.07 && s.canBag(0)) {
         setAt(t);
@@ -299,7 +319,7 @@ interface Move { slot: number; x: number; y: number }
   return {
     counts, peak: pk, nonFinite, nearClip, rms: Math.sqrt(sum / (2 * a.length)),
     voices: { peak, total: maxVoices, limits: { ...FULL_CAPS, total: FULL_GLOBAL_CAP } },
-    cpu: { meanMs: total / Math.max(1, handled), worstMs: worst, events: handled, cost },
+    cpu: { meanMs: total / Math.max(1, handled), playMeanMs: playMean(cost), worstMs: worst, events: handled, cost },
     // runs the render reached (the bot plans a little ahead)
     runs: runs.filter((r) => r.from < seconds),
     music: d.music.state(),

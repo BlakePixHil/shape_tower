@@ -361,6 +361,11 @@ checks.popsfx = (r) => {
   assert.equal(mOff.length, 2, 'juice off keeps the merge snap');
   near(mOff[0].when, 3, 0.0005, 'juice off: the merge snaps at once, as the view stamps it');
   assert.ok(!off.plays.some((p) => p.name === 'pop.flick' && p.when >= 3 && p.when < 4), 'juice off drops the tap');
+  // rules 4 at 3.5 s: a checkpoint into a new area is one moment, the area's chime in the flag's place
+  const entry = on.plays.filter((p) => p.name === 'entry.2');
+  assert.ok(entry.length === 1 && Math.abs(entry[0].when - 3.5) < 0.001, `the new area's chime plays with its checkpoint (${entry.map((p) => p.when)})`);
+  assert.deepEqual(on.cancelled, [3.5], 'the checkpoint flag gives way to the chime');
+  assert.ok(off.plays.some((p) => p.name === 'flag' && p.when === 3.5) && off.cancelled.length === 0, 'juice off keeps the flag');
   assert.ok(on.plays.filter((p) => p.name === 'pop.uh').length === 1, 'a shape that stops fitting says "uh" once');
   assert.equal(on.plays.filter((p) => p.name === 'ui.error').length, 1, '"No room!" plays once, not again at the run over');
   assert.ok(on.said.includes('aww'), 'the Blocklings go "aww" at the end');
@@ -401,7 +406,11 @@ checks.popsim = (r) => {
   assert.ok(r.rms > 0.005, 'the run is audible');
   for (const [cat, n] of Object.entries(r.voices.peak)) assert.ok(n <= r.voices.limits[cat], `${cat} voices ${n} within cap`);
   assert.ok(r.voices.total <= r.voices.limits.total, 'total voices within cap');
-  assert.ok(r.cpu.meanMs < 0.25, `an event costs ${r.cpu.meanMs.toFixed(3)} ms on average`);
+  // a run start sets up its band once, so it is judged on its own and play by its mean (a run with fewer
+  // moves no longer weighs its two starts more)
+  assert.ok(r.cpu.playMeanMs < 0.25, `an event during play costs ${r.cpu.playMeanMs.toFixed(3)} ms on average`);
+  const start = r.cpu.cost.pop_run_start;
+  assert.ok(start && start.worst < 150, `a run start costs ${start?.worst.toFixed(1)} ms at worst`);
   assert.equal(r.music.misses, 0, `every band note was baked in time (${r.music.missed.join(' ')})`);
   assert.ok(r.music.peakVoices <= 16, `the band stays within its 16 voices (${r.music.peakVoices})`);
   assert.equal(r.starts, r.runs.length, 'the band starts with every run');
@@ -453,7 +462,7 @@ function summary(name, r) {
   if (name === 'pop') return `layers ${r.log.filter((e) => / on$|fanfare|nice try|popResults/.test(e.what)).map((e) => `${e.what.replace(/ on$/, '')} ${e.t}`).join(', ')}; levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v}`).join(', ')} dB`;
   if (name === 'popsfx') return `gliss ${r.on.gliss.length} notes, answer at ${r.on.answer.map((c) => c.when.toFixed(3)).join('/')}, juice off ${r.off.plays.length} sounds`;
   if (name === 'popscreens') return `${r.log.map((e) => `${e.what} ${e.t}`).join(', ')}; levels ${Object.entries(r.levels).map(([k, v]) => `${k} ${v}`).join(', ')} dB`;
-  if (name === 'popsim') return `${r.runs.length} runs (${r.runs.map((x) => `${x.moves} moves, ${x.lines} lines, cp ${x.cp}`).join('; ')}), layers ${r.layers.join('/')}, bands ${r.bands.join('/') || 'one'}, powers ${Object.entries(r.powers).map(([k, v]) => `${k} ${v}`).join('/') || 'none'}, merges ${r.counts.pop_merge ?? 0}, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.meanMs.toFixed(3)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB`;
+  if (name === 'popsim') return `${r.runs.length} runs (${r.runs.map((x) => `${x.moves} moves, ${x.lines} lines, cp ${x.cp}`).join('; ')}), layers ${r.layers.join('/')}, bands ${r.bands.join('/') || 'one'}, powers ${Object.entries(r.powers).map(([k, v]) => `${k} ${v}`).join('/') || 'none'}, merges ${r.counts.pop_merge ?? 0}, peak ${r.peak.toFixed(3)}, voices ${r.voices.total}, event ${r.cpu.playMeanMs.toFixed(3)} ms in play, run start ${r.cpu.cost.pop_run_start?.worst.toFixed(1)} ms; band ${r.music.notes} notes, ${r.music.stolen} stolen, peak ${r.music.peakVoices} voices, memory ${r.memoryMB} MB`;
   if (name === 'loudness') return `${r.softDb} / ${r.midDb} / ${r.hardDb} dB, below-screen ${r.belowDb} dB`;
   return JSON.stringify(r).slice(0, 120);
 }
