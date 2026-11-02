@@ -67,7 +67,7 @@ export interface Tuning {
   minSlabWidth: number;
   slabBoost: number;          // extra minimum slab width for the Meadow's claims, one less per biome after (gameplay.md §7.3)
   plinthWidth: number;        // the run's first foundation, blocks
-  widestSlabs: boolean;       // every claim gives the widest slab, whatever the grade (always on in Zen)
+  widestSlabs: boolean;       // every claim gives the widest slab, whatever the grade (Zen's rule until Zen lost its checkpoints, 2026-11-02)
   slabThickness: number;
   slackStart: number;
   slackDecay: number;         // per ramp step
@@ -108,8 +108,9 @@ export interface Tuning {
   meteorImpulse: number;      // kg·m/s per meteor
   heartsEveryFrom: number;    // from this checkpoint on, a heart comes back only every third claim (0: every claim, all the way up)
   // Modes (gameplay.md §12)
-  zen: boolean;               // Zen: no budget, no hearts to lose, no Second Wind, exactly half XP; only quitting ends it.
-                              // Also gentler: half-pace ramp, half-strength hazards, widest slabs (gameplay.md §12.1)
+  zen: boolean;               // Zen: no checkpoints, budget, hearts to lose or Second Wind, exactly half XP; only quitting ends it.
+                              // Its stretches follow the tower's height; also gentler: half-pace ramp, half-strength hazards (gameplay.md §12.1)
+  zenSetDepth: number;        // Zen: settled pieces wholly this many blocks below the tower's settled top turn to stone
   rampPace: number;           // × the difficulty ramp's pace (rampFor; Zen halves it again)
   shapeSet: string[];         // Daily Tower: deal only these shapes, evenly, from the first one (§12.3); empty: the normal bag
   // Debug
@@ -212,6 +213,7 @@ export const DEFAULT_TUNING: Tuning = {
   meteorImpulse: 6,
   heartsEveryFrom: 17,
   zen: false,
+  zenSetDepth: 6,
   rampPace: 1,
   shapeSet: [],
   wind: 0,

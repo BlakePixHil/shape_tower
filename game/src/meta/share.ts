@@ -22,6 +22,7 @@ export interface ShareRun {
   mode: ShareMode;
   /** Best height this run, in metres above the plinth. */
   height: number;
+  /** Checkpoints claimed. Zen has none: there it's the stretches of height grown past, for the squares. */
   checkpoints: number;
   newBest?: boolean;
   /** Daily #N (the Daily only). */
@@ -59,7 +60,8 @@ export function shareLink(r: ShareRun, base = SHARE_BASE): string {
 export function shareHeadline(r: ShareRun): string {
   const cps = plural(r.checkpoints, 'checkpoint');
   if (r.mode === 'daily') return `Shape Tower Daily #${r.daily}${r.practice ? ' (practice)' : ''}: ${metres(r.height)}, ${cps}`;
-  if (r.mode === 'zen') return `Shape Tower Zen: ${metres(r.height)}, ${cps}`;
+  // Zen has no checkpoints (gameplay.md §12.1): it names the sky the tower reached.
+  if (r.mode === 'zen') return `Shape Tower Zen: ${metres(r.height)}, ${biomeFor(Math.max(0, Math.floor(r.checkpoints)) + 1).name}`;
   return `Shape Tower: ${metres(r.height)}, ${cps}${r.newBest ? ' (new best!)' : ''}`;
 }
 

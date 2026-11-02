@@ -1,7 +1,9 @@
 // Plays Zen in the built game headless (gameplay.md §12): it opens from the menu at level 8, the HUD
-// shows no shapes to count, no hearts to lose and no Second Wind, lost shapes cost nothing, pause has
-// Finish instead of Quit, and the summary pays exactly half XP (the Daily Boost still applies, no
-// quit halving) without touching Endless's best, best biome, postcards or the day's free Second Wind.
+// shows no shapes to count, no hearts to lose and no Second Wind, lost shapes cost nothing, there are
+// no checkpoints (no line, hold or claim: the pill counts down to the next sky, which follows height),
+// pause has Finish instead of Quit, and the summary counts shapes and pays exactly half XP (the Daily
+// Boost still applies, no quit halving) without touching Endless's best, best biome, postcards or the
+// day's free Second Wind.
 //   npm run build:game && node tests/zen-check.mjs [outDir]
 
 import { chromium } from '@playwright/test';
@@ -68,21 +70,27 @@ const start = await page.evaluate(() => {
 });
 step('a Zen run: no budget, no hearts to lose, Second Wind off', start.zen && start.budget && start.hearts && start.wind === 'off', JSON.stringify(start));
 step('the HUD shows ∞ hearts and ∞ shapes and hides Second Wind', start.heartsText.includes('∞') && start.shapesText === '∞' && start.windHidden, JSON.stringify(start));
-step('a Zen card says what Zen is and how to finish', !!start.card && /Zen mode/.test(start.card) && /Finish/.test(start.card), String(start.card));
+step('a Zen card says what Zen is, that it has no checkpoints, and how to finish', !!start.card && /Zen mode/.test(start.card) && /No checkpoints/.test(start.card) && /Finish/.test(start.card), String(start.card));
 step('the tower marks no best before the first Zen tower (Endless\'s best stays out)', start.best === 0, String(start.best));
 
-// Build on the foundation, and send every third shape off the edge, until a checkpoint is claimed
-// and a few shapes are lost (or 100 s pass).
+const pill0 = await page.evaluate(() => {
+  const el = window.__wobble.hud.root.querySelector('[data-id="pill"]');
+  return { text: el.textContent.trim(), zen: el.classList.contains('zen') };
+});
+step('the pill counts down to the next sky instead of a checkpoint', pill0.zen && /^Treetops · \d+ to go$/.test(pill0.text), JSON.stringify(pill0));
+
+// Build on the foundation, and send every third shape off the edge, until the tower has grown past
+// the first stretch's end (8 blocks up, out of sight) and a few shapes are lost (or 100 s pass).
 let i = 0;
 const until = Date.now() + 100_000;
 let s;
 while (Date.now() < until) {
   s = await page.evaluate(() => {
     const sim = window.__wobble.scene.sim;
-    return { state: sim.state, ctrl: !!sim.ctrl && !sim.ctrl.hard && sim.ctrl.speed > 0, x: sim.foundation.x, lost: sim.stats.lost ?? null, cps: sim.stats.checkpoints, hearts: sim.hearts, placed: sim.stats.placed };
+    return { state: sim.state, ctrl: !!sim.ctrl && !sim.ctrl.hard && sim.ctrl.speed > 0, x: sim.foundation.x, stretches: sim.stats.stretches, hearts: sim.hearts, placed: sim.stats.placed };
   });
   if (s.state !== 'playing') break;
-  if (s.cps >= 1 && i >= 14) break;
+  if (s.stretches >= 1 && i >= 14) break;
   if (s.ctrl) {
     const x = i % 3 === 2 ? s.x + 7 : s.x - 1 + (i % 3);
     await page.evaluate(x => { const sim = window.__wobble.scene.sim; sim.intent({ type: 'moveTo', x }); sim.intent({ type: 'hardDrop' }); }, x);
@@ -93,10 +101,18 @@ while (Date.now() < until) {
 await page.waitForTimeout(1500);
 await shot('03-zen-built');
 const mid = await page.evaluate(() => {
-  const sim = window.__wobble.scene.sim;
-  return { state: sim.state, hearts: sim.hearts, max: sim.tuning.hearts, cps: sim.stats.checkpoints, lost: [...sim.pieces.values()].filter(p => p.state === 'lost').length, dropped: sim.stats.placed, height: sim.stats.maxHeight - sim.foundations[0].top, xp: sim.xp() };
+  const w = window.__wobble, sim = w.scene.sim, pill = w.hud.root.querySelector('[data-id="pill"]');
+  const stone = [...sim.pieces.values()].filter(p => p.state === 'stone').length;
+  return {
+    state: sim.state, hearts: sim.hearts, max: sim.tuning.hearts, cps: sim.stats.checkpoints, stretches: sim.stats.stretches, cp: sim.checkpoint,
+    lost: [...sim.pieces.values()].filter(p => p.state === 'lost').length, stone, dropped: sim.stats.placed,
+    height: sim.stats.maxHeight - sim.foundations[0].top, xp: sim.xp(), lines: w.scene.lines.length, slabs: sim.foundations.length,
+    pill: pill.textContent.trim(),
+  };
 });
 step('lost shapes cost nothing and the run keeps going', mid.state === 'playing' && mid.hearts === mid.max && i >= 9, JSON.stringify({ ...mid, shapes: i }));
+step('no checkpoint line, hold, claim or slab: the tower grows past a stretch\'s end with nothing to claim', mid.stretches >= 1 && mid.cp === 1 + mid.stretches && mid.cps === 0 && mid.lines === 0 && mid.slabs === 1, JSON.stringify(mid));
+step('the tower sets to stone as it grows, and the pill still counts down to Treetops', mid.stone > 0 && /^Treetops · \d+ to go$/.test(mid.pill) && Number(mid.pill.match(/(\d+) to go/)[1]) < Number(pill0.text.match(/(\d+) to go/)[1]), JSON.stringify({ stone: mid.stone, pill: mid.pill, was: pill0.text }));
 
 // ---------------------------------------------------------------- pause and Finish
 await page.click('[data-id="pause"]');
@@ -122,10 +138,12 @@ await shot('05-summary');
 const sum = await page.evaluate(() => {
   const root = document.querySelector('.sc-root.show');
   const lines = [...root.querySelectorAll('.ui-line')].map(l => [...l.children].map(c => c.textContent.trim()));
-  return { kicker: root.querySelector('.ui-kicker')?.textContent.trim(), best: root.querySelector('.ui-best')?.textContent.trim() ?? null, lines };
+  const stat = root.querySelector('.ui-stats .ui-stat');
+  return { kicker: root.querySelector('.ui-kicker')?.textContent.trim(), best: root.querySelector('.ui-best')?.textContent.trim() ?? null, lines, stat: stat?.textContent.replace(/\s+/g, ' ').trim() ?? null };
 });
 const run = sum.lines.find(l => /Zen run/.test(l[0]));
 step('the summary says "Nicely built!" with no best yet', sum.kicker === 'Nicely built!' && sum.best === null, JSON.stringify(sum));
+step('the summary counts the shapes placed where Endless counts checkpoints', !!sum.stat && /Shapes/.test(sum.stat) && !/Checkpoint/i.test(sum.stat) && sum.stat.includes(String(mid.dropped)), JSON.stringify({ stat: sum.stat, placed: mid.dropped }));
 step('exactly half XP: the run line is the sim\'s half, not halved again on Finish', over.cause === 'quit' && run && run[1] === `+${over.xp}` && over.xp === xpBefore, JSON.stringify({ over, xpBefore, run }));
 step('the Daily Boost still applies to a Zen run, and no best bonus', sum.lines.some(l => l[0] === 'Daily Boost') && !sum.lines.some(l => l[0] === 'New best'), JSON.stringify(sum.lines));
 

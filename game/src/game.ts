@@ -651,7 +651,7 @@ async function boot(): Promise<void> {
     stats.runEnd(kind, profile.level, sim.stats.checkpoints, height);
     // The share button's card and text line (view/share.ts), from the tower as it stands now.
     const shareRunData: ShareRun = {
-      mode: mode.id, height, checkpoints: sim.stats.checkpoints, newBest: bestShown,
+      mode: mode.id, height, checkpoints: zen ? sim.stats.stretches : sim.stats.checkpoints, newBest: bestShown,
       daily: mode.id === 'daily' ? dailyNumber(mode.day!) : undefined, practice: mode.id === 'daily' && !mode.scored,
     };
     const card = {
@@ -687,6 +687,7 @@ async function boot(): Promise<void> {
         stats: {
           cause: zen ? 'zen' : sim.cause ?? '', height, newBest: zen ? newBest : a.lines.some(l => l[0] === 'New best'), bestLabel: zen ? 'New Zen best!' : undefined, biome: biome - 1,
           checkpoints: sim.stats.checkpoints, perfects: sim.stats.perfects, rows: sim.stats.rows, clutches: sim.stats.clutches, score: sim.score,
+          shapes: zen ? sim.stats.placed : undefined,
         },
         award: a,
         achievements: earned,

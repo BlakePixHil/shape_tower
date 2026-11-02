@@ -20,7 +20,9 @@ const daily = { mode: 'daily' as const, height: 38.27, checkpoints: 9, daily: 47
 check('Daily headline reads like the plan: "Shape Tower Daily #47: 38.2 m, 9 checkpoints"', shareHeadline(daily) === 'Shape Tower Daily #47: 38.2 m, 9 checkpoints', shareHeadline(daily));
 check('a practice run says so', shareHeadline({ ...daily, practice: true }) === 'Shape Tower Daily #47 (practice): 38.2 m, 9 checkpoints', shareHeadline({ ...daily, practice: true }));
 check('Endless with a new best, one checkpoint', shareHeadline({ mode: 'endless', height: 12, checkpoints: 1, newBest: true }) === 'Shape Tower: 12.0 m, 1 checkpoint (new best!)');
-check('Zen', shareHeadline({ mode: 'zen', height: 5.55, checkpoints: 0 }) === 'Shape Tower Zen: 5.5 m, 0 checkpoints');
+check('Zen names the sky it reached, not checkpoints', shareHeadline({ mode: 'zen', height: 5.55, checkpoints: 0 }) === 'Shape Tower Zen: 5.5 m, Meadow'
+  && shareHeadline({ mode: 'zen', height: 66.2, checkpoints: 6 }) === 'Shape Tower Zen: 66.2 m, Storm Belt', shareHeadline({ mode: 'zen', height: 66.2, checkpoints: 6 }));
+check('a Zen climb\'s squares: one per stretch of height, in its sky', shareText({ mode: 'zen', height: 66.2, checkpoints: 6 }).split('\n')[1] === '🟩🟩🟫🟫⬜⬜', shareText({ mode: 'zen', height: 66.2, checkpoints: 6 }));
 check('heights round down, never up (38.29 is 38.2, not 38.3)', shareHeadline({ ...daily, height: 38.29 }).includes('38.2 m'));
 check('one square per checkpoint in its biome: 2 Meadow, 2 Treetops, 2 Cloudlands, 1 Storm Belt', checkpointSquares(7) === '🟩🟩🟫🟫⬜⬜🟪', checkpointSquares(7));
 check('no checkpoints, no squares', checkpointSquares(0) === '');

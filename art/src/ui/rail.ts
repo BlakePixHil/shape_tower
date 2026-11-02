@@ -26,6 +26,8 @@ export interface RailState {
   /** 'run' (default): the whole climb, 0 to 1.08 × the highest of the next checkpoint, the best and the top.
    *  A number: a window that many blocks tall, scrolling with the tower's top a third of the way up. */
   span?: number | 'run';
+  /** Checkpoint ticks (default true). Zen has no checkpoints: its `cps` only place the biome bands and their dots. */
+  ticks?: boolean;
 }
 
 const W = 46, BAR = 12;
@@ -54,7 +56,7 @@ function cpHeight(cps: number[], n: number): number {
 export function setRail(rail: HTMLElement, s: RailState): void {
   const cv = rail.querySelector('canvas');
   if (!cv) return;
-  const key = `${s.top.toFixed(2)}|${s.cps.length}|${s.claimed}|${s.pb?.toFixed(2)}|${s.span}`;
+  const key = `${s.top.toFixed(2)}|${s.cps.length}|${s.claimed}|${s.pb?.toFixed(2)}|${s.span}|${s.ticks}`;
   if (cv.dataset.key === key) return;
   cv.dataset.key = key;
   const c = ctx2d(cv), k = cv.width / W, H = cv.height / k;
@@ -83,21 +85,23 @@ export function setRail(rail: HTMLElement, s: RailState): void {
   c.restore();
   c.lineWidth = 2.5; c.strokeStyle = INK; c.stroke(bar);
 
-  // Checkpoint ticks: claimed ones Ink, the next one gold and longer, later ones faint.
+  // Checkpoint ticks: claimed ones Ink, the next one gold and longer, later ones faint (none in Zen).
   for (let n = 1; ; n++) {
     const h = cpHeight(s.cps, n);
     if (h > hi) break;
     if (h < lo) continue;
     const y = Y(h), isNext = n === next, done = n <= s.claimed;
     c.lineCap = 'round';
-    if (isNext) {
-      c.lineWidth = 5.5; c.strokeStyle = INK; c.beginPath(); c.moveTo(x0 - 5, y); c.lineTo(x0 + BAR + 5, y); c.stroke();
-      c.lineWidth = 2.5; c.strokeStyle = SIGNAL.gold; c.stroke();
-    } else {
-      // Thinner when ticks crowd (a long run on the whole-run scale).
-      const crowd = clamp((Y(cpHeight(s.cps, n - 1)) - y) / 10, 0.45, 1);
-      c.lineWidth = 2 * crowd; c.strokeStyle = done ? INK : rgba(INK, 0.45);
-      c.beginPath(); c.moveTo(x0 - 2 * crowd, y); c.lineTo(x0 + BAR + 2 * crowd, y); c.stroke();
+    if (s.ticks !== false) {
+      if (isNext) {
+        c.lineWidth = 5.5; c.strokeStyle = INK; c.beginPath(); c.moveTo(x0 - 5, y); c.lineTo(x0 + BAR + 5, y); c.stroke();
+        c.lineWidth = 2.5; c.strokeStyle = SIGNAL.gold; c.stroke();
+      } else {
+        // Thinner when ticks crowd (a long run on the whole-run scale).
+        const crowd = clamp((Y(cpHeight(s.cps, n - 1)) - y) / 10, 0.45, 1);
+        c.lineWidth = 2 * crowd; c.strokeStyle = done ? INK : rgba(INK, 0.45);
+        c.beginPath(); c.moveTo(x0 - 2 * crowd, y); c.lineTo(x0 + BAR + 2 * crowd, y); c.stroke();
+      }
     }
     // A biome's first checkpoint gets a dot in the new biome's color.
     if (BIOMES.some(b => b.firstCp === n + 1)) {

@@ -234,10 +234,10 @@ for (const mortar of [true, false]) {
     t.dispose();
     return claim?.payload;
   };
-  const wide = needle({}), old = needle({ slabBoost: 0 }), zen = needle({ zen: true });
+  const wide = needle({}), old = needle({ slabBoost: 0 }), widest = needle({ widestSlabs: true });
   check('T19 needle claims CP1 with grade C and the Meadow\'s narrowest slab, 10 wide (6 with slabBoost 0)',
     wide?.grade === 'C' && wide.width === 10 && old?.grade === 'C' && old.width === 6, `${JSON.stringify(wide ?? 'no claim')} / ${JSON.stringify(old ?? 'no claim')}`);
-  check('Zen: a needle still gets the widest slab', zen?.grade === 'C' && zen.width === 12, JSON.stringify(zen ?? 'no claim'));
+  check('widestSlabs: a needle still gets the widest slab', widest?.grade === 'C' && widest.width === 12, JSON.stringify(widest ?? 'no claim'));
   const mins = [1, 2, 3, 4, 5, 6, 7, 10, 11, 20].map(n => minSlabWidthFor(DEFAULT_TUNING, n));
   check('Narrowest slab by claim: 10 in the Meadow, 9 in Treetops, 8 in Cloudlands, 7 in the Storm Belt, then 6', mins.join(',') === '10,10,9,9,8,8,7,6,6,6', mins.join(', '));
   const maxes = [1, 6, 7, 10, 11, 16, 17, 22, 23, 40].map(n => maxSlabWidthFor(n));
@@ -1117,33 +1117,77 @@ type Ev = { name: string; step: number; payload: Record<string, any> };
   check('Zen: a dust devil blows at half strength', endless === 0.1 && zen === 0.05, `endless ${endless} g, zen ${zen} g`);
 }
 
-// Zen's easing is exactly the levers an Endless run can set (so QA can still compare the two step for
-// step): half rampPace, half gustScale and hazardStrength, widest slabs, unlimited hearts and budget.
+// Zen has no checkpoints (Blake, 2026-11-02): a tower that reaches where the line would be gets no hold,
+// no claim and no slab. Its stretch ends there out of sight, at a fixed height.
 {
-  const run = (tuning: Partial<Tuning>) => {
-    const t = createSim({ autoSpawn: true, seed: 5, startCheckpoint: 7, secondWind: 'off', tuning: { seenHazards: ['crosswind', 'junk', 'meteor', 'dust', 'sway'], ...tuning } });
-    const digests: string[] = [];
-    // Hard drops down the middle: a crosswind-blown pile that claims once, about 140 s in.
-    for (let i = 0; i < 60 * 150 && t.sim.state === 'playing'; i++) {
-      const c = t.sim.ctrl;
-      if (c && !c.hard && c.speed > 0) {
-        if (Math.abs(c.xTarget - t.sim.foundation.x) > 0.01) t.intent({ type: 'moveTo', x: t.sim.foundation.x });
-        else t.intent({ type: 'hardDrop' });
-      }
-      t.step();
-      t.drainEvents();
-      if (t.sim.stepIndex % 60 === 0) digests.push(t.sim.digest());
-    }
-    const out = { digests, claims: t.sim.stats.checkpoints, width: t.sim.foundation.width };
-    t.dispose();
-    return out;
-  };
-  const zen = run({ zen: true });
-  const twin = run({ infiniteHearts: true, infiniteBudget: true, rampPace: 0.5, gustScale: 0.5, hazardStrength: 0.5, widestSlabs: true });
-  const split = zen.digests.findIndex((d, i) => d !== twin.digests[i]);
-  check('Zen: the same run as Endless with half rampPace, gustScale and hazardStrength, widest slabs, no budget and no hearts',
-    split < 0 && zen.digests.length === twin.digests.length && zen.claims >= 1,
-    `${zen.digests.length} and ${twin.digests.length} digests, part at ${split}; ${zen.claims} claims, slab ${zen.width}`);
+  const t = createSim({ tuning: { mortar: true, zen: true } });
+  t.spawnControlled({ shape: 'I', x: 0.5, rot: 1 });
+  t.intent({ type: 'hardDrop' });
+  t.step(90);
+  t.spawnControlled({ shape: 'I', x: 0.5, rot: 1 });
+  t.intent({ type: 'hardDrop' });
+  t.step(400);
+  const ev = t.drainEvents();
+  const names = new Set(ev.map(e => e.name));
+  const stretch = ev.find(e => e.name === 'zen_stretch')?.payload;
+  check('Zen: a needle past where the line would be gets no hold, claim or slab; the stretch ends at 8 out of sight',
+    !names.has('checkpoint_hold') && !names.has('checkpoint_claimed') && !names.has('checkpoint_near') && t.sim.foundations.length === 1
+      && stretch?.n === 2 && stretch.y === 8 && t.sim.checkpoint === 2 && t.sim.lineY === 17 && t.sim.zenLines.join() === '8',
+    `events ${[...names].filter(n => /checkpoint|zen/.test(n)).join(', ')}; stretch ${JSON.stringify(stretch)}, CP ${t.sim.checkpoint}, line ${t.sim.lineY}, ${t.sim.foundations.length} foundations`);
+  t.dispose();
+}
+
+// Zen's tower grows from the plinth as high as the player likes. Its stretches end at Endless's line
+// heights with no slabs between (8, 17, 27, ...), so the levers, hazards and biomes follow height; a new
+// sky hands over a power-up; the tower sets to stone zenSetDepth (6) blocks under its settled top, and the
+// stand-in foundation (camera, spawns, Solid Rows, hazards) follows it, centred on the tower's top.
+{
+  const t = createSim({ seed: 2, tuning: { zen: true, gusts: false, lateHazards: false } });
+  const ev: { name: string; payload: Record<string, any> }[] = [];
+  // Ten rows of O's across the plinth, settling as they go: a flat tower 20 blocks tall.
+  for (let row = 0; row < 10; row++) {
+    for (let col = 0; col < 6; col++) t.placePiece({ shape: 'O', x: -5 + col * 2, y: 1 + row * 2 + 0.001 * row });
+    t.step(60);
+    ev.push(...t.drainEvents());
+  }
+  t.step(60);
+  ev.push(...t.drainEvents());
+  const sim = t.sim, f = sim.foundation, top = sim.height().committed;
+  const stretches = ev.filter(e => e.name === 'zen_stretch').map(e => `${e.payload.n}@${e.payload.y}`);
+  const biomes = ev.filter(e => e.name === 'biome_entered').map(e => e.payload.id);
+  const granted = ev.filter(e => e.name === 'power_granted').map(e => e.payload.why);
+  const views = sim.pieceViews();
+  const wrongStone = views.filter(v => (v.top <= f.top + 0.05) !== (v.state === 'stone'));
+  check('Zen: the stretches end at 8 and 17 with no claims, and Treetops arrives at 17 with a power-up',
+    stretches.join() === '2@8,3@17' && sim.checkpoint === 3 && sim.lineY === 27 && biomes.join() === '1,2' && granted.join() === 'biome'
+      && sim.stats.checkpoints === 0 && sim.stats.stretches === 2 && sim.stats.biomes === 1 && sim.foundations.length === 1 && !ev.some(e => /^checkpoint_/.test(e.name)),
+    `stretches ${stretches.join(', ')}, CP ${sim.checkpoint}, line ${sim.lineY}, biomes ${biomes.join(', ')}, powers ${granted.join(', ')}`);
+  check('Zen: the tower sets to stone 6 blocks under its top, and the foundation follows it there, centred, 12 wide',
+    Math.abs(top - 20) < 0.1 && f.top === 14 && f.x === 0 && f.width === 12 && wrongStone.length === 0 && views.some(v => v.state === 'stone') && views.some(v => v.state !== 'stone'),
+    `top ${top.toFixed(2)}, foundation ${JSON.stringify(f)}, ${views.filter(v => v.state === 'stone').length}/${views.length} stone, ${wrongStone.length} on the wrong side of the line`);
+  check('Zen: the sky follows height: 30% up the stretch from 17 to 27, and Deep Cosmos starts at 316',
+    Math.abs(sim.progress() - 0.3) < 0.02 && sim.zenStart(3) === 17 && sim.zenStart(4) === 27 && sim.zenStart(23) === 316 && sim.zenStart(1) === 0,
+    `progress ${sim.progress().toFixed(3)}, stretch starts ${[1, 2, 3, 4, 23].map(n => sim.zenStart(n)).join(', ')}`);
+  // Half of 3 per whole block, 30 per stretch grown past (as a B grade's claim), 15 for Treetops.
+  const want = Math.round(0.5 * (3 * Math.floor(sim.stats.maxHeight) + 30 * 2 + 15));
+  check('Zen: XP is half of 3 a block, 30 a stretch and 15 a new biome', sim.xp() === want && sim.xp(true) === want, `xp ${sim.xp()}, want ${want}`);
+  // A row of O's dropped across the tower's top: once the set streak is reached, its full rows set as
+  // Solid Rows, counted from the stand-in foundation.
+  for (let col = 0; col < 6; col++) {
+    t.spawnControlled({ shape: 'O', x: f.x - 5 + col * 2 });
+    t.intent({ type: 'hardDrop' });
+    t.step(90);
+  }
+  const rows = t.drainEvents().filter(e => e.name === 'row_solid');
+  check('Zen: Solid Rows still set on the tower, measured from where it has set to', rows.length >= 1 && sim.stats.rows >= 1,
+    `${rows.length} row_solid events, ${sim.stats.rows} rows: ${JSON.stringify(rows.map(r => r.payload.count))}`);
+  // A shape tossed past the tower falls past the set line and is lost, costing nothing.
+  t.spawnControlled({ shape: 'O', x: f.x + 9 });
+  t.intent({ type: 'hardDrop' });
+  t.step(240);
+  const lost = t.drainEvents().filter(e => e.name === 'piece_lost' || e.name === 'heart_lost').map(e => e.name);
+  check('Zen: a shape tossed past the tower is lost and costs nothing', lost.join() === 'piece_lost' && sim.hearts === sim.tuning.hearts && sim.state === 'playing', lost.join());
+  t.dispose();
 }
 
 // Deep Cosmos: each stretch remixes two earlier hazards; gravity drifts unless sway is one of them.
@@ -1218,7 +1262,7 @@ for (const cp of [11, 17, 23]) {
 // Zen: no budget, no hearts to lose and no Second Wind. Shapes keep coming past any budget, and
 // shapes dropped off the edge are only lost: no heart events, and the run never ends on its own.
 {
-  // Tight budgets (Zen's slabs are always the widest), so the run soon passes them.
+  // Tight budgets, so the run soon passes them.
   const ZEN_TEST = { zen: true, plinthWidth: 8, slackStart: 0.3, slackFloor: 0.3 };
   const t = createSim({ autoSpawn: true, seed: 11, tuning: ZEN_TEST });
   const counts: Record<string, number> = {};
@@ -1249,10 +1293,10 @@ for (const cp of [11, 17, 23]) {
   t.step();
   const over = t.drainEvents().find(e => e.name === 'run_over');
   check('Zen: quitting ends it with exactly half XP, not halved again', xpZen === xpQuit && over?.payload.cause === 'quit' && over?.payload.xp === xpZen && xpZen > 5, `xp ${xpZen}, on quit ${xpQuit}, run_over ${JSON.stringify(over?.payload)}`);
-  // The same tower outside Zen: half of its XP (rounded) is what Zen paid.
+  // The same sums without Zen's halving: half of them (rounded) is what Zen paid.
   sim.tuning.zen = false;
   const full = sim.xp(false), half = sim.xp(true);
-  check('Zen: half of what the same tower pays in Endless', half === xpZen && Math.abs(full / 2 - xpZen) <= 0.5, `endless ${full}, half ${half}, zen ${xpZen}`);
+  check('Zen: exactly half of what the same tower adds up to', half === xpZen && Math.abs(full / 2 - xpZen) <= 0.5, `full ${full}, half ${half}, zen ${xpZen}`);
   sim.tuning.zen = true;
   // A Zen run replays exactly from its record: the tuning patch carries zen.
   const steps = sim.stepIndex;
@@ -1284,7 +1328,7 @@ for (const cp of [11, 17, 23]) {
   t.dispose();
 }
 
-// Zen never earns Second Wind: checkpoint 2 hands out a power-up instead, as in a scored Daily.
+// Zen never earns Second Wind: each new sky hands out a power-up instead.
 {
   const t = createSim({ autoSpawn: false, seed: 3, tuning: { zen: true }, secondWind: 'earn' });
   check('Zen: Second Wind is off whatever the run asks for', t.sim.secondWind === 'off', t.sim.secondWind);

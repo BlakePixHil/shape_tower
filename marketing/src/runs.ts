@@ -104,7 +104,8 @@ export function playRun(spec: RunSpec): RunResult {
   }
   const result: RunResult = {
     spec, steps: sim.stepIndex, inputs: sim.inputLog.map(x => ({ s: x.s, i: { ...x.i } })), digests,
-    cause: sim.cause || 'cut', height: sim.stats.maxHeight - sim.foundations[0].top, checkpoints: sim.stats.checkpoints,
+    // Zen has no checkpoints since 2026-11-02: the stretches of height it grew past count instead.
+    cause: sim.cause || 'cut', height: sim.stats.maxHeight - sim.foundations[0].top, checkpoints: sim.stats.checkpoints + sim.stats.stretches,
     biome: biomeFor(sim.checkpoint).id, events,
   };
   sim.dispose();

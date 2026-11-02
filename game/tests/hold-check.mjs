@@ -176,7 +176,8 @@ await page.evaluate(() => { const s = window.__wobble.scene.sim; s.lineY = Math.
 await page.waitForFunction(cp2 => window.__wobble.scene.sim.checkpoint > cp2, cp2, { timeout: 30000 }).catch(() => {});
 await page.waitForFunction(() => window.__wobble.scene.grey === 0 && window.__wobble.scene.greyPop === -1, null, { timeout: 15000 }).catch(() => {});
 
-// Zen has no countdown to build up to: a hold there stays in colour, and a knock doesn't freeze.
+// Zen has no countdown to build up to: a hold there stays in colour, and a knock doesn't freeze. (Zen has
+// had no holds at all since 2026-11-02; Zen's tuning on a run with a hold keeps the rule checked.)
 // One shape on the new slab, then a hold (held open again) with a shape in hand to knock with.
 await page.evaluate(() => { const s = window.__wobble.scene.sim; s.tuning.zen = true; window.__stops.length = 0; window.__knocks.length = 0; });
 await inHand();

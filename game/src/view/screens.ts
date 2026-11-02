@@ -188,6 +188,8 @@ export interface SummaryStats {
   /** Highest biome reached, 0 = Meadow (its postcard goes on the card). */
   biome: number;
   checkpoints: number;
+  /** Zen has no checkpoints (gameplay.md §12.1): the shapes placed take their place on the card. */
+  shapes?: number;
   perfects: number;
   rows: number;
   clutches: number;
@@ -594,6 +596,10 @@ export class Screens {
     const chip = el.querySelector('.ui-best');
     if (chip && s.bestLabel) chip.lastChild!.textContent = s.bestLabel;
     if (o.pop) popSummary(el, Math.round(s.score), o.pop);
+    if (s.shapes !== undefined) {
+      const cp = el.querySelector('.ui-stats .ui-stat');
+      if (cp) cp.innerHTML = `<img alt="" src="${uiIconUrl('shapes', 26)}"><div><b>${Math.round(s.shapes).toLocaleString('en-US')}</b><span>Shapes</span></div>`;
+    }
     if (o.daily) {
       el.querySelector('.ui-sum-head')?.appendChild(dailyChip(o.daily.number, o.daily.scored));
       const again = el.querySelector('[data-action="again"]');

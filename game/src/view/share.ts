@@ -19,6 +19,8 @@ export function towerOf(sim: Sim, bestBefore: number): PanoramaData {
     slabs: sim.foundationViews().map(f => ({ x: f.x, top: f.top, width: f.width, grade: f.grade })),
     top: sim.stats.maxHeight,
     pb: bestBefore > 0 ? bestBefore + base : undefined,
+    // Zen has no slabs to mark its stretches: the card's skies change at the heights it grew past.
+    lines: sim.zen ? [...sim.zenLines] : undefined,
   };
 }
 
