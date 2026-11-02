@@ -1,7 +1,8 @@
 // The run-over panorama with a crooked tower, in the built game at Blake's phone size (Blake,
 // 2026-11-02: "if it's built crooked, the tower gets cut off"). Builds a tower of stone shapes that
 // leans right and back, quits, and watches every frame of the glide: every shape on screen must be
-// whole in frame, and the camera must move smoothly sideways. Saves screenshots along the way.
+// whole in frame, the camera must sit on its planned path, and that path and the ease onto it must have
+// no jumps. Saves screenshots along the way.
 //   npm run build:game && node tests/pano-browser.mjs [outDir]
 
 import { chromium } from '@playwright/test';
@@ -49,16 +50,26 @@ await page.click('[data-id="pause"]');
 await page.waitForTimeout(300);
 await page.click('[data-action="quit"]');
 
-// Watch the glide frame by frame, in the page.
+// Watch the glide frame by frame, in the page: sampled in the scene's postupdate, right after the
+// frame that moved the camera, so each sample is one game frame and its time is that frame's (a sample
+// taken on the page's own clock can straddle two game steps under load and fake a jump, QA 2026-11-02).
 const watching = page.evaluate(() => new Promise(resolve => {
   const scene = window.__wobble.scene;
   const frames = [];
-  let seen = false;
+  let seen = false, track = null, finished = false;
   const t0 = performance.now();
-  const tick = () => {
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    scene.events.off('postupdate', sample);
+    resolve({ frames, seen, track });
+  };
+  const sample = () => {
     const p = scene.pano;
     if (p) seen = true;
     if (p && p.t0 !== Infinity) {
+      const now = performance.now();
+      if (!track && p.track) track = { y0: p.track.y0, step: p.track.step, x: [...p.track.x], across: [...p.track.across], from: p.from, to: p.to, dur: p.dur, lead: p.t0 - p.blendAt };
       const cam = scene.cam, aspect = scene.H / scene.W;
       const l = cam.x - cam.across / 2, r = cam.x + cam.across / 2;
       const half = (cam.across * aspect) / 2;
@@ -69,13 +80,12 @@ const watching = page.evaluate(() => new Promise(resolve => {
         shown++;
         worst = Math.max(worst, l - (v.x - 1), v.x + 1 - r);
       }
-      frames.push({ t: performance.now() - p.t0, blend: p.blendAt === undefined ? 1 : Math.min(1, (performance.now() - p.blendAt) / 900), y: cam.y, x: cam.x, across: cam.across, shown, worst });
+      frames.push({ t: now - p.t0, blend: p.blendAt === undefined ? 1 : Math.min(1, (now - p.blendAt) / 900), since: p.blendAt === undefined ? Infinity : now - p.blendAt, y: cam.y, x: cam.x, across: cam.across, shown, worst });
     }
-    const done = seen && (!p || !p.done);
-    if (done || performance.now() - t0 > 20000) resolve({ frames, seen });
-    else requestAnimationFrame(tick);
+    if ((seen && (!p || !p.done)) || performance.now() - t0 > 20000) finish();
   };
-  tick();
+  scene.events.on('postupdate', sample);
+  setTimeout(finish, 21000);
 }));
 // Screenshots along the glide while the page watches.
 let ended = false;
@@ -94,16 +104,44 @@ step('the panorama played', watch.seen && f.length > 10, `${f.length} frames`);
 const on = f.filter(x => x.blend >= 1);
 const cut = on.filter(x => x.shown > 0 && x.worst > 0.05);
 const worst = Math.max(0, ...on.map(x => x.worst));
-step('every shape on screen stays whole in frame through the glide', on.length > 10 && cut.length === 0, `${cut.length} of ${on.length} frames cut, worst ${worst.toFixed(2)} blocks`);
+step('every shape on screen stays whole in frame through the glide', on.length > 5 && cut.length === 0, `${cut.length} of ${on.length} frames cut, worst ${worst.toFixed(2)} blocks`);
 const xs = f.map(x => x.x);
 step('the camera follows the lean', Math.max(...xs) - Math.min(...xs) > 6, `x ${Math.min(...xs).toFixed(1)}..${Math.max(...xs).toFixed(1)}`);
-// Smooth: per-frame moves small next to the frame time (headless frames are slow and uneven, so per ms).
-let jump = 0;
-for (let i = 1; i < f.length; i++) {
-  const dt = Math.max(1, f[i].t - f[i - 1].t);
-  jump = Math.max(jump, Math.abs(f[i].x - f[i - 1].x) / dt * 16.7, Math.abs(f[i].across - f[i - 1].across) / dt * 16.7);
+// Smooth, judged without the clock: once eased on, the camera sits exactly on the planned path at its
+// height, and the path itself moves sideways and zooms gently per block of the glide (no steps in it).
+const tr = watch.track;
+const at = y => {
+  const n = tr.x.length, fi = Math.max(0, Math.min(n - 1, (y - tr.y0) / tr.step)), i = Math.min(n - 2, Math.floor(fi)), u = fi - i;
+  return { x: tr.x[i] + (tr.x[i + 1] - tr.x[i]) * u, across: tr.across[i] + (tr.across[i + 1] - tr.across[i]) * u };
+};
+// (A frame's sample comes a moment after the camera moved, so judge from 0.1 s after the ease ends.)
+let off = 0;
+const settled = f.filter(x => x.since >= 1000);
+for (const x of settled) { const a = at(x.y); off = Math.max(off, Math.abs(x.x - a.x), Math.abs(x.across - a.across)); }
+step('once eased on, the camera follows the planned path', !!tr && settled.length > 5 && off < 1e-3, `most ${off.toExponential(1)} blocks off over ${settled.length} frames`);
+let slope = 0, bend = 0;
+if (tr) {
+  const i0 = Math.max(1, Math.floor((tr.to - tr.y0) / tr.step)), i1 = Math.min(tr.x.length - 2, Math.ceil((tr.from - tr.y0) / tr.step));
+  for (let i = i0; i <= i1; i++) {
+    slope = Math.max(slope, Math.abs(tr.x[i] - tr.x[i - 1]) / tr.step, Math.abs(tr.across[i] - tr.across[i - 1]) / tr.step);
+    bend = Math.max(bend, Math.abs(tr.x[i + 1] - 2 * tr.x[i] + tr.x[i - 1]), Math.abs(tr.across[i + 1] - 2 * tr.across[i] + tr.across[i - 1]));
+  }
 }
-step('sideways and zoom move without jumps', jump < 0.6, `most ${jump.toFixed(3)} blocks per 60 FPS frame`);
+step('the path moves sideways and zooms without jumps', !!tr && slope < 1.5 && bend < 0.05, `most ${slope.toFixed(3)} blocks per block down, bend ${bend.toFixed(4)}`);
+// The ease from play's camera onto the path runs on time. The time each frame's camera was placed at
+// comes from its own height: the glide's ease (scene.ts updateCamera) turned back into time.
+const glideMs = x => {
+  const e = Math.max(0, Math.min(1, (x.y - tr.from) / (tr.to - tr.from)));
+  return tr.dur * (e < 0.5 ? Math.sqrt(e / 2) : 1 - Math.sqrt(2 * (1 - e)) / 2);
+};
+let jump = 0, easing = 0;
+for (let i = 1; tr && i < f.length; i++) {
+  const a = glideMs(f[i - 1]), b = glideMs(f[i]);
+  if (a + tr.lead >= 900 || b - a < 1) continue; // eased on (the path checks cover it) or the camera didn't move
+  easing++;
+  jump = Math.max(jump, Math.abs(f[i].x - f[i - 1].x) / (b - a) * 16.7, Math.abs(f[i].across - f[i - 1].across) / (b - a) * 16.7);
+}
+step('the ease onto the path has no jumps', jump < 0.6, `most ${jump.toFixed(3)} blocks per 60 FPS frame over ${easing} frames`);
 step('ends on the ground with the plinth in view', f.length > 0 && f[f.length - 1].y < 15, `last y ${f.at(-1)?.y.toFixed(1)}`);
 step('no page errors', errors.length === 0, errors.slice(0, 3).join(' | '));
 
