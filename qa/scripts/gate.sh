@@ -23,8 +23,9 @@ if [ -d "$R/game" ]; then
   # achievements' Play Games / Game Center mapping and native bridge, the shop's products, prices, Supporter
   # offer and ad pacing, and the share line, rating card rules and play stats batches, in Node (#37, #60, #68,
   # #84, monetisation, marketing).
-  # Blockling Pop's rules, deal, scoring, records and bots (Pop plan §16).
-  for c in achievements:check daily:check names:check stores:check shop:check share:check pop:check; do
+  # Blockling Pop's rules, deal, scoring, records and bots (Pop plan §16), and the run-over panorama's camera
+  # path on made-up towers, straight and crooked (#131).
+  for c in achievements:check daily:check names:check stores:check shop:check share:check pop:check pano:check; do
     grep -q "\"$c\"" "$R/game/package.json" && run "game: ${c/:/ }" bash -c "cd game && npm run -s $c"
   done
   run "game: build" bash -c 'cd game && npm run -s build'
@@ -40,7 +41,8 @@ if [ -d "$R/game" ]; then
     # and Your look with the level track: picks worn in a run, the Builder's Pass, refunds, the Supporter frame (stage 2),
     # and the summary's share button, the rating card and the play stats with their Settings switch (marketing).
     # Blockling Pop played headless: the menu card, drags, the bag, save and Continue, pause, End run, No room and results.
-    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check ladder-check workshop-check look-check share-check pop-browser; do
+    # The run-over panorama after a crooked tower: every shape stays whole in frame and the camera glides smoothly (#131).
+    for t in game-check power-check budget-check avatar-check zen-check achievements-browser daily-check splash-check hold-check ladder-check workshop-check look-check share-check pop-browser pano-browser; do
       [ -f "$R/game/tests/$t.mjs" ] && run "game: $t" bash -c "cd game && node tests/$t.mjs"
     done
   fi
