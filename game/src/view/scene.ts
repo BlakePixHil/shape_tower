@@ -12,11 +12,12 @@ import {
   biomeForCheckpoint, rimAmount, type Expression, type Finish, type GuideState, type TexRef, type VfxName,
 } from '@art/index.ts';
 import { DT, Sim, type Bubble, type PieceView, type PowerKind, type SecondWindMode, type Shot, type Tint } from '../sim/sim.ts';
-import { SHAPES, extents } from '../sim/shapes.ts';
+import { SHAPES, extents, geometry } from '../sim/shapes.ts';
 import { biomeFor, type Tuning } from '../sim/tuning.ts';
 import { crackPaths } from './cracks.ts';
 import { Particles, Shaker, TimeControl, easeElasticOut, type ParticleOpts } from './fx.ts';
 import { Hud, POWER_NAMES, type HazardWant } from './hud.ts';
+import { panoTrack, pieceBoxes, trackAt, type PanoBox, type PanoTrack } from './panoTrack.ts';
 import { Gestures } from './input.ts';
 import type { LabState, ViewSettings } from './panel.ts';
 import type { RunStart } from './records.ts';
@@ -89,6 +90,12 @@ const ACROSS = 12;
 const SLAB_MARGIN = 3, OVERHANG_ZOOM = 3;
 /** The longest the run-over panorama waits at the top for the backdrop to bake its path (ms). */
 const PANO_WAIT = 1000;
+/**
+ * The panorama follows the middle of what's on screen at each height, so a crooked tower stays whole
+ * (Blake, 2026-11-02): blocks kept beside a piece's cells, the most it zooms out for a lean wider than
+ * the screen, and how long it takes to ease from where play left the camera onto that path (ms).
+ */
+const PANO_PIECE_MARGIN = 1, PANO_MAX_ACROSS = 2.5 * ACROSS, PANO_BLEND = 900;
 const TAU = Math.PI * 2;
 const PEDESTAL_LEGS = 0.4; // deck 0.6 + legs 0.4 = the sim's 1-block plinth
 /** Blocks of settled height between celebrations (height_milestone, gameplay.md §11.1). */
@@ -194,8 +201,12 @@ export class PlayScene extends Phaser.Scene {
   private demoIdx = 0;
   private demoAt = 0;
   // Run over: the camera glides down the whole tower (the panorama), with the sky following height.
-  // The glide waits (up to PANO_WAIT ms) for the backdrop to bake the biomes on its path.
-  private pano: { from: number; to: number; t0: number; dur: number; done: (() => void) | null; start: number } | null = null;
+  // The glide waits (up to PANO_WAIT ms) for the backdrop to bake the biomes on its path. Sideways and
+  // zoom follow `track` (view/panoTrack.ts), eased over PANO_BLEND ms from where play left the camera (x0, a0).
+  private pano: {
+    from: number; to: number; t0: number; dur: number; done: (() => void) | null; start: number;
+    track: PanoTrack; x0: number; a0: number; blendAt: number;
+  } | null = null;
   private skyMarks: { y: number; sp: number }[] = [];
 
   private readyResolve: () => void = () => {};
@@ -379,15 +390,35 @@ export class PlayScene extends Phaser.Scene {
    * visited, then calls done. Reduce Motion skips it.
    */
   panorama(done: () => void): void {
-    const visH = this.H / (this.W / this.cam.across);
-    const to = -1 + 0.3 * visH;
+    if (this.view.reducedMotion) { done(); return; }
     const from = this.cam.y;
-    if (this.view.reducedMotion || from - to < 2) { done(); return; }
+    const aspect = this.H / this.W;
+    const track = panoTrack(this.panoBoxes(), -1, Math.max(from, 0), {
+      aspect, minAcross: ACROSS, maxAcross: PANO_MAX_ACROSS, fallbackX: this.sim.foundations[0]?.x ?? 0,
+    });
+    // It ends with the ground in the bottom 30% of the screen, at the zoom the path has there.
+    let to = -1 + 0.3 * aspect * trackAt(track, -1).across;
+    for (let i = 0; i < 4; i++) to = -1 + 0.3 * aspect * trackAt(track, to).across;
+    if (from - to < 2) { done(); return; }
     const dur = Math.max(1.4, Math.min(4.5, 1.2 + (from - to) / 30)) * 1000;
     this.skyMarks.push({ y: from, sp: this.skyClock.sp });
     this.backdrop.prepareTour(this.skyClock.sp, this.skyAt(to));
     const now = performance.now();
-    this.pano = { from, to, t0: Infinity, dur, done, start: now };
+    this.pano = { from, to, t0: Infinity, dur, done, start: now, track, x0: this.cam.x, a0: this.cam.across, blendAt: now };
+  }
+
+  /** What the panorama keeps in frame: every piece still in the tower and every foundation. */
+  private panoBoxes(): PanoBox[] {
+    const out: PanoBox[] = [];
+    for (const v of this.views) {
+      if (v.state === 'lost' || v.state === 'controlled') continue;
+      pieceBoxes(out, geometry(v.shape).cells, v.x, v.y, v.c, v.s, PANO_PIECE_MARGIN);
+    }
+    // A foundation keeps the margin play gives it (SLAB_MARGIN across, half each side).
+    for (const f of this.sim.foundationViews()) {
+      out.push({ x0: f.x - (f.width + SLAB_MARGIN) / 2, x1: f.x + (f.width + SLAB_MARGIN) / 2, y0: f.top - f.thickness, y1: f.top });
+    }
+    return out;
   }
 
   /** A tap during the panorama skips to the end. */
@@ -395,6 +426,7 @@ export class PlayScene extends Phaser.Scene {
     const p = this.pano;
     if (!p?.done) return;
     p.t0 = performance.now() - p.dur;
+    p.blendAt = p.t0 - PANO_BLEND;
     this.backdrop.tourGlide();
   }
 
@@ -1274,6 +1306,11 @@ export class PlayScene extends Phaser.Scene {
       const t = Math.max(0, Math.min(1, (now - pano.t0) / pano.dur));
       const e = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
       this.cam.y = pano.from + (pano.to - pano.from) * e;
+      // Sideways and zoom: the path's middle and width at this height, eased onto from play's camera.
+      const at = trackAt(pano.track, this.cam.y);
+      const b = Math.max(0, Math.min(1, (now - pano.blendAt) / PANO_BLEND)), w = b * b * (3 - 2 * b);
+      this.cam.x = pano.x0 + (at.x - pano.x0) * w;
+      this.cam.across = pano.a0 + (at.across - pano.a0) * w;
       if (t >= 1 && pano.done && now - pano.t0 >= pano.dur + 350) { const d = pano.done; pano.done = null; this.backdrop.endTour(); d(); }
       return;
     }
