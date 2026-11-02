@@ -113,10 +113,10 @@ export const ACHIEVEMENTS: Achievement[] = [
   A('pop', 'pop_world', 'Star Student', '3 stars on every puzzle in a world', 'silver', 'star', { local: true }),
   A('pop', 'pop_quad', 'Towering Pop', 'Pop 4 or more lines with one shape', 'gold', 'tower', { local: true }),
   A('pop', 'pop_combo_15', 'Unstoppable', 'Reach combo 15 in Blockling Pop', 'gold', 'combo', { local: true }),
-  A('pop', 'pop_moon', 'Pop to the Moon', 'Reach the Moon in one Endless Pop run (100 lines)', 'gold', 'biome', { biome: 7, local: true }),
+  A('pop', 'pop_moon', 'Pop to the Moon', 'Reach the Moon in one Endless Pop run (45 lines)', 'gold', 'biome', { biome: 7, local: true }),
   A('pop', 'pop_bare', 'Bare Hands', 'Score 20,000 in one Endless Pop run without power-ups or Second Wind', 'gold', 'purist', { local: true }),
   A('pop', 'pop_clears_10', 'Neat Freak', 'Get 10 All Clears in Blockling Pop', 'gold', 'swirl', { goal: 10, local: true }),
-  A('pop', 'pop_cosmos', 'Pop Star', 'Reach Deep Cosmos in one Endless Pop run (208 lines)', 'platinum', 'biome', { biome: 10, local: true }),
+  A('pop', 'pop_cosmos', 'Pop Star', 'Reach Deep Cosmos in one Endless Pop run (81 lines)', 'platinum', 'biome', { biome: 10, local: true }),
 ];
 
 export const BY_ID = new Map(ACHIEVEMENTS.map(a => [a.id, a]));
