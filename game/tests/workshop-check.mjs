@@ -138,8 +138,9 @@ step('an Endless run starts with Second Wind ready', run.wind === 'ready', JSON.
 const inRun = await selling();
 step('no prices or buy buttons during a run', !inRun.buy && !inRun.price, JSON.stringify(inRun));
 // Pause: nothing sold there, Settings from pause has no purchases rows, and paused time doesn't count.
-await page.evaluate(() => { window.__wobble.shop.adState.runMs = 0; });
-await page.evaluate(() => window.__wobble.hud.pauseBtn.click());
+// The meter ticks once a second and counts the whole second to the state it finds, so pause first and zero
+// it in the same breath: a tick between two separate calls counted the last second of play (seen 11-02).
+await page.evaluate(() => { window.__wobble.hud.pauseBtn.click(); window.__wobble.shop.adState.runMs = 0; });
 await page.waitForTimeout(300);
 const paused = await selling();
 step('no prices or buy buttons on the pause card', !paused.buy && !paused.price, JSON.stringify(paused));
