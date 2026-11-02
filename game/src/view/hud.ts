@@ -49,6 +49,7 @@ const CSS = `
 .st-pill { background: #FFC23D; border: 3px solid ${INK}; border-radius: 999px; box-shadow: 0 3px 0 ${INK}; font: 700 13px 'Fredoka', sans-serif; padding: 1px 10px; white-space: nowrap; position: relative; overflow: hidden; }
 .st-pill .st-fill { position: absolute; inset: 0; background: #3EE6A8; transform-origin: left; transform: scaleX(0); }
 .st-pill span { position: relative; }
+.st-pill.zen { background: #B4FADF; }
 .st-mode { background: ${INK}; color: #FFF7E8; border-radius: 8px; font: 700 11px 'Fredoka', sans-serif; letter-spacing: 0.08em; padding: 1px 7px; white-space: nowrap; }
 .st-mode[hidden] { display: none; }
 .st-mode.gold { background: #FFC23D; color: ${INK}; border: 2px solid ${INK}; padding: 0 6px; }
@@ -386,8 +387,20 @@ export class Hud {
 
   setCheckpoint(n: number, toGo: number, hold: number | null): void {
     const text = hold !== null ? 'Hold steady!' : `CP ${n} · ${Math.max(0, Math.ceil(toGo * 2) / 2)} to go`;
+    this.pill.classList.remove('zen');
     if (this.pillText.textContent !== text) this.pillText.textContent = text;
     this.pillFill.style.transform = `scaleX(${hold ?? 0})`;
+  }
+
+  /**
+   * Zen has no checkpoints (gameplay.md §12.1): the pill names the next sky and how far up it starts, and fills
+   * mint on the way there. `toGo` null: the last sky, Deep Cosmos, which goes on for ever.
+   */
+  setZenPill(sky: string, toGo: number | null, fill: number): void {
+    const text = toGo === null ? sky : `${sky} · ${Math.max(0, Math.ceil(toGo))} to go`;
+    this.pill.classList.add('zen');
+    if (this.pillText.textContent !== text) this.pillText.textContent = text;
+    this.pillFill.style.transform = `scaleX(${toGo === null ? 0 : Math.max(0, Math.min(1, fill))})`;
   }
 
   /**
@@ -395,8 +408,8 @@ export class Hud {
    * biome colours, checkpoint ticks (gold for the next), the best height and the tower top. Heights
    * in blocks above the plinth; ticks end with the checkpoint being climbed to. Cheap every frame.
    */
-  setRail(r: { ticks: number[]; best: number; top: number }): void {
-    setRail(this.rail, { top: r.top, cps: r.ticks, claimed: r.ticks.length - 1, pb: r.best > 1 ? r.best : undefined });
+  setRail(r: { ticks: number[]; best: number; top: number; zen?: boolean }): void {
+    setRail(this.rail, { top: r.top, cps: r.ticks, claimed: r.ticks.length - 1, pb: r.best > 1 ? r.best : undefined, ticks: !r.zen });
   }
 
   /** The gold chip at the top edge while the checkpoint line is off-screen above ("▲ 4"). */
@@ -470,7 +483,8 @@ export class Hud {
     el.dataset.id = 'zen';
     el.setAttribute('role', 'status');
     el.innerHTML = `<div class="ui-hc-title"><img alt="" src="${uiIconUrl('zen', 40)}"><span>Zen mode</span></div>`
-      + '<span class="ui-chip mint">No shapes to count, no hearts to lose</span><span class="ui-chip mint">Pause and tap Finish when you\'re done</span>';
+      + '<span class="ui-chip mint">No checkpoints: build as high as you like</span><span class="ui-chip mint">No shapes to count, no hearts to lose</span>'
+      + '<span class="ui-chip mint">Pause and tap Finish when you\'re done</span>';
     el.addEventListener('animationend', e => { if (e.animationName.startsWith('ui-hc')) el.remove(); });
     setTimeout(() => el.remove(), 5000);
     this.root.appendChild(el);

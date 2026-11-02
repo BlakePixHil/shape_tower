@@ -24,6 +24,8 @@ export function registerEngine(name: 'box2d' | 'rapier', make: (s: WorldSettings
 export const GUST_WARNING = 2;
 /** How far under the checkpoint line a resting stack still counts as reaching it (contact slop). */
 export const LINE_SLOP = 0.05;
+/** Zen's tower is stone all the way down, so ledges under its set line still hold shapes: a piece is only lost after falling this far below it. */
+const ZEN_FALL = 12;
 /** Every hazard is warned this many seconds ahead (gameplay.md §8.3). */
 export const HAZARD_WARNING = 2;
 /** Dust devils cross the tower at this speed, blocks/s, and push within this distance of their middle. */
@@ -197,9 +199,22 @@ export class Sim {
   cause = '';
 
   // Progress
-  checkpoint = 1;              // the checkpoint number being pursued
+  checkpoint = 1;              // the checkpoint number being pursued (Zen: the stretch the tower has grown into)
   foundations: Foundation[] = [];
   lineY = 0;
+  /**
+   * Zen has no checkpoints (Blake, 2026-11-02), fixed as the run starts. Its stretches are still there, out
+   * of sight: each starts where the last one's line was, so the levers, hazards and biomes follow height.
+   */
+  readonly zen: boolean;
+  /** Zen: the heights the tower has grown past, one per stretch (world blocks). */
+  readonly zenLines: number[] = [];
+  /** Zen: where the stretch being climbed began. */
+  private stretchFrom = 0;
+  /** The stretch the run started in (QA's sweeps start later than 1). */
+  private firstStretch = 1;
+  /** Zen: the stand-in foundation, at the height the tower has set to stone up to (no body; null on the plinth). */
+  private zenBase: Foundation | null = null;
   private camera = { x: 0, y: 0, timeScale: 1 };
   readonly inputLog: LoggedInput[] = [];
   budget = 0;
@@ -209,7 +224,7 @@ export class Sim {
   combo = 0;
   /** Clean or Perfect placements in a row; full rows turn to stone once it reaches setNeed (§9.1). */
   streak = 0;
-  private live = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0, hazards: 0, hits: 0, brittle: 0, mended: 0, crumbled: 0 };
+  private live = { perfects: 0, cleans: 0, messies: 0, rows: 0, clutches: 0, checkpoints: 0, stretches: 0, biomes: 0, lost: 0, placed: 0, maxHeight: 0, grades: [] as FoundationGrade[], powers: 0, secondWind: false, gusts: 0, hazards: 0, hits: 0, brittle: 0, mended: 0, crumbled: 0 };
   private banked: typeof this.live | null = null;
   private overAt: number | null = null;
   /**
@@ -287,8 +302,9 @@ export class Sim {
 
   constructor(opts: SimOptions = {}) {
     this.tuning = { ...DEFAULT_TUNING, ...(opts.tuning ?? {}) };
-    // Zen (gameplay.md §12): nothing to count and nothing to lose, so nothing to win back either.
-    if (this.tuning.zen) { this.tuning.infiniteBudget = true; this.tuning.infiniteHearts = true; this.tuning.widestSlabs = true; }
+    // Zen (gameplay.md §12.1): no checkpoints, nothing to count and nothing to lose, so nothing to win back either.
+    this.zen = !!this.tuning.zen;
+    if (this.zen) { this.tuning.infiniteBudget = true; this.tuning.infiniteHearts = true; }
     this.seed = (opts.seed ?? 1) >>> 0;
     this.rng = makeStreams(this.seed);
     this.autoSpawn = opts.autoSpawn ?? true;
@@ -302,9 +318,10 @@ export class Sim {
 
     // The plinth: a raised pedestal (12 wide), top surface at y = 0.
     const plinth = this.addFoundation(0, this.tuning.plinthWidth, 0, 1.0);
-    this.checkpoint = Math.max(1, Math.floor(opts.startCheckpoint ?? 1));
+    this.checkpoint = this.firstStretch = Math.max(1, Math.floor(opts.startCheckpoint ?? 1));
     const biome = biomeFor(this.checkpoint);
     if (biome.gravity !== 1) { this.gravityScale = biome.gravity; this.engine.setGravity(0, -this.tuning.gravity * biome.gravity); }
+    this.stretchFrom = plinth.top;
     this.lineY = plinth.top + gapFor(this.tuning, this.checkpoint);
     this.budget = budgetFor(this.tuning, this.checkpoint, plinth.width);
     this.stretch = this.planStretch();
@@ -319,7 +336,18 @@ export class Sim {
 
   // ------------------------------------------------------------------ public API
 
-  get foundation(): Foundation { return this.foundations[this.foundations.length - 1]; }
+  /** What the run builds on now: the last slab, or in Zen the height the tower has set to (centred on its top). */
+  get foundation(): Foundation { return this.zenBase ?? this.foundations[this.foundations.length - 1]; }
+
+  /**
+   * How far up its stretch the tower is, 0 to 1: from the foundation to the line. Zen measures from where
+   * the stretch began, at the tower's highest, so its sky never slides back down.
+   */
+  progress(): number {
+    const from = this.zen ? this.stretchFrom : this.foundation.top;
+    const h = this.zen ? this.stats.maxHeight : this.height().committed;
+    return Math.max(0, Math.min(1, (h - from) / Math.max(0.001, this.lineY - from)));
+  }
 
   step(n = 1): void {
     for (let i = 0; i < n; i++) this.stepOnce();
@@ -455,6 +483,8 @@ export class Sim {
     const H = Math.max(0, Math.floor(this.stats.maxHeight - this.foundations[0].top));
     let cp = 0;
     for (const g of this.stats.grades) cp += 30 * GRADE_FACTOR[g];
+    // Zen has no claims: each stretch the tower grows past pays what a B grade's claim would (§12.1).
+    cp += 30 * GRADE_FACTOR.B * this.stats.stretches;
     let raw = 3 * H + cp + this.stats.perfects + 8 * this.stats.rows + 15 * this.stats.biomes + 2 * this.stats.clutches;
     if (this.stats.placed >= 10) raw += 10;
     if (quit || this.tuning.zen) raw *= 0.5;
@@ -483,7 +513,7 @@ export class Sim {
     const h = this.height().committed;
     if (h > this.live.maxHeight) this.live.maxHeight = h;
     if (this.state === 'playing') {
-      this.updateCheckpoint();
+      if (this.zen) this.updateZen(h); else this.updateCheckpoint();
       this.applyHeartLosses();
       if (this.state === 'playing') this.updateSpawning();
     } else {
@@ -948,7 +978,8 @@ export class Sim {
       c.touchedAt = null;
       this.touchBubble(c);
       // It missed the tower entirely: it becomes a real piece and is Lost (costs a heart).
-      if (c.y + extents(c.shape, c.rot).maxY < this.foundation.top - 1) this.missed(c);
+      // In Zen only once the guide finds nothing under it: ledges just below the set line still catch it.
+      if (c.y + extents(c.shape, c.rot).maxY < this.foundation.top - 1 && (!this.zen || this.computeGhost(c).y === null)) this.missed(c);
       return;
     }
     const touchY = this.bisect(c, ny, c.y);
@@ -1245,6 +1276,12 @@ export class Sim {
   private isLostPosition(p: Piece): boolean {
     const top = this.foundation.top;
     if (p.cy >= top - 1) return false;
+    if (this.zen) {
+      // Zen's tower is stone all the way down, so under its set line a piece is lost only once it falls free
+      // (touching nothing) or has fallen ZEN_FALL. One the tower set around while it still moved is part of it.
+      if (p.cy < top - ZEN_FALL) return true;
+      return !p.claimed && !this.engine.contacts(p.id).some(c => c.points.length > 0);
+    }
     if (p.cy < top - 3) return true;
     // Q21: a piece resting on old stone just below the slab is safe.
     for (let d = 0.25; d <= 1.5; d += 0.25) {
@@ -1688,6 +1725,99 @@ export class Sim {
     this.cascade = null;
   }
 
+  // ------------------------------------------------------------------ Zen (gameplay.md §12.1)
+
+  /** Zen: the height stretch n starts at, climbed or still to come (the ground for the run's first). */
+  zenStart(n: number): number {
+    if (n <= this.firstStretch) return this.foundations[0].top;
+    if (n <= this.checkpoint) return this.zenLines[n - this.firstStretch - 1];
+    let y = this.lineY;
+    for (let k = this.checkpoint + 1; k < n; k++) y += gapFor(this.tuning, k);
+    return y;
+  }
+
+  /**
+   * Zen has no checkpoints (Blake, 2026-11-02: "you just keep building up as long as you want and the
+   * background transitions are based on height"). No line, no hold, no slab. The stretches carry on out of
+   * sight, so the levers, hazards and biomes climb with the tower: a stretch ends where Endless's line
+   * would be with no slabs in between (Treetops from 17 blocks up, Cloudlands 38, ..., Deep Cosmos 316).
+   * And the tower sets as it grows: a settled piece wholly more than zenSetDepth below its settled top
+   * turns to stone, as a claim's sweep would, so only the top few blocks wobble and the world stays light.
+   */
+  private updateZen(committed: number): void {
+    while (this.live.maxHeight >= this.lineY - LINE_SLOP) this.zenStretch();
+    const t = this.tuning, ground = this.foundations[0].top;
+    // Resting stacks sit a hair under their true height (LINE_SLOP), so a whole-block tower sets whole blocks.
+    const set = ground + Math.floor(committed - ground - t.zenSetDepth + LINE_SLOP);
+    if (set > this.foundation.top + 1e-6) this.zenSet(set, committed);
+    // Twice a second the stand-in foundation follows the tower's top as it is now, when it has moved.
+    else if (this.zenBase && this.stepIndex % 30 === 0) {
+      const { x, width } = this.zenFrame(committed);
+      if (x !== this.zenBase.x || width !== this.zenBase.width) this.zenBase = { ...this.zenBase, x, width };
+    }
+  }
+
+  /** Zen: the tower grows past a stretch's line. A new biome brings its title, its gravity and a power-up. */
+  private zenStretch(): void {
+    const t = this.tuning, n = this.checkpoint, biome = biomeFor(n);
+    this.zenLines.push(this.lineY);
+    this.live.stretches++;
+    this.stretchFrom = this.lineY;
+    this.checkpoint = n + 1;
+    this.lineY = this.stretchFrom + gapFor(t, this.checkpoint);
+    this.endWeather(); // the next stretch is planned at the start of the next step
+    this.bus.emit('zen_stretch', { n: this.checkpoint, y: this.stretchFrom });
+    const nb = biomeFor(this.checkpoint);
+    if (nb.id !== biome.id) {
+      this.live.biomes++;
+      this.gravityScale = nb.gravity;
+      this.engine.setGravity(0, -t.gravity * nb.gravity);
+      this.bus.emit('biome_entered', { id: nb.id, name: nb.name });
+      // Zen has no Second Wind and no grades, so each new sky hands over a power-up instead.
+      this.grantPower('biome');
+    }
+  }
+
+  /**
+   * Zen: everything settled wholly below `y` turns to stone; pieces there still moving set once they rest.
+   * The stand-in foundation moves up to `y`, framed on the tower's top (zenFrame), so the camera, spawns,
+   * steering, Solid Rows, power bubbles and hazards follow the tower.
+   */
+  private zenSet(y: number, top: number): void {
+    for (const p of this.pieces.values()) {
+      if (p.state === 'lost' || p.state === 'stone' || p.top > y + 0.05) continue;
+      p.claimed = true;
+      if (p.state === 'settled') this.toStone(p);
+    }
+    const { x, width } = this.zenFrame(top);
+    this.solidTo = Math.max(0, this.solidTo - Math.round(y - this.foundation.top));
+    this.zenBase = { id: -1, x, width, top: y, thickness: 0 };
+    this.bus.emit('zen_set', { y, x, width });
+  }
+
+  /**
+   * Zen: the footprint of the tower's top three blocks. As wide as they cover, between the narrowest and the
+   * widest slab a claim could give in this stretch (10 to 12 in the Meadow, down to 6 to 8 in Deep Cosmos), and
+   * centred on them, on the grid that keeps its edges on whole blocks.
+   */
+  private zenFrame(top: number): { x: number; width: number } {
+    const from = this.foundation.x;
+    let covered = 0, sumX = 0;
+    for (let x = from - 20 + 0.125; x < from + 20; x += 0.25) {
+      for (const dy of [0.5, 1.5, 2.5]) {
+        const hit = this.engine.overlapPoint(x, top - dy, 0.01).some(id => {
+          const p = this.pieces.get(id);
+          return !!p && (p.state === 'settled' || p.state === 'stone');
+        });
+        if (hit) { covered++; sumX += x; break; }
+      }
+    }
+    const n = this.checkpoint;
+    const width = Math.max(minSlabWidthFor(this.tuning, n), Math.min(maxSlabWidthFor(n), Math.round(covered * 0.25)));
+    const centre = covered ? sumX / covered : from;
+    return { x: width % 2 === 0 ? Math.round(centre) : Math.round(centre - 0.5) + 0.5, width };
+  }
+
   // ------------------------------------------------------------------ spawning, budget, run over
 
   private updateSpawning(): void {
@@ -1942,7 +2072,7 @@ export class Sim {
     this.bus.emit('signals', {
       altitude: committed,
       biome: biomeFor(this.checkpoint).id,
-      checkpointProgress: Math.max(0, Math.min(1, (committed - f.top) / Math.max(0.001, this.lineY - f.top))),
+      checkpointProgress: this.progress(),
       tension: this.tensionValue,
       sway: this.swayValue,
       difficultyTier: this.checkpoint,

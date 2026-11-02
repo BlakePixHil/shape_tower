@@ -62,7 +62,7 @@ export const UNLOCKS: { level: number; id: string; name: string; text: string }[
   { level: 2, id: 'hold', name: 'The bag', text: 'Tap the bag (or flick up) to swap your shape for later.' },
   { level: 3, id: 'daily', name: 'Daily Tower', text: 'The same tower for everyone, once a day.' },
   { level: 6, id: 'perk', name: 'Head start', text: 'Every run starts with a power-up in a slot.' },
-  { level: 8, id: 'zen', name: 'Zen', text: 'No shapes to count and no hearts to lose.' },
+  { level: 8, id: 'zen', name: 'Zen', text: 'No checkpoints, no shapes to count, no hearts to lose.' },
 ];
 
 export interface Award {

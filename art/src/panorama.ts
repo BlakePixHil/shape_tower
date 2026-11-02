@@ -49,10 +49,18 @@ export interface PanoramaData {
   pb?: number;
   /** Each biome's name where it starts, down the left edge (default true). */
   labels?: boolean;
+  /**
+   * Heights where each stretch ended, bottom up, for a run with no slabs to say so (Zen has no checkpoints:
+   * its stretches end at fixed heights). Default: the tops of the slabs after the plinth.
+   */
+  lines?: number[];
 }
 
-/** The highest biome a run reached: claims are the foundations after the plinth. */
-export const panoramaBiome = (d: PanoramaData): number => biomeForCheckpoint(Math.max(1, d.slabs.length));
+/** Heights where each stretch ended: Zen's lines, else the claims' slabs (the foundations after the plinth). */
+const claimsOf = (d: PanoramaData): number[] => d.lines ?? d.slabs.slice(1).map(f => f.top);
+
+/** The highest biome a run reached: one past the last stretch it finished. */
+export const panoramaBiome = (d: PanoramaData): number => biomeForCheckpoint(claimsOf(d).length + 1);
 
 /**
  * The panorama, w x h canvas px. Any aspect works; the tower is scaled to fit the height (and the width,
@@ -61,7 +69,7 @@ export const panoramaBiome = (d: PanoramaData): number => biomeForCheckpoint(Mat
  */
 export function bakePanorama(d: PanoramaData, w: number, h: number): HTMLCanvasElement {
   const cv = makeCanvas(w, h), c = ctx2d(cv);
-  const claims = d.slabs.slice(1).map(f => f.top);
+  const claims = claimsOf(d);
   const gap = claims.length >= 2 ? claims[claims.length - 1] - claims[claims.length - 2] : claims[0] ?? 12;
 
   // Fit: the ground near the bottom, a little sky over the top, the tower at most 70% of the width.

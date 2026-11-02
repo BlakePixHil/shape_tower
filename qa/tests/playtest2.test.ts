@@ -150,13 +150,13 @@ describe.runIf(waity)(`start wait on ${sut.kind} (${sut.engine})`, () => {
 });
 
 describe.runIf(wide)(`slab minimums on ${sut.kind} (${sut.engine})`, () => {
-  it('§16.16 a claim\'s new slab is never narrower than 10 at CP 1-2, 9 at CP 3-4, 8 at CP 5-6, 7 at CP 7-8 and 6 after, never wider than its stretch allows, the widest in Zen, and the grade is unchanged; the plinth is 12', () => {
+  it('§16.16 a claim\'s new slab is never narrower than 10 at CP 1-2, 9 at CP 3-4, 8 at CP 5-6, 7 at CP 7-8 and 6 after, never wider than its stretch allows, the widest with widestSlabs (the rule Zen had until it lost its checkpoints), and the grade is unchanged; the plinth is 12', () => {
     const problems: string[] = [];
     const lines: string[] = [];
     /** A one-O-wide stone column up to the line, held until the claim. */
-    const claimWith = (n: number, boost: number, zen = false) => {
+    const claimWith = (n: number, boost: number, widest = false) => {
       // Disposed here rather than in afterEach: three dozen worlds at once run Box2D out of memory.
-      const t = game!.api.createSim({ engine: sut.engine, seed: 600 + n, startCheckpoint: n, tuning: { firstGap: defaults.firstGap, infiniteHearts: true, infiniteBudget: true, powerUps: false, gusts: false, lateHazards: false, slabBoost: boost, ...(zen ? { zen: true } : {}) } }) as T;
+      const t = game!.api.createSim({ engine: sut.engine, seed: 600 + n, startCheckpoint: n, tuning: { firstGap: defaults.firstGap, infiniteHearts: true, infiniteBudget: true, powerUps: false, gusts: false, lateHazards: false, slabBoost: boost, ...(widest ? { widestSlabs: true } : {}) } }) as T;
       const s = S(t);
       if (s.foundation.width !== PLINTH) problems.push(`CP ${n}: the plinth is ${s.foundation.width} wide, the doc says ${PLINTH}`);
       const top = s.foundation.top;
@@ -171,11 +171,11 @@ describe.runIf(wide)(`slab minimums on ${sut.kind} (${sut.engine})`, () => {
     for (const n of FULL ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 17, 22, 23] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 16, 22]) {
       const boosted = claimWith(n, defaults.slabBoost);
       const plain = claimWith(n, 0);
-      const zen = claimWith(n, defaults.slabBoost, true);
-      if (!boosted || !plain || !zen) { problems.push(`setup: the column at CP ${n} never claimed`); continue; }
-      lines.push(`CP ${n}: a 2-wide column claims grade ${boosted.grade} (coverage ${boosted.coverage}) and gets a ${boosted.width}-wide slab (doc minimum ${minSlabAt(n)}); without the boost ${plain.width} wide, grade ${plain.grade}; in Zen ${zen.width} wide (doc widest ${maxSlabFor(n + 1)}), grade ${zen.grade}`);
-      if (zen.width !== maxSlabFor(n + 1)) problems.push(`CP ${n}: Zen's slab is ${zen.width} wide, the doc says always the widest, ${maxSlabFor(n + 1)}`);
-      if (zen.grade !== boosted.grade) problems.push(`CP ${n}: Zen's widest slab changed the grade (${boosted.grade} -> ${zen.grade})`);
+      const widest = claimWith(n, defaults.slabBoost, true);
+      if (!boosted || !plain || !widest) { problems.push(`setup: the column at CP ${n} never claimed`); continue; }
+      lines.push(`CP ${n}: a 2-wide column claims grade ${boosted.grade} (coverage ${boosted.coverage}) and gets a ${boosted.width}-wide slab (doc minimum ${minSlabAt(n)}); without the boost ${plain.width} wide, grade ${plain.grade}; with widestSlabs ${widest.width} wide (doc widest ${maxSlabFor(n + 1)}), grade ${widest.grade}`);
+      if (widest.width !== maxSlabFor(n + 1)) problems.push(`CP ${n}: widestSlabs gave a ${widest.width}-wide slab, the widest is ${maxSlabFor(n + 1)}`);
+      if (widest.grade !== boosted.grade) problems.push(`CP ${n}: the widest slab changed the grade (${boosted.grade} -> ${widest.grade})`);
       if (boosted.width !== minSlabAt(n)) problems.push(`CP ${n}: the narrowest slab is ${boosted.width}, the doc says ${minSlabAt(n)}`);
       if (boosted.slab !== boosted.width) problems.push(`CP ${n}: checkpoint_claimed says width ${boosted.width}, the new foundation is ${boosted.slab}`);
       if (boosted.grade !== plain.grade || boosted.coverage !== plain.coverage) problems.push(`CP ${n}: the wider minimum changed the grade (${plain.grade} -> ${boosted.grade}) or coverage (${plain.coverage} -> ${boosted.coverage})`);

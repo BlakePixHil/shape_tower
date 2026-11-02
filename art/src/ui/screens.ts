@@ -67,7 +67,7 @@ export const UNLOCKS: Unlock[] = [
   { level: 2, icon: 'hold', name: 'Hold slot', text: 'Tap the Hold card to save a shape for later.' },
   { level: 3, icon: 'daily', name: 'Daily Tower', text: 'The same tower for everyone. One scored try a day.' },
   { level: 6, icon: 'gift', name: 'Head start', text: 'Every run now starts with a power-up in a slot.' },
-  { level: 8, icon: 'zen', name: 'Zen mode', text: 'No budget, unlimited hearts, half XP. Just build.' },
+  { level: 8, icon: 'zen', name: 'Zen mode', text: 'No checkpoints, no budget, no hearts to lose. Just build.' },
 ];
 
 /** What reaching `level` gives, for the level-up's unlock card: a gameplay unlock, a hat, else a new badge or title. */

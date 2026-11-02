@@ -13,7 +13,7 @@ import {
 } from '@art/index.ts';
 import { DT, Sim, type Bubble, type PieceView, type PowerKind, type SecondWindMode, type Shot, type Tint } from '../sim/sim.ts';
 import { SHAPES, extents, geometry } from '../sim/shapes.ts';
-import { biomeFor, type Tuning } from '../sim/tuning.ts';
+import { BIOMES, biomeFor, type Tuning } from '../sim/tuning.ts';
 import { crackPaths } from './cracks.ts';
 import { Particles, Shaker, TimeControl, easeElasticOut, type ParticleOpts } from './fx.ts';
 import { Hud, POWER_NAMES, type HazardWant } from './hud.ts';
@@ -671,6 +671,13 @@ export class PlayScene extends Phaser.Scene {
         this.skyMarks.push({ y: this.sim.foundation.top, sp: this.skyClock.sp });
         this.backdrop.setCosmos(this.sim.checkpoint); // Deep Cosmos changes palette every 6 checkpoints
         break;
+      // Zen has no checkpoints: its stretches end at fixed heights, out of sight (gameplay.md §12.1).
+      case 'zen_stretch':
+        this.skyMarks.push({ y: Number(p.y), sp: this.skyClock.sp });
+        this.backdrop.setCosmos(this.sim.checkpoint);
+        break;
+      // ... and the tower sets as it grows: the stone comes down from the set line like a claim's sweep.
+      case 'zen_set': this.stoneWave = { top: Number(p.y), at: now }; break;
       case 'biome_entered':
         this.hooks.hud.biomeTitle(Number(p.id) - 1, { newPostcard: this.hooks.newPostcard?.(Number(p.id) - 1) ?? false, still: this.view.reducedMotion });
         if (this.juice) this.backdrop.arrival(Number(p.id) - 1); // birds for Treetops, the cloud punch-through for Cloudlands
@@ -679,11 +686,13 @@ export class PlayScene extends Phaser.Scene {
       case 'bubble_expired': this.dropBubble(false, p); break;
       case 'power_collected': this.dropBubble(true, p); this.hooks.hud.bumpPower(p.slot as number); break;
       case 'power_granted': {
-        // An S grade or checkpoint 2 hands one over: it shows after the claim's own toasts.
+        // An S grade or checkpoint 2 hands one over: it shows after the claim's own toasts. Zen's new skies
+        // hand one over too, over the tower's top (its foundation is the set line, a few blocks down).
         const f = this.sim.foundation;
         const kind = p.kind as PowerKind;
+        const y = this.sim.zen ? this.sim.height().committed + 2.5 : f.top + 3;
         this.time.delayedCall(900, () => {
-          this.pop(`+ ${POWER_NAMES[kind].toUpperCase()}`, f.x, f.top + 3, POWER_COLORS[kind], 18);
+          this.pop(`+ ${POWER_NAMES[kind].toUpperCase()}`, f.x, y, POWER_COLORS[kind], 18);
           this.hooks.hud.bumpPower(p.slot as number);
         });
         break;
@@ -1255,9 +1264,7 @@ export class PlayScene extends Phaser.Scene {
     const bi = this.biomeIndex();
     const first = ART_BIOMES[bi].firstCp, last = bi < ART_BIOMES.length - 1 ? ART_BIOMES[bi + 1].firstCp - 1 : first + 5;
     const { committed } = sim.height();
-    const f = sim.foundation;
-    const cpProg = Math.max(0, Math.min(1, (committed - f.top) / Math.max(0.001, sim.lineY - f.top)));
-    const prog = (Math.min(sim.checkpoint, last) - first + cpProg) / (last - first + 1);
+    const prog = (Math.min(sim.checkpoint, last) - first + sim.progress()) / (last - first + 1);
     const sp = this.pano ? this.skyAt(this.cam.y) : this.skyClock.update(dt, bi, prog, this.view.reducedMotion);
     const ppbScreen = this.ppb * this.zoom;
     this.backdrop.update(dt, this.H / 2 + (this.cam.y + 1) * ppbScreen, sp);
@@ -1399,15 +1406,16 @@ export class PlayScene extends Phaser.Scene {
     const x0 = (this.cam.x - this.cam.across / 2 - 1) * u, x1 = (this.cam.x + this.cam.across / 2 + 1) * u;
     // The active line glows brighter as the tower gets close and fills its ring while you hold
     // (§7.1). Claimed lines keep their gold rope and flag; only the last few are kept.
+    // Zen has no checkpoint lines (gameplay.md §12.1).
     let line = this.lines[this.lines.length - 1];
-    if (!line || line.claimed) {
+    if (!sim.zen && (!line || line.claimed)) {
       line = new CheckpointLine(this.art, sim.checkpoint, D.line).setFlagStyle(this.flag);
       line.reduceMotion = this.view.reducedMotion;
       this.lines.push(line);
       while (this.lines.length > 4) this.lines.shift()!.destroy();
     }
     const hold = sim.holdState();
-    line.set({ y: -sim.lineY * u, x0, x1, near: Math.max(0, Math.min(1, 1 - (sim.lineY - committed) / 4)), hold: hold.active ? hold.progress : 0 });
+    if (!sim.zen) line.set({ y: -sim.lineY * u, x0, x1, near: Math.max(0, Math.min(1, 1 - (sim.lineY - committed) / 4)), hold: hold.active ? hold.progress : 0 });
     for (const l of this.lines) l.update(dt);
     // Personal best marker, with fireworks when you cross it.
     if (this.bestHeight > 1) {
@@ -1604,15 +1612,24 @@ export class PlayScene extends Phaser.Scene {
     hud.setStreak(sim.streak, sim.setNeed);
     hud.setHeight(committed - sim.foundations[0].top);
     const hold = sim.holdState();
-    hud.setCheckpoint(sim.checkpoint, sim.lineY - committed, hold.active ? hold.progress : null);
-    // The altitude rail: a band per checkpoint stretch, from the ground to the line being climbed to.
     const f = sim.foundations, base = f[0].top;
-    const tops = [...f.slice(1).map(x => x.top - base), sim.lineY - base];
-    hud.setRail({ ticks: tops, best: this.bestHeight, top: Math.max(0, committed - base) });
+    if (sim.zen) {
+      // Zen: the next sky and how far up it starts, instead of a checkpoint (gameplay.md §12.1).
+      const b = biomeFor(sim.checkpoint), next = BIOMES[b.id], h = sim.stats.maxHeight;
+      if (!next) hud.setZenPill(b.name, null, 0);
+      else {
+        const from = sim.zenStart(b.firstCp), to = sim.zenStart(next.firstCp);
+        hud.setZenPill(next.name, to - h, (h - from) / Math.max(0.001, to - from));
+      }
+    } else hud.setCheckpoint(sim.checkpoint, sim.lineY - committed, hold.active ? hold.progress : null);
+    // The altitude rail: a band per checkpoint stretch (Zen: per stretch of height, with no ticks), from
+    // the ground to the line being climbed to.
+    const tops = [...(sim.zen ? sim.zenLines : f.slice(1).map(x => x.top)).map(y => y - base), sim.lineY - base];
+    hud.setRail({ ticks: tops, best: this.bestHeight, top: Math.max(0, committed - base), zen: sim.zen });
     // The gold "▲ 4" chip while the line is above the screen, or hidden behind the top of the HUD.
     const ppbScreen = this.W / this.cam.across;
     const lineCss = (this.cam.y + this.H / ppbScreen / 2 - sim.lineY) * ppbScreen / this.dpr;
-    hud.setCheckpointChip(!this.demoing && sim.state === 'playing' && lineCss < 96 ? sim.checkpoint : null);
+    hud.setCheckpointChip(!this.demoing && !sim.zen && sim.state === 'playing' && lineCss < 96 ? sim.checkpoint : null);
     hud.setNext(sim.queue.slice(0, 2), sim.nextBrittle());
     hud.setHold(sim.held, sim.holdUsed, sim.heldBrittle);
     hud.setTension(this.view.reducedMotion ? 0 : sim.tension());
