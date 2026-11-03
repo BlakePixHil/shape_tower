@@ -1,10 +1,11 @@
-// The marketing tools' quick check (QA's gate runs it): the listing words fit Play's limits and never
-// name another company's game, every caption and post the clips can make passes the same rule, and a
-// short bot run still plays and finds its moments with today's sim.
+// The marketing tools' quick check (QA's gate runs it): the listing words fit Play's limits and the ad
+// words Google Ads' limits, neither names another company's game, every caption and post the clips
+// can make passes the same rule, and a short bot run still plays and finds its moments with today's sim.
 //
 //   node --experimental-strip-types scripts/check.ts
 
 import { LISTING, checkListing } from '../listing/text.ts';
+import { AD_TEXT, checkAd } from '../listing/ads.ts';
 import { BANNED, checkWords, clipFor, ctaFor } from '../src/clips.ts';
 import { findMoments, playRun, specFor, type Moment } from '../src/runs.ts';
 import { SHOTS } from '../listing/shots.ts';
@@ -14,6 +15,8 @@ const ok = (cond: boolean, what: string) => { console.log(`${cond ? 'ok  ' : 'FA
 
 for (const [lang, t] of Object.entries(LISTING)) ok(checkListing(t).length === 0, `${lang} listing: ${checkListing(t).join('; ') || `${[...t.title].length}/${[...t.shortDescription].length}/${[...t.fullDescription].length} characters`}`);
 ok(!/practise/.test(LISTING['en-US'].fullDescription), 'en-US uses US spelling');
+ok(checkAd(AD_TEXT).length === 0, `ad words: ${checkAd(AD_TEXT).join('; ') || `${AD_TEXT.headlines.length} headlines, ${AD_TEXT.descriptions.length} descriptions within Google's limits`}`);
+ok(checkAd({ headlines: ['Stack it HIGH!'], descriptions: ['x'.repeat(91)] }).length === 3, 'ad check catches a shout, a headline "!" and a long description');
 ok(SHOTS.length === 8 && SHOTS.every(s => s.lines.every(l => !BANNED.test(l.text))), '8 screenshots, captions clean');
 ok(ctaFor('2026-11-02').cta.includes('Coming soon') && ctaFor('2026-12-01').cta.includes('Pre-register') && ctaFor('2027-02-04').cta.includes('Free'), 'end card follows the launch dates');
 

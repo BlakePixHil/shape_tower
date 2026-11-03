@@ -12,6 +12,7 @@ node --experimental-strip-types scripts/listing-shots.ts   # the 8 store screens
 node --experimental-strip-types scripts/listing-shots.ts --appstore   # the same 8 at the App Store's iPhone size
 node --experimental-strip-types scripts/promo.ts           # the 30 s promo video
 node --experimental-strip-types scripts/play-listing.ts --dry   # check the listing upload, change nothing
+node --experimental-strip-types scripts/ads.ts             # Google Ads app campaign images, videos and words
 npm run typecheck
 ```
 
@@ -34,6 +35,8 @@ to skip that when `game/dist-app/index.html` is current. Chromium comes from `/o
 | `scripts/promo.ts` | The promo video: six beats of play (a tower falling first) and the logo. |
 | `listing/text.ts` | The store words for en-AU (default), en-GB and en-US, with Play's limits checked. |
 | `scripts/play-listing.ts` | Uploads the words, icon, feature graphic and screenshots to Play in one edit. |
+| `listing/ads.ts` | The Google Ads app campaign's words (5 headlines, 5 descriptions) and the "Free on Google Play" call to action, with Google's limits and editorial rules checked. |
+| `scripts/ads.ts` | The app campaign's creative: 6 images (1200 x 628, 1200 x 1200, 1200 x 1500, from the screenshots' raw frames), the promo and two clips ending on "Free on Google Play" in portrait, the promo and the collapse clip in a phone beside the logo at 1920 x 1080 and 1080 x 1080, and `copy.md`. Writes to `/mnt/project-files/marketing/ads/<YYYY-MM>/`. |
 
 ## Rules
 
