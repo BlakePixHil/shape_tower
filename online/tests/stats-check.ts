@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { StatsDb, KEEP_DAYS } from '../src/stats.ts';
 import { cleanBatch, statsId, type StatEvent } from '../../game/src/meta/stats.ts';
 import { dailyDay, dailyNumber } from '../../game/src/meta/daily.ts';
-import { heightParam, isBot, landing, landingCopy, phoneOf, playUrl } from '../cloudflare/landing.ts';
+import { APP_STORE_URL, heightParam, isBot, landing, landingCopy, phoneOf, playUrl } from '../cloudflare/landing.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ''): void {
@@ -122,15 +122,15 @@ check('an older Daily says what today\'s number is', old.lead.includes(`Today's 
 const a = get(`/d/${today}?h=38.2`);
 const html = a ? await a.response.text() : '';
 check('/d/<n> answers a page, counted as a Daily link view', a?.response.status === 200 && a.hit === 'link:daily' && a.response.headers.get('content-type')?.startsWith('text/html') === true);
-check('Android: the Google Play button, no App Store line', html.includes('Get it on Google Play') && !html.includes('Coming soon to iPhone'), html.slice(0, 200));
+check('Android: the Google Play button, no App Store line', html.includes('Get it on Google Play') && !html.includes('App Store'), html.slice(0, 200));
 check('link preview tags with the picture', html.includes('og:image" content="https://shape-tower.example/og.png"') && html.includes('summary_large_image'));
 check('no scripts on the page, and a strict content policy', !/<script/i.test(html) && /default-src 'none'/.test(a?.response.headers.get('content-security-policy') ?? ''));
 check('public copy never names other games', !/tetris|jenga/i.test(html));
 check('the heading keeps the height and its unit on one line on a phone', html.includes('<h1>Can you beat 38.2&nbsp;m?</h1>'), html.match(/<h1>.*<\/h1>/)?.[0]);
 const ios = await get(`/d/${today}`, IPHONE)?.response.text() ?? '';
-check('iPhone: "coming soon", and a Google Play link for Android friends', ios.includes('Coming soon to iPhone') && ios.includes('On Android?'));
+check('iPhone: the App Store button, no Google Play', ios.includes(`href="${APP_STORE_URL}">Download on the App Store`) && !ios.includes('Google Play') && !ios.includes('Coming soon'), ios.slice(0, 200));
 const desk = await get('/?h=12.5', DESKTOP)?.response.text() ?? '';
-check('a computer: both', desk.includes('Get it on Google Play') && desk.includes('Coming soon to iPhone') && desk.includes('Can you beat 12.5 m?'));
+check('a computer: both', desk.includes('Get it on Google Play') && desk.includes('Download on the App Store') && desk.includes('Can you beat 12.5 m?'));
 check('/ is the game\'s page, counted as a home link view', get('/')?.hit === 'link:home');
 const evil = await get('/?h=%3Cscript%3Ealert(1)%3C/script%3E')?.response.text() ?? '';
 check('a made-up height never reaches the page', !evil.includes('alert(1)') && evil.includes('Stack &amp; Balance'));
@@ -139,7 +139,7 @@ check('other paths aren\'t the landing\'s', get('/api/v1') === null && get('/sel
 const go = get('/get');
 check('/get sends Android to Google Play and counts it', go?.response.status === 302 && go.response.headers.get('location')?.startsWith('https://play.google.com/') === true && go.hit === 'link:store:android');
 const goIos = get('/get', IPHONE);
-check('/get sends an iPhone to the page until there\'s an App Store link', goIos?.response.status === 302 && goIos.response.headers.get('location') === '/' && goIos.hit === 'link:store:ios');
+check('/get sends an iPhone to the App Store and counts it', goIos?.response.status === 302 && goIos.response.headers.get('location') === APP_STORE_URL && goIos.hit === 'link:store:ios');
 check('bots are never counted', get(`/d/${today}`, 'WhatsApp/2.23.20')?.hit === null && get('/get', 'Slackbot-LinkExpanding 1.0')?.hit === null);
 check('POST isn\'t the landing\'s', landing(new Request('https://shape-tower.example/', { method: 'POST', body: '{}' }), NOW) === null);
 
