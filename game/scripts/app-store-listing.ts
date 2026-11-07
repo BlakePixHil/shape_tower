@@ -1,10 +1,11 @@
-// Sets up the iPhone app's App Store listing for version 1.0 through the App Store Connect API, so Blake
-// doesn't click through it: the name, subtitle and privacy policy (en-AU, en-GB, en-US), categories, content
-// rights, the age rating questions, each locale's description, keywords, promotional text and links, the
-// copyright, a manual release, a free price, the soft launch countries, the App Review contact and notes,
-// Game Center for the version with the achievements in a draft review submission (never submitted), and the
-// 6.7"/6.9" screenshots from marketing/listing/app-store/. Safe to run again: only what differs is sent.
-// It never submits for review and never attaches a build.
+// Sets up the iPhone app's App Store listing for the version in the Xcode project (MARKETING_VERSION)
+// through the App Store Connect API, so Blake doesn't click through it: the name, subtitle and privacy policy
+// (en-AU, en-GB, en-US), categories, content rights, the age rating questions, each locale's description,
+// keywords, promotional text, links and (after 1.0) What's New, the copyright, release as soon as Apple
+// approves it, a free price, the soft launch countries, the App Review contact and notes, Game Center for the
+// version with any new achievements in a draft review submission (never submitted), and the 6.7"/6.9"
+// screenshots from marketing/listing/app-store/. Makes the version if it isn't there yet. Safe to run again:
+// only what differs is sent. It never submits for review and never attaches a build.
 // Needs the API key (scripts/app-store-connect.ts) and the app made in App Store Connect.
 //   node --experimental-strip-types scripts/app-store-listing.ts            what it would change, nothing sent
 //   node --experimental-strip-types scripts/app-store-listing.ts --apply    sends it
@@ -17,16 +18,32 @@ import { AppStoreConnect, keyFromEnv, type Resource } from './app-store-connect.
 
 export const LOCALES = ['en-AU', 'en-GB', 'en-US'] as const;
 export const TERRITORIES = ['AUS', 'NZL', 'CAN'];
-const VERSION = '1.0';
+/** The version players see, from the Xcode project (both build configurations must agree). */
+export function projectVersion(pbxproj: string): string {
+  const all = new Set([...pbxproj.matchAll(/MARKETING_VERSION = ([0-9.]+);/g)].map(m => m[1]));
+  if (all.size !== 1) throw new Error(`MARKETING_VERSION in the Xcode project is ${[...all].join(' and ') || 'missing'}`);
+  return [...all][0];
+}
+const VERSION = projectVersion(readFileSync(new URL('../ios/App/App.xcodeproj/project.pbxproj', import.meta.url), 'utf8'));
 const NAME = 'Shape Tower: Stack & Balance';
 const SUBTITLE = 'Stack wobbly shapes sky-high';
 const PRIVACY_URL = 'https://github.com/BlakePixHil/shape_tower/blob/main/PRIVACY.md';
 const SUPPORT_URL = 'https://github.com/BlakePixHil/shape_tower/issues';
-const MARKETING_URL = 'https://shape-tower.shape-tower.workers.dev/';
+/** Shape Tower's own site: AdMob checks app-ads.txt at the store listing's marketing URL, which has to be a
+ *  domain or its first subdomain (so not workers.dev). */
+const MARKETING_URL = 'https://shapetower.phorma-labs.com/';
 const KEYWORDS = 'physics,puzzle,blocks,building,casual,relaxing,daily,zen,brain,wobbly,drop,pile,skyscraper,fun';
 const PROMO = 'A new Daily Tower every day: everyone gets the same shapes. How high can you stack before it all comes down?';
+/** What's New for the version after 1.0 (Apple refuses it on an app's first version). Change it with
+ *  MARKETING_VERSION. No mode names that Marketing hasn't checked in both stores. */
+export const WHATS_NEW = `New in 1.0.1:
+• A brand new puzzle mode: fit shapes on a 9 × 9 board and pop full rows and columns to climb from the meadow to deep space. Find it on the main menu from level 2.
+• Zen has no checkpoints now. Just build, and watch the sky change as you climb.
+• Ladder portraits you buy now show to everyone once the App Store confirms the purchase.
+• The menu music carries on between screens, and the end-of-run view follows a leaning tower all the way down.
+• Five new Game Center achievements.`;
 const SCREENSHOT_TYPE = 'APP_IPHONE_67'; // the 6.9"/6.7" set, 1290 x 2796
-const REVIEW_NOTES = 'Shape Tower is a physics stacking game with no sign-in or account. Tap Play for an Endless run: drag to move the falling shape, tap the turn button to rotate it, let go to drop it. All in-app purchases are non-consumable and are in the Workshop (the button next to the profile on the main menu); Restore purchases is in Settings. Ads: an occasional Google AdMob interstitial between runs only, never during a run, only from player level 3 and after several minutes of play; every ad request is non-personalised and the app never reads the advertising identifier, so there is no tracking and no tracking prompt. The Daily ladder is optional: player names are filtered, any player can report a name (reported names are hidden), and players can delete their name and scores in Settings. Achievements use Game Center.';
+const REVIEW_NOTES = 'Shape Tower is a physics stacking game with no sign-in or account. Tap Play for an Endless run: drag to move the falling shape, tap the turn button to rotate it, let go to drop it. All in-app purchases are non-consumable and are in the Workshop (the button next to the profile on the main menu); Restore purchases is in Settings. Modes unlock with player level (XP from every run): a grid puzzle mode (the wide Pop card on the main menu) at level 2, the Daily Tower at 3, Zen at 8. Ads: an occasional Google AdMob interstitial between runs only, never during a run, only from player level 3 and after several minutes of play; every ad request is non-personalised and the app never reads the advertising identifier, so there is no tracking and no tracking prompt. The Daily ladder is optional: player names are filtered, any player can report a name (reported names are hidden), and players can delete their name and scores in Settings. Achievements use Game Center.';
 
 /** The age rating answers: nothing but ads and the Daily ladder's player-picked names. Not made for kids. */
 export const AGE_RATING = {
@@ -49,8 +66,10 @@ export function checkText(): string[] {
   if (len(KEYWORDS) > 100) out.push(`keywords are ${len(KEYWORDS)} characters (100 max)`);
   if (len(PROMO) > 170) out.push(`promotional text is ${len(PROMO)} characters (170 max)`);
   if (len(REVIEW_NOTES) > 4000) out.push(`review notes are ${len(REVIEW_NOTES)} characters (4000 max)`);
+  if (len(WHATS_NEW) > 4000) out.push(`What's New is ${len(WHATS_NEW)} characters (4000 max)`);
+  if (VERSION !== '1.0' && !WHATS_NEW.startsWith(`New in ${VERSION}:`)) out.push(`What's New is for another version than ${VERSION}`);
   for (const l of LOCALES) if (len(LISTING[l].fullDescription) > 4000) out.push(`${l} description is over 4000 characters`);
-  for (const s of [NAME, SUBTITLE, KEYWORDS, PROMO, REVIEW_NOTES, ...LOCALES.map(l => LISTING[l].fullDescription)])
+  for (const s of [NAME, SUBTITLE, KEYWORDS, PROMO, REVIEW_NOTES, WHATS_NEW, ...LOCALES.map(l => LISTING[l].fullDescription)])
     if (/tetris|jenga/i.test(s)) out.push('names another company\'s game');
   return out;
 }
@@ -121,7 +140,7 @@ if (process.argv[1]?.endsWith('app-store-listing.ts')) {
     if (Object.keys(d).length) await change(`answer the age rating questions (${Object.keys(d).length} answers)`, () => patch('ageRatingDeclarations', age.id, { attributes: d }));
   }
 
-  // The version: copyright, manual release, then each locale's text and links.
+  // The version: copyright, release on approval, then each locale's text and links.
   const versions = await asc.all(`/v1/apps/${app.id}/appStoreVersions?filter[platform]=IOS`);
   let version = versions.find(v => attr(v, 'versionString') === VERSION);
   if (!version) version = await change(`make version ${VERSION}`, () => post('appStoreVersions', { platform: 'IOS', versionString: VERSION }, { app: rel('apps', app.id) }));
@@ -129,12 +148,13 @@ if (process.argv[1]?.endsWith('app-store-listing.ts')) {
   const holder = (await asc.all('/v1/users?limit=200')).find(u => (attr(u, 'roles') as string[] | undefined)?.includes('ACCOUNT_HOLDER'));
   if (!holder) throw new Error('no Account Holder in /v1/users');
   const first = String(attr(holder, 'firstName')), last = String(attr(holder, 'lastName')), email = String(attr(holder, 'username'));
-  const versionWant = { copyright: `2026 ${first} ${last}`, releaseType: 'MANUAL' };
+  const versionWant = { copyright: `2026 ${first} ${last}`, releaseType: 'AFTER_APPROVAL' };
   const vd = differs(version.attributes, versionWant);
   if (Object.keys(vd).length) await change(`set version ${VERSION} ${Object.entries(vd).map(([k, v]) => `${k} "${v}"`).join(', ')}`, () => patch('appStoreVersions', version!.id, { attributes: vd }));
   let versionLocs = await asc.all(`/v1/appStoreVersions/${version.id}/appStoreVersionLocalizations`);
   for (const locale of LOCALES) {
-    const want = { description: LISTING[locale].fullDescription, keywords: KEYWORDS, promotionalText: PROMO, supportUrl: SUPPORT_URL, marketingUrl: MARKETING_URL };
+    const want: Record<string, unknown> = { description: LISTING[locale].fullDescription, keywords: KEYWORDS, promotionalText: PROMO, supportUrl: SUPPORT_URL, marketingUrl: MARKETING_URL };
+    if (VERSION !== '1.0') want.whatsNew = WHATS_NEW;
     const loc = versionLocs.find(l => attr(l, 'locale') === locale);
     if (!loc) { await change(`add the ${locale} version text`, () => post('appStoreVersionLocalizations', { locale, ...want }, { appStoreVersion: rel('appStoreVersions', version!.id) })); continue; }
     const d = differs(loc.attributes, want);
