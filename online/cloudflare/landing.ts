@@ -7,8 +7,9 @@
 import { dailyDay, dailyNumber } from '../../game/src/meta/daily.ts';
 
 export const PACKAGE = 'com.blakepixhil.shapetower';
-/** The App Store link once the iPhone app is out; until then iPhones see "coming soon". */
-export const APP_STORE_URL = '';
+/** The iPhone app on the App Store (out in Australia, New Zealand and Canada since 7 November 2026). The plain
+ *  id link opens each phone's own country's store. Empty would show iPhones "coming soon" instead. */
+export const APP_STORE_URL: string = 'https://apps.apple.com/app/id6826781264';
 const PRIVACY_URL = 'https://github.com/BlakePixHil/shape_tower/blob/main/PRIVACY.md';
 
 export type Phone = 'android' | 'ios' | 'other';
