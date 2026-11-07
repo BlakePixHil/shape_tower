@@ -64,13 +64,17 @@ so there's nothing to install by hand. The team id is in the Xcode project (`DEV
 
 ## App Store release
 
-Version 1.0's store side is set up by two scripts (dry run without `--apply`, safe to run again):
+1.0 went live in Australia, New Zealand and Canada on 7 November 2026 (App Store Connect app id 6826781264).
+The store side of each version is set up by two scripts (dry run without `--apply`, safe to run again):
 
-- `node --experimental-strip-types scripts/app-store-listing.ts --apply`: name, subtitle and privacy policy
-  (en-AU, the app's primary locale, plus en-GB and en-US), Games > Puzzle and Casual, no third-party
-  content, the age rating answers (ads and the Daily ladder's player names; everything else none), each
-  locale's description (from `marketing/listing/text.ts`), keywords, promotional text and links, the
-  copyright, a manual release, free, AU/NZ/CA only, Game Center on with the 49 achievements in a draft review
+- `node --experimental-strip-types scripts/app-store-listing.ts --apply`: makes the version in
+  `MARKETING_VERSION` if it isn't there, then name, subtitle and privacy policy (en-AU, the app's primary
+  locale, plus en-GB and en-US), Games > Puzzle and Casual, no third-party content, the age rating answers
+  (ads and the Daily ladder's player names; everything else none), each locale's description (from
+  `marketing/listing/text.ts`), keywords, promotional text, links (marketing URL
+  https://shapetower.phorma-labs.com/, where AdMob reads `app-ads.txt`) and, after 1.0, What's New
+  (`WHATS_NEW` in the script, which must start "New in <version>:"), the copyright, release as soon as Apple
+  approves it, free, AU/NZ/CA only, Game Center on with any achievements not yet reviewed in a draft review
   submission, and the 6.9"/6.7" screenshots from `marketing/listing/app-store/1-*.png`…`8-*.png`. The App
   Review contact needs a phone number Apple won't go without: `--phone "+61 …"` (or `ST_REVIEW_PHONE`).
 - `node --experimental-strip-types scripts/app-store-products.ts --apply`: every product on sale in
@@ -78,7 +82,7 @@ Version 1.0's store side is set up by two scripts (dry run without `--apply`, sa
   description, its US price (Apple sets the rest), AU/NZ/CA, and `review-workshop.png` as its review
   screenshot.
 
-Neither submits anything or attaches a build. Before submitting: the release build
-(`ST_STORE=play ST_ADS=live scripts/ios-build.sh`, after the AdMob iOS ids are in) attached to 1.0, the
-App Privacy answers, the Paid Apps Agreement, and the review contact's phone; then add the version and the
-in-app purchases to the draft submission and submit it in App Store Connect.
+Neither submits anything or attaches a build. For a new version: bump `MARKETING_VERSION` (both build
+configurations) and `WHATS_NEW`, run the listing script, make the release build (`ST_STORE=play ST_ADS=live
+scripts/ios-build.sh`), and once App Store Connect shows it as valid, attach it to the version, add the
+version to the draft review submission and submit it.
