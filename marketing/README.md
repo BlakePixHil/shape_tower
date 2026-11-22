@@ -13,6 +13,7 @@ node --experimental-strip-types scripts/listing-shots.ts --appstore   # the same
 node --experimental-strip-types scripts/promo.ts           # the 30 s promo video
 node --experimental-strip-types scripts/play-listing.ts --dry   # check the listing upload, change nothing
 node --experimental-strip-types scripts/ads.ts             # Google Ads app campaign images, videos and words
+node --experimental-strip-types scripts/short.ts           # the voiceover Short for YouTube (needs the voice set up, below)
 npm run typecheck
 ```
 
@@ -35,8 +36,34 @@ to skip that when `game/dist-app/index.html` is current. Chromium comes from `/o
 | `scripts/promo.ts` | The promo video: six beats of play (a tower falling first) and the logo. |
 | `listing/text.ts` | The store words for en-AU (default), en-GB and en-US, with Play's limits checked. |
 | `scripts/play-listing.ts` | Uploads the words, icon, feature graphic and screenshots to Play in one edit. |
+| `short/script.ts`, `short/overlay.ts`, `scripts/voice.py`, `scripts/short.ts` | The voiceover Short (its own section below). `src/player.ts` is the seasoned player the app's screens are filmed with. |
 | `listing/ads.ts` | The Google Ads app campaign's words (5 headlines, 5 descriptions) and the "Free on Google Play" call to action, with Google's limits and editorial rules checked. |
 | `scripts/ads.ts` | The app campaign's creative: 6 images (1200 x 628, 1200 x 1200, 1200 x 1500, from the screenshots' raw frames), the promo and two clips ending on "Free on Google Play" in portrait, the promo and the collapse clip in a phone beside the logo at 1920 x 1080 and 1080 x 1080, and `copy.md`. Writes to `/mnt/project-files/marketing/ads/<YYYY-MM>/`. |
+
+## The voiceover Short
+
+`scripts/short.ts` makes a 40 to 45 second vertical video with a voice: the script and shot list are
+`short/script.ts`, the captions and end card `short/overlay.ts`. It writes `shape-tower-short.mp4`, a
+cover, `.srt` captions and `upload.md` (title, description, tags) to `/mnt/project-files/marketing/short/`.
+
+- **The voice** is [Kokoro](https://github.com/hexgrad/kokoro) (open source, Apache 2.0), run on this
+  machine by `scripts/voice.py`: no account, nothing sent anywhere. Set it up once:
+  `python3 -m venv ~/tts/venv && ~/tts/venv/bin/pip install kokoro-onnx soundfile pocketsphinx`, download
+  `kokoro-v1.0.onnx` and `voices-v1.0.bin` from the
+  [kokoro-onnx release](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0) into
+  `~/tts`, then run with `VOICE_PYTHON=~/tts/venv/bin/python KOKORO_DIR=~/tts`. Change `VOICE` in
+  `short/script.ts` for another of its voices (`af_bella`, `am_michael`, `bf_emma`, `bm_george`…).
+- **Captions follow the voice.** PocketSphinx lines every word up with the sound; in a line's text `|`
+  starts a new caption, `/` a new line, `^` marks the yellow line. Each shot starts on a word of a line
+  (`at`), and a moment of play can land on a word (`on`): the tower falls on "crashing", the checkpoint
+  is claimed on "lock in". The script prints what a speech recogniser heard for each line, as a check.
+- **The music** is the Meadow band's whole theme under everything (juice off, so it plays through
+  without following a run), ducked under the voice; each shot brings only its sounds.
+- Shots are kept in the work folder (`--work`, default the temp folder), so changing words, captions or
+  the end card takes about two minutes; `--only hook,zen` films those again, `--fresh` everything.
+  `--plan` prints the timeline and stops. `--regions ""` drops the end card's country line once the
+  game is out everywhere.
+- The end card names the stores in plain words. It uses no store badge art.
 
 ## Rules
 

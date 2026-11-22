@@ -64,7 +64,12 @@ export interface ClipJob {
   stills?: { at?: number; atStep?: number; path: string }[];
   /** No video, only the stills. */
   stillsOnly?: boolean;
-  /** Called in the page before each kept frame, e.g. to open a screen for a still. */
+  /** The mix's bus levels (defaults: the game's own, music 0.7, sfx 1, voices 0.8): { music: 0 } leaves only the sounds, for a clip that gets its own music bed. */
+  volumes?: { music?: number; sfx?: number; voices?: number };
+  /** The fade at the end of the sound, ms (default 800). */
+  fadeMs?: number;
+  /** x264's quality (default 18); lower for a clip that is edited and encoded again. */
+  crf?: number;
   log?: (s: string) => void;
 }
 
@@ -136,6 +141,21 @@ export async function startRun(page: Page, run: RunResult, step: number, tag?: s
   for (let i = 0; i < 2000; i++) {
     const st = await page.evaluate(ms => { (window as any).__clock.frame(ms); return (window as any).__clip.state(); }, FRAME_MS);
     if (st.step >= step || st.state !== 'playing') break;
+  }
+}
+
+/**
+ * Sound's director played offline: the calls ([ms, method, args], as src/driver.js logs them) rendered to
+ * 48 kHz stereo PCM, keeping the stretch from `from` to `to` ms.
+ */
+export async function mixCalls(browser: Browser, calls: unknown[][], from: number, to: number, volumes: ClipJob['volumes'] = {}): Promise<{ pcm: string; peak: number; rms: number; misses: number; ms: number }> {
+  const mixPage = await browser.newPage();
+  try {
+    await mixPage.setContent('<!doctype html><title>mix</title>');
+    await mixPage.addScriptTag({ content: await mixBundle() });
+    return await mixPage.evaluate(([l, a, b, v]) => (window as any).renderMix(l, { from: a, to: b, volumes: v }), [calls, from, to, volumes] as const);
+  } finally {
+    await mixPage.close();
   }
 }
 
@@ -220,21 +240,18 @@ export async function renderClip(browser: Browser, job: ClipJob): Promise<ClipRe
     const calls = (pageState.audioLog as [number, string, unknown[]][])
       .filter(c => c[0] >= origin || SETTINGS.has(c[1]))
       .map(c => [Math.max(0, c[0] - origin), c[1], c[2]]);
-    const mixPage = await browser.newPage();
-    await mixPage.setContent('<!doctype html><title>mix</title>');
-    await mixPage.addScriptTag({ content: await mixBundle() });
-    const mix = await mixPage.evaluate(([l, from, to]) => (window as any).renderMix(l, { from, to }), [calls, t0 - origin, t1 + FRAME_MS - origin] as const) as { pcm: string; peak: number; rms: number; misses: number; ms: number };
-    await mixPage.close();
+    const mix = await mixCalls(browser, calls, t0 - origin, t1 + FRAME_MS - origin, job.volumes);
     log(`  mix of ${calls.length} calls ${((Date.now() - c2) / 1000).toFixed(0)} s (peak ${mix.peak.toFixed(2)}, rms ${mix.rms.toFixed(3)}, ${mix.misses} missed notes)`);
     writeFileSync(join(tmp, 'mix.wav'), wav(Buffer.from(mix.pcm, 'base64'), 48000, 2));
 
     mkdirSync(dirname(job.out), { recursive: true });
     const seconds = frames / FPS;
-    const fadeAt = Math.max(0, seconds - 0.8);
+    const fade = (job.fadeMs ?? 800) / 1000;
+    const fadeAt = Math.max(0, seconds - fade);
     const ff = spawnSync('ffmpeg', [
       '-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', join(tmp, '%05d.jpg'), '-i', join(tmp, 'mix.wav'),
-      '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', String(FPS),
-      '-af', `afade=t=out:st=${fadeAt.toFixed(2)}:d=0.8`, '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', job.out,
+      '-c:v', 'libx264', '-preset', 'slow', '-crf', String(job.crf ?? 18), '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', String(FPS),
+      '-af', `afade=t=out:st=${fadeAt.toFixed(3)}:d=${Math.max(0.001, fade).toFixed(3)}`, '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', job.out,
     ], { encoding: 'utf8' });
     if (ff.status !== 0) throw new Error(`ffmpeg: ${ff.stderr}`);
     return { out: job.out, frames, seconds, problems, audio: { peak: mix.peak, rms: mix.rms, misses: mix.misses } };
@@ -245,7 +262,7 @@ export async function renderClip(browser: Browser, job: ClipJob): Promise<ClipRe
 }
 
 /** 16-bit PCM in a WAV container. */
-function wav(pcm: Buffer, rate: number, channels: number): Buffer {
+export function wav(pcm: Buffer, rate: number, channels: number): Buffer {
   const h = Buffer.alloc(44);
   h.write('RIFF', 0); h.writeUInt32LE(36 + pcm.length, 4); h.write('WAVE', 8);
   h.write('fmt ', 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(channels, 22);

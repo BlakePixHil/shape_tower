@@ -9,6 +9,7 @@ import { AD_TEXT, checkAd } from '../listing/ads.ts';
 import { BANNED, checkWords, clipFor, ctaFor } from '../src/clips.ts';
 import { findMoments, playRun, specFor, type Moment } from '../src/runs.ts';
 import { SHOTS } from '../listing/shots.ts';
+import { CARD, LINES, UPLOAD, checkShort, say, SHOTS as SHORT_SHOTS } from '../short/script.ts';
 
 let failed = 0;
 const ok = (cond: boolean, what: string) => { console.log(`${cond ? 'ok  ' : 'FAIL'} ${what}`); if (!cond) failed++; };
@@ -19,6 +20,11 @@ ok(checkAd(AD_TEXT).length === 0, `ad words: ${checkAd(AD_TEXT).join('; ') || `$
 ok(checkAd({ headlines: ['Stack it HIGH!'], descriptions: ['x'.repeat(91)] }).length === 3, 'ad check catches a shout, a headline "!" and a long description');
 ok(SHOTS.length === 8 && SHOTS.every(s => s.lines.every(l => !BANNED.test(l.text))), '8 screenshots, captions clean');
 ok(ctaFor('2026-11-02').cta.includes('Coming soon') && ctaFor('2026-12-01').cta.includes('Pre-register') && ctaFor('2027-02-04').cta.includes('Free'), 'end card follows the launch dates');
+
+// The voiceover Short: its script holds together, and nothing it says or shows names another game.
+ok(checkShort().length === 0, `the Short's script: ${checkShort().join('; ') || `${LINES.length} lines, ${SHORT_SHOTS.length} shots`}`);
+ok([...LINES.map(l => say(l.text)), UPLOAD.title, ...UPLOAD.description, ...UPLOAD.tags, CARD.badge.text, CARD.free.text, CARD.regions, ...SHORT_SHOTS.map(s => s.label ?? '')].every(t => !BANNED.test(t)), 'the Short\'s voice, card and upload text are clean');
+ok([...UPLOAD.title].length <= 100, `the Short's title fits YouTube's 100 characters (${[...UPLOAD.title].length})`);
 
 const run = playRun(specFor('endless', 7, 'sloppy', 14, { maxSteps: 3 * 60 * 60 }));
 ok(run.steps > 600 && run.inputs.length > 20 && run.digests.length === Math.floor(run.steps / 60), `bot run: ${run.steps} steps, ${run.inputs.length} inputs, ended by ${run.cause}`);
