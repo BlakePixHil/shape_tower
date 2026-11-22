@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Browser, Page } from 'playwright';
 import { checkWords } from '../src/clips.ts';
+import { ACHIEVEMENTS } from '../../game/src/meta/achievements.ts';
 import { SEASONED, STORE } from '../src/player.ts';
 import { FPS, ROOT, VIEW, launch, mixCalls, openGame, renderClip, startRun, wav } from '../src/render.ts';
 import { findMoments, type RunResult } from '../src/runs.ts';
@@ -43,12 +44,18 @@ const FRESH = args.includes('--fresh');
 const REGIONS = flag('--regions') ?? CARD.regions;
 const ICON = '/mnt/project-files/art/app-icon-burst-1024.png';
 const FRAME_MS = 1000 / FPS;
+/** Bumped when the way a kind of shot is filmed changes, so kept shots of that kind are filmed again. */
+const SHOT_VERSION = { run: 1, climb: 2, screen: 2, pop: 2 };
+/** The mix: the game's sounds and its music, in dB against the voice (which sits at -16 LUFS). */
+const SFX_DB = -10, MUSIC_DB = -2;
+/** Where in the theme the music starts, s. */
+const BED_FROM = 4.8;
 const here = join(ROOT, 'marketing');
 mkdirSync(WORK, { recursive: true });
 
 function run(cmd: string, a: string[], opts: { cwd?: string; input?: string } = {}): string {
   const r = spawnSync(cmd, a, { encoding: 'utf8', maxBuffer: 1 << 28, ...opts });
-  if (r.status !== 0) throw new Error(`${cmd} ${a.slice(0, 6).join(' ')}…: ${r.stderr || r.error}`);
+  if (r.status !== 0) throw new Error(`${cmd} ${a.slice(0, 6).join(" ")}…: ${r.stderr || r.error || r.signal}`);
   return r.stdout;
 }
 const ffmpeg = (...a: string[]) => run('ffmpeg', ['-y', '-loglevel', 'error', ...a]);
@@ -124,7 +131,13 @@ for (const l of LINES) {
     });
   });
 }
-// A caption never outstays the next line's first.
+// A caption never outstays its shot by more than its own line: it is gone by the first cut after its line ends.
+for (const c of captions) {
+  if (c.swap) continue;
+  const cutAfter = timed.find(s => s.start > c.t1 - 0.5 && s.start < c.t1 + 0.4);
+  if (cutAfter) c.t1 = Math.max(c.t0 + 0.3, cutAfter.start - 0.17);
+}
+// Nor the next line's first caption.
 captions.forEach((c, i) => { const n = captions[i + 1]; if (n && c.t1 > n.t0) { c.t1 = n.t0; c.swap = true; } });
 const cardLine = lineAt.get(CARD.line)!, cardWords = voiced.get(CARD.line)!.words;
 const overlay: OverlaySpec = {
@@ -152,6 +165,11 @@ const runs = new Map<RunName, RunResult>();
 const runOf = (name: RunName) => { if (!runs.has(name)) runs.set(name, RUNS[name]()); return runs.get(name)!; };
 const problems: string[] = [];
 
+/** The screens' player has a ladder name, so the profile shows it instead of "Pick a name". */
+const NAMED = { 'shape-tower-online-v1': JSON.stringify({ me: { id: 'p-clips', name: 'StackStar', portrait: 'meadow', avatar: SEASONED.avatar, hidden: false, renamedAt: 1 } }) };
+/** Every achievement already earned, so no toast covers a shot. */
+const ALL_EARNED = Object.fromEntries(ACHIEVEMENTS.map(a => [a.id, { at: '2026-11-01', paid: true }]));
+
 /** JPEG frames in a folder to an MP4 with a silent sound track (every shot has one, so they join the same way). */
 function encodeSilent(dir: string, out: string): void {
   ffmpeg('-framerate', String(FPS), '-i', join(dir, '%05d.jpg'), '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
@@ -165,7 +183,7 @@ const tick = (page: Page, ms = FRAME_MS) => page.evaluate(m => (window as any)._
 
 /** One of the app's screens, alive for `frames` frames (its buttons bob, its bars fill), with a slow scroll if asked. */
 async function filmScreen(browser: Browser, taps: string[], frames: number, scroll: number, out: string): Promise<void> {
-  const { ctx, page, problems: p } = await openGame(browser, { profile: SEASONED, storage: STORE });
+  const { ctx, page, problems: p } = await openGame(browser, { profile: SEASONED, storage: { ...STORE, ...NAMED } });
   const dir = `${out}.frames`;
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
@@ -202,7 +220,7 @@ async function filmScreen(browser: Browser, taps: string[], frames: number, scro
 /** The puzzle mode: a few unseen moves to fill the board, then moves dragged on camera at a person's pace. */
 async function filmPop(browser: Browser, warmup: number, frames: number, out: string): Promise<void> {
   const { ctx, page, problems: p } = await openGame(browser, {
-    profile: { ...SEASONED, pop: { runs: 6, best: 3120, seen: ['intro', 'bag', 'bubble', 'combo', 'next'] } }, storage: STORE,
+    profile: { ...SEASONED, achievements: ALL_EARNED, pop: { runs: 6, best: 3120, seen: ['intro', 'bag', 'bubble', 'combo', 'next'] } }, storage: STORE,
   });
   const dir = `${out}.frames`;
   rmSync(dir, { recursive: true, force: true });
@@ -287,7 +305,7 @@ async function filmShots(browser: Browser): Promise<string[]> {
       from = Math.round(ft.step(r) - (ft.on ? (wordAt(ft.on) + (ft.lead ?? 0) - s.start) * 60 : 0));
       if (from < 60) throw new Error(`shot ${s.id} would start before its run does`);
     }
-    const file = join(WORK, `shot-${s.id}-${hash({ ft, from, frames: s.frames, step: ft.kind === 'run' ? String(ft.step) : '' })}.mp4`);
+    const file = join(WORK, `shot-${s.id}-${hash({ ft, from, frames: s.frames, step: ft.kind === 'run' ? String(ft.step) : '', v: SHOT_VERSION[ft.kind] })}.mp4`);
     files.push(file);
     if (existsSync(file) && !FRESH && !ONLY.has(s.id)) { console.log(`shot ${s.id}: kept`); continue; }
     console.log(`shot ${s.id}: ${ft.kind}, ${s.frames} frames`);
@@ -311,10 +329,11 @@ async function filmShots(browser: Browser): Promise<string[]> {
       }
       const sweep = panoSweep(pano);
       const want = s.frames / FPS;
-      // Backwards, at the speed that makes the sweep fill the shot (a short hold on the top at the end).
-      const speed = Math.max(0.5, (sweep.to - sweep.from) / (want - 0.35));
+      // Backwards, at the speed that makes the sweep fill the shot: a short hold on the ground first, and on the top at the end.
+      const HOLD = 0.4;
+      const speed = Math.max(0.5, (sweep.to - sweep.from) / (want - HOLD - 0.3));
       ffmpeg('-ss', sweep.from.toFixed(3), '-to', sweep.to.toFixed(3), '-i', pano, '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
-        '-filter_complex', `[0:v]reverse,setpts=PTS/${speed.toFixed(4)},fps=${FPS},tpad=stop_mode=clone:stop_duration=2,trim=end_frame=${s.frames},setpts=PTS-STARTPTS[v]`,
+        '-filter_complex', `[0:v]reverse,setpts=PTS/${speed.toFixed(4)},fps=${FPS},tpad=start_mode=clone:start_duration=${HOLD}:stop_mode=clone:stop_duration=2,trim=end_frame=${s.frames},setpts=PTS-STARTPTS[v]`,
         '-map', '[v]', '-map', '1:a', '-c:v', 'libx264', '-preset', 'slow', '-crf', '12', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', file);
       console.log(`  sweep ${sweep.from.toFixed(2)} to ${sweep.to.toFixed(2)} s of the panorama, backwards at ${speed.toFixed(2)}x`);
     } else if (ft.kind === 'screen') await filmScreen(browser, ft.taps, s.frames, ft.scroll ?? 0, file);
@@ -420,45 +439,56 @@ try {
 }
 
 // ------------------------------------------------------------------ 6. the join
+// In steps, so ffmpeg never holds more than one shot in memory: each shot cut to its exact length (screens
+// set in the phone frame), the shots joined as they are, their sounds joined apart, then the final pass.
+const lens = timed.map(s => s.frames / FPS);
+const X264 = ['-c:v', 'libx264', '-preset', 'slow', '-crf', '12', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', String(FPS), '-g', String(FPS * 2)];
+const cuts = timed.map((s, i) => {
+  const out = join(WORK, `cut-${i}.mp4`);
+  if (s.footage.kind === 'screen') {
+    ffmpeg('-i', files[i], '-loop', '1', '-framerate', String(FPS), '-t', (lens[i] + 1).toFixed(3), '-i', join(ovDir, 'frame.png'), '-filter_complex',
+      `[0:v]scale=${PHONE.width}:${PHONE.height}:flags=lanczos,pad=1080:1920:${PHONE.left}:${PHONE.top}:color=0x2B2140[s];[s][1:v]overlay=format=auto,format=yuv420p,setsar=1[v]`,
+      '-map', '[v]', '-frames:v', String(s.frames), '-an', ...X264, out);
+  } else ffmpeg('-i', files[i], '-vf', 'format=yuv420p,setsar=1', '-frames:v', String(s.frames), '-an', ...X264, out);
+  return out;
+});
+writeFileSync(join(WORK, 'cuts.txt'), cuts.map(c => `file '${c}'\n`).join(''));
+const cut = join(WORK, 'cut.mp4');
+ffmpeg('-f', 'concat', '-safe', '0', '-i', join(WORK, 'cuts.txt'), '-c', 'copy', cut);
+// The shots' sounds, each exactly its shot's length with a few ms of fade at both ends.
+const sfx = join(WORK, 'sfx.wav');
+ffmpeg(...files.flatMap(f => ['-i', f]), '-filter_complex', [
+  ...lens.map((len, i) => `[${i}:a]aresample=48000,atrim=end=${len.toFixed(4)},apad=whole_dur=${len.toFixed(4)},afade=t=in:d=0.03,afade=t=out:st=${(len - 0.04).toFixed(4)}:d=0.04,asetpts=PTS-STARTPTS[a${i}]`),
+  `${lens.map((_, i) => `[a${i}]`).join('')}concat=n=${lens.length}:v=0:a=1[out]`,
+].join(';'), '-map', '[out]', '-c:a', 'pcm_s16le', sfx);
+
 const inputs: string[] = [];
 const graph: string[] = [];
 const add = (...a: string[]) => { inputs.push(...a); return (inputs.filter(x => x === '-i').length - 1); };
-// The shots, cut hard; screens sit in the phone frame.
-const frameIn = add('-loop', '1', '-framerate', String(FPS), '-i', join(ovDir, 'frame.png'));
-const parts: string[] = [];
-timed.forEach((s, i) => {
-  const n = add('-i', files[i]);
-  const len = s.frames / FPS;
-  if (s.footage.kind === 'screen') {
-    graph.push(`[${n}:v]trim=end_frame=${s.frames},setpts=PTS-STARTPTS,scale=${PHONE.width}:${PHONE.height}:flags=lanczos,pad=1080:1920:${PHONE.left}:${PHONE.top}:color=0x2B2140[s${i}]`);
-    graph.push(`[${frameIn}:v]trim=end_frame=${s.frames},setpts=PTS-STARTPTS[f${i}]`, `[s${i}][f${i}]overlay=format=auto,format=yuv420p,setsar=1[v${i}]`);
-  } else graph.push(`[${n}:v]trim=end_frame=${s.frames},setpts=PTS-STARTPTS,format=yuv420p,setsar=1[v${i}]`);
-  graph.push(`[${n}:a]aresample=48000,atrim=end=${len.toFixed(4)},apad=whole_dur=${len.toFixed(4)},afade=t=in:d=0.03,afade=t=out:st=${(len - 0.04).toFixed(4)}:d=0.04,asetpts=PTS-STARTPTS[a${i}]`);
-  parts.push(`[v${i}][a${i}]`);
-});
-const shotsEnd = timed[timed.length - 1].start + timed[timed.length - 1].frames / FPS;
-graph.push(`${parts.join('')}concat=n=${timed.length}:v=1:a=1[cut][sfx0]`);
-graph.push(`[cut]tpad=stop_mode=clone:stop_duration=${(TOTAL - shotsEnd + 0.5).toFixed(3)},trim=end_frame=${FRAMES}[base]`);
+const cutIn = add('-i', cut);
 const ovIn = add('-framerate', String(FPS), '-i', join(ovDir, '%05d.png'));
+// The shots end as the end card finishes fading in; a sky-coloured canvas runs on under it.
+graph.push(`color=c=0x6EC3FF:s=1080x1920:r=${FPS}:d=${(TOTAL + 0.2).toFixed(3)}[sky]`, `[sky][${cutIn}:v]overlay=eof_action=pass,trim=end_frame=${FRAMES}[base]`);
 graph.push(`[base][${ovIn}:v]overlay=format=auto,format=yuv420p[vout]`);
-// The voice: each line at its time, evened out and brightened a little.
-const voiceParts: string[] = [];
-LINES.forEach((l, i) => {
-  const n = add('-i', voiced.get(l.id)!.file);
-  const ms = Math.round(lineAt.get(l.id)! * 1000);
-  graph.push(`[${n}:a]aresample=48000,aformat=channel_layouts=stereo,adelay=${ms}:all=1[l${i}]`);
-  voiceParts.push(`[l${i}]`);
-});
-graph.push(`${voiceParts.join('')}amix=inputs=${LINES.length}:normalize=0,highpass=f=70,acompressor=threshold=-20dB:ratio=3:attack=5:release=120:makeup=3,loudnorm=I=-16:TP=-2:LRA=7,apad=whole_dur=${TOTAL},asplit=2[vo][key]`);
-// The sounds of play, under the voice; the music under both, ducked while the voice speaks.
-graph.push(`[sfx0]apad=whole_dur=${TOTAL},volume=-9dB,afade=t=out:st=${(CARD_AT - 0.1).toFixed(3)}:d=0.5[sfx]`);
-const bedIn = add('-i', bed);
-graph.push(`[${bedIn}:a]silenceremove=start_periods=1:start_threshold=-55dB,atrim=end=${TOTAL},volume=-5dB,afade=t=in:d=0.15,afade=t=out:st=${(TOTAL - 1.3).toFixed(3)}:d=1.3[bed0]`);
-graph.push(`[bed0][key]sidechaincompress=threshold=0.02:ratio=6:attack=40:release=450:makeup=1[bed]`);
-graph.push(`[vo][sfx][bed]amix=inputs=3:normalize=0,loudnorm=I=-14:TP=-1.5:LRA=9,aresample=48000[aout]`);
+// The sound, in steps too (one big graph cut the voice short): the voice with each line at its time, evened
+// out; the music ducked while the voice speaks; then voice, the shots' sounds and the music together.
+const T = TOTAL.toFixed(4);
+const vo = join(WORK, 'vo.wav'), ducked = join(WORK, 'bed-ducked.wav'), mix = join(WORK, 'mix.wav');
+ffmpeg(...LINES.flatMap(l => ['-i', voiced.get(l.id)!.file]), '-filter_complex', [
+  ...LINES.map((l, i) => `[${i}:a]aresample=48000,aformat=channel_layouts=stereo,adelay=${Math.round(lineAt.get(l.id)! * 1000)}:all=1[l${i}]`),
+  `${LINES.map((_, i) => `[l${i}]`).join('')}amix=inputs=${LINES.length}:normalize=0,highpass=f=70,acompressor=threshold=-20dB:ratio=3:attack=5:release=120:makeup=3,loudnorm=I=-16:TP=-2:LRA=7,aresample=48000,apad=whole_dur=${T}[out]`,
+].join(';'), '-map', '[out]', '-c:a', 'pcm_s16le', vo);
+ffmpeg('-i', bed, '-i', vo, '-filter_complex',
+  // From the theme's third bar (the band is all in after its two-bar intro; 2.4 s a bar at 100 BPM).
+  `[0:a]silenceremove=start_periods=1:start_threshold=-55dB,atrim=start=${BED_FROM}:end=${(BED_FROM + TOTAL).toFixed(4)},asetpts=PTS-STARTPTS,volume=${MUSIC_DB}dB,afade=t=in:d=0.08,afade=t=out:st=${(TOTAL - 1.3).toFixed(3)}:d=1.3[bed];[bed][1:a]sidechaincompress=threshold=0.05:ratio=2.2:attack=30:release=500:makeup=1[out]`,
+  '-map', '[out]', '-c:a', 'pcm_s16le', ducked);
+ffmpeg('-i', vo, '-i', sfx, '-i', ducked, '-filter_complex',
+  `[1:a]apad=whole_dur=${T},volume=${SFX_DB}dB,afade=t=out:st=${(CARD_AT - 0.1).toFixed(3)}:d=0.5[sfx];[0:a][sfx][2:a]amix=inputs=3:normalize=0,volume=1.5dB,alimiter=limit=0.84:level=false,atrim=end=${T}[out]`,
+  '-map', '[out]', '-c:a', 'pcm_s16le', mix);
+const mixIn = add('-i', mix);
 
 mkdirSync(dirname(OUT), { recursive: true });
-ffmpeg(...inputs, '-filter_complex', graph.join(';'), '-map', '[vout]', '-map', '[aout]', '-t', TOTAL.toFixed(3),
+ffmpeg(...inputs, '-filter_complex', graph.join(';'), '-map', '[vout]', '-map', `${mixIn}:a`, '-t', TOTAL.toFixed(3),
   '-c:v', 'libx264', '-preset', 'slow', '-crf', '17', '-pix_fmt', 'yuv420p', '-profile:v', 'high', '-r', String(FPS), '-g', String(FPS * 2),
   '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', OUT);
 // A cover: the end card, fully in.

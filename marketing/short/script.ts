@@ -21,7 +21,7 @@ export interface Line {
 
 export const LINES: Line[] = [
   { id: 'hook', gap: 0.25, text: 'How high / can you stack | before it / all comes | ^crashing down?' },
-  { id: 'intro', gap: 0.45, text: 'This is / ^Shape Tower, | the stacking game | where every shape | ^wobbles, slides / ^and settles | with / ^real physics.' },
+  { id: 'intro', gap: 0.75, text: 'This is / ^Shape Tower, | the stacking game | where every shape | ^wobbles, slides / ^and settles | with / ^real physics.' },
   { id: 'guide', text: 'A landing guide | shows where each / ^shape will fall.' },
   { id: 'checkpoint', text: 'Reach a / ^checkpoint, | hold steady, | and lock in / ^your climb.' },
   { id: 'worlds', gap: 0.7, text: 'Build from a / ^grassy meadow, | up through / ^the clouds, | all the way to / ^deep space.' },
@@ -90,18 +90,18 @@ const first = (r: RunResult, name: string, after: number, kind?: string) => {
 };
 
 export const SHOTS: Shot[] = [
-  // The hook: a tall tower goes over as the voice says "crashing down".
-  { id: 'hook', at: ['hook', 0], footage: { kind: 'run', run: 'collapse', step: r => first(r, 'piece_lost', 20540), on: ['hook', 9], lead: -0.1 } },
+  // The hook: a tall tower stands for a second, a shape under it gives way on "stack", and it is all falling by "crashing down".
+  { id: 'hook', at: ['hook', 0], footage: { kind: 'run', run: 'collapse', step: r => first(r, 'brittle_broke', 20800), on: ['hook', 4] } },
   // Clean stacking in the Meadow, then a shaky save.
   { id: 'intro', at: ['intro', 0], early: 0.3, footage: { kind: 'run', run: 'collapse', step: () => 1850 } },
   { id: 'wobble', at: ['intro', 7], footage: { kind: 'run', run: 'clutch', step: r => first(r, 'clutch', 1300), on: ['intro', 13] } },
-  { id: 'guide', at: ['guide', 0], early: 0.2, footage: { kind: 'run', run: 'checkpoint', step: () => 5700 } },
-  // The hold, and the claim on "lock in".
-  { id: 'checkpoint', at: ['checkpoint', 0], early: 0.2, footage: { kind: 'run', run: 'checkpoint', step: r => first(r, 'checkpoint_claimed', 7800), on: ['checkpoint', 6] } },
+  { id: 'guide', at: ['guide', 0], early: 0.2, footage: { kind: 'run', run: 'checkpoint', step: () => 4290 } },
+  // The hold, and the claim on "lock in" (a checkpoint inside a world: a new world's title card would sit under the caption).
+  { id: 'checkpoint', at: ['checkpoint', 0], early: 0.2, footage: { kind: 'run', run: 'checkpoint', step: r => first(r, 'checkpoint_claimed', 5600), on: ['checkpoint', 6] } },
   // Meadow to deep space: the whole tower, from the ground up.
   { id: 'worlds', at: ['worlds', 0], early: 0.35, footage: { kind: 'climb', run: 'zen' } },
   { id: 'powers', at: ['powers', 0], early: 0.2, footage: { kind: 'run', run: 'collapse', step: r => first(r, 'power_used', 9000, 'slowmo'), on: ['powers', 1] } },
-  { id: 'daily-card', at: ['daily', 0], early: 0.2, footage: { kind: 'screen', taps: ['daily'] } },
+  { id: 'daily-card', at: ['daily', 0], early: 0.2, footage: { kind: 'screen', taps: ['daily', '[data-action="tab"][data-tab="best"]'] } },
   { id: 'daily', at: ['daily', 5], footage: { kind: 'run', run: 'daily', step: () => 4760, tag: 'DAILY TOWER · SCORED' } },
   { id: 'zen', at: ['zen', 0], early: 0.2, footage: { kind: 'run', run: 'zen', step: r => first(r, 'biome_entered', 41000) + 420 } },
   { id: 'profile', at: ['profile', 0], early: 0.25, footage: { kind: 'screen', taps: ['profile'] } },
