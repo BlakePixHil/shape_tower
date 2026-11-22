@@ -40,12 +40,22 @@ const step = (name, ok, info = '') => { steps.push({ name, ok, info }); console.
 const errors = [];
 
 // Twelve other players climbed today already (real time: the server checks the clock).
+// The ladder takes a try only if it started today (UTC) and climbed no faster than CLIMB_RATE after
+// CLIMB_SLACK (meta/ladder.ts), and the game reads the day when it loads. So no made-up try starts before
+// today's 00:00 UTC, and near midnight the check waits for a day it can finish in, with 90 s of it gone so
+// the tallest seeded climb (150) is plausible. Without this it failed in the first 15 minutes after
+// 00:00 UTC (seen 2026-11-22).
+const DAY_MS = 86_400_000;
+const intoDay = () => Date.now() % DAY_MS;
+if (intoDay() > DAY_MS - 300_000) await new Promise(ok => setTimeout(ok, DAY_MS - intoDay() + 90_000));
+else if (intoDay() < 90_000) await new Promise(ok => setTimeout(ok, 90_000 - intoDay()));
 const today = new Date().toISOString().slice(0, 10);
+const dayStart = Date.parse(`${today}T00:00:00Z`);
 const key = n => n.toString(16).padStart(2, '0').repeat(32);
 const others = ['Tower Tess', 'Plank Pete', 'Wobbly Wen', 'Brick Queen', 'Sir Stacksalot', 'Domino Dan', 'Gusty', 'Ava', 'Hat Trick Hal', 'Lou', 'Mo Stacks', 'Nell'];
 for (let i = 0; i < others.length; i++) {
   await post({ op: 'name', key: key(i + 1), name: others[i], look: { portrait: ['golden_crown', 'disco', 'moonwalk', 'sunset'][i % 4], avatar: { shape: 'TLOSJZI'[i % 7], face: 'idle', hat: null } } });
-  const r = await post({ op: 'submit', key: key(i + 1), sub: { day: today, height: 150 - i * 11.5, score: 40000 - i * 2000, checkpoints: 10 - Math.floor(i / 2), finished: i !== 1, startedAt: Date.now() - 900_000 } });
+  const r = await post({ op: 'submit', key: key(i + 1), sub: { day: today, height: 150 - i * 11.5, score: 40000 - i * 2000, checkpoints: 10 - Math.floor(i / 2), finished: i !== 1, startedAt: Math.max(dayStart, Date.now() - 900_000) } });
   if (!r.ok) throw new Error(`seeding ${others[i]}: ${JSON.stringify(r)}`);
 }
 
@@ -328,7 +338,7 @@ async function toSummary(page) {
     localStorage.setItem('shape-tower-online-v1', JSON.stringify({ key: '${moved}', portrait: 'sunset', reported: [], pending: null,
       me: { id: 'old-server-id', name: 'Moved Mo', portrait: 'sunset', avatar: { shape: 'O', face: 'idle', hat: 'party' }, hidden: false, renamedAt: 1 } }));
     const p = JSON.parse(localStorage.getItem('shape-tower-profile-v1'));
-    p.daily = { ...(p.daily ?? {}), scored: { '${day}': { at: new Date(Date.now() - 600000).toISOString(), height: 12.5, score: 900, checkpoints: 2, biome: 1, finished: true, v: 2 } } };
+    p.daily = { ...(p.daily ?? {}), scored: { '${day}': { at: new Date(Math.max(${dayStart}, Date.now() - 600000)).toISOString(), height: 12.5, score: 900, checkpoints: 2, biome: 1, finished: true, v: 2 } } };
     localStorage.setItem('shape-tower-profile-v1', JSON.stringify(p));
   }`;
   const { ctx, page } = await open({ width: 390, height: 844 }, { api, script });
